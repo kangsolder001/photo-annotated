@@ -3,11 +3,12 @@ import { useEffect, useId, useRef, type ReactNode } from "react";
 import { IconButton } from "./Icon";
 
 /**
- * Dialog modal: di tengah layar pada desktop/tablet, sheet layar penuh dari bawah di HP (CSS).
+ * Dialog modal: di tengah layar pada desktop/tablet, sheet dari bawah di HP (CSS); `compact` tetap
+ * kotak kecil di tengah (konfirmasi singkat).
  * Escape / tombol tutup / klik latar menutup (kecuali `busy`); fokus dipindah ke dalam dan
  * dikembalikan saat ditutup.
  */
-export function Dialog(props: { title: string; onClose(): void; children: ReactNode; footer?: ReactNode; busy?: boolean; wide?: boolean }) {
+export function Dialog(props: { title: string; onClose(): void; children: ReactNode; footer?: ReactNode; busy?: boolean; wide?: boolean; compact?: boolean }) {
   const titleId = useId();
   const box = useRef<HTMLDivElement>(null);
   const { onClose, busy } = props;
@@ -49,7 +50,7 @@ export function Dialog(props: { title: string; onClose(): void; children: ReactN
   }, [onClose, busy]);
 
   return (
-    <div className="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && !busy && onClose()}>
+    <div className={`dialog-backdrop${props.compact ? " compact" : ""}`} onPointerDown={(e) => e.target === e.currentTarget && !busy && onClose()}>
       <div ref={box} className={`dialog${props.wide ? " dialog-wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
         <div className="dialog-head">
           <h2 id={titleId}>{props.title}</h2>

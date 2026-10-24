@@ -43,7 +43,7 @@ export function Layout({ children }: { children: ReactNode }) {
       </header>
       <main>{children}</main>
       {confirming && user && (
-        <Dialog title="Keluar dari akun?" onClose={() => setConfirming(false)} busy={busy}
+        <Dialog title="Keluar dari akun?" compact onClose={() => setConfirming(false)} busy={busy}
           footer={<>
             <button type="button" className="btn" onClick={() => setConfirming(false)} disabled={busy}>Batal</button>
             <button type="button" className="btn btn-primary" onClick={() => void logout()} disabled={busy}><Icon icon={faRightFromBracket} /> Keluar</button>

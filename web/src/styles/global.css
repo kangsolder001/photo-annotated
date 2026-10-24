@@ -229,7 +229,8 @@ select {
 .review-reason { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .history-item .row { margin-top: 0.3rem; }
 
-/* ---- dialog (aplikasi user + dashboard): modal di tengah; sheet dari bawah di HP */
+/* ---- dialog (aplikasi user + dashboard): modal di tengah; sheet dari bawah di HP.
+   Varian compact (konfirmasi singkat) tetap kotak kecil di tengah, tinggi mengikuti isi. */
 .dialog-backdrop { position: fixed; inset: 0; z-index: 50; background: rgb(0 0 0 / 50%); display: grid; place-items: center; padding: 1rem; }
 .dialog {
   width: min(520px, 100%); max-height: calc(100dvh - 2rem); display: flex; flex-direction: column;
@@ -241,7 +242,7 @@ select {
 .dialog-body { padding: 0.5rem 1rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem; }
 .dialog-foot { display: flex; gap: 0.5rem; justify-content: flex-end; flex-wrap: wrap; padding: 0.75rem 1rem; padding-bottom: max(0.75rem, env(safe-area-inset-bottom)); border-top: 1px solid var(--border); }
 @media (max-width: 767px) {
-  .dialog-backdrop { padding: 0; place-items: end stretch; }
-  .dialog, .dialog-wide { width: 100%; max-height: 100dvh; min-height: 60dvh; border-radius: var(--radius) var(--radius) 0 0; }
+  .dialog-backdrop:not(.compact) { padding: 0; place-items: end stretch; }
+  .dialog-backdrop:not(.compact) > .dialog { width: 100%; max-height: 100dvh; min-height: 60dvh; border-radius: var(--radius) var(--radius) 0 0; }
   .dialog-foot > .btn { flex: 1; }
 }
