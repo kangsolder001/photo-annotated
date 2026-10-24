@@ -136,7 +136,10 @@ func run() error {
 	upload := usecase.NewUpload(photos, store, urlSigner, imagecheck.Inspector{}, usecase.SystemClock{},
 		usecase.UploadConfig{MaxConcurrent: cfg.Limits.MaxConcurrentUploads})
 
+	labels := usecase.NewLabels(postgres.NewLabelRepo(pool), txm, usecase.SystemClock{}, usecase.LabelsConfig{MaxActive: cfg.Limits.MaxLabels})
+
 	deps := httpapi.Deps{
+		Labels: labels,
 		Logger: log, TrustedProxies: trusted, DB: pool, AllowedOrigins: cfg.App.AllowedOrigins,
 		Presigner: presign, PresignPerMin: cfg.Limits.RateLimitPerMin.Presign,
 		Reader:    reader,

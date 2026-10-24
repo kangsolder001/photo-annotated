@@ -335,3 +335,39 @@ type URLSigner interface {
 	SignView(photoID uuid.UUID, exp time.Time) string
 	VerifyView(photoID uuid.UUID, exp int64, sig string) bool
 }
+
+// LabelUsage adalah label beserta jumlah pemakaiannya (anotasi pada foto attached).
+type LabelUsage struct {
+	domain.Label
+	UsageCount int
+}
+
+// LabelRepo menyimpan label (spec-labels-admin §4, §6.1). Penulisan dilakukan di dalam transaksi
+// yang memegang LockForWrite, sehingga batas jumlah, urutan, dan nama unik tetap konsisten walau
+// dua admin (tab) menulis berbarengan.
+type LabelRepo interface {
+	// LockForWrite memegang kunci penulisan label sampai transaksi selesai (wajib di dalam WithTx).
+	LockForWrite(ctx context.Context) error
+	// ListActive: label aktif terurut sort_order lalu nama.
+	ListActive(ctx context.Context) ([]domain.Label, error)
+	// ListAll: semua label (aktif dulu menurut sort_order, lalu yang diarsipkan) dengan usage_count.
+	ListAll(ctx context.Context) ([]LabelUsage, error)
+	Get(ctx context.Context, id int) (*domain.Label, error)
+	CountActive(ctx context.Context) (int, error)
+	CountAll(ctx context.Context) (int, error)
+	// Create menyimpan label baru di urutan terakhir dan mengisi ID, SortOrder, CreatedAt, UpdatedAt.
+	// Nama yang sudah dipakai (tanpa beda huruf besar-kecil) → domain.Conflict LABEL_NAME_TAKEN.
+	Create(ctx context.Context, l *domain.Label) error
+	// Update mengganti name, description, color, archived_at, sort_order, updated_at.
+	Update(ctx context.Context, l *domain.Label) error
+	// MaxActiveOrder: sort_order terbesar di antara label aktif (-1 bila tidak ada).
+	MaxActiveOrder(ctx context.Context) (int, error)
+	// SetOrder memberi sort_order 0..n-1 sesuai urutan ids.
+	SetOrder(ctx context.Context, ids []int, now time.Time) error
+	// UsageAttached menghitung anotasi pada foto attached yang memakai label (usage_count).
+	UsageAttached(ctx context.Context, id int) (int, error)
+	// UsageAll menghitung anotasi yang memakai label, termasuk pada foto yang sudah deleted.
+	UsageAll(ctx context.Context, id int) (int, error)
+	// Delete menghapus label; dipakai anotasi → domain.Conflict LABEL_IN_USE.
+	Delete(ctx context.Context, id int) error
+}

@@ -316,7 +316,7 @@ func TestCORSPreflightAllowed(t *testing.T) {
 	}
 	h := w.Header()
 	if h.Get("Access-Control-Allow-Origin") != "https://app.example.com" ||
-		h.Get("Access-Control-Allow-Methods") != "GET, POST, PUT, OPTIONS" ||
+		h.Get("Access-Control-Allow-Methods") != "GET, POST, PUT, DELETE, OPTIONS" ||
 		h.Get("Access-Control-Allow-Headers") != "Content-Type, Authorization, X-Edit-Token, X-Turnstile-Token" ||
 		h.Get("Access-Control-Max-Age") != "3600" {
 		t.Fatalf("header preflight salah: %v", h)
@@ -342,7 +342,7 @@ func TestCORSPreflightRejections(t *testing.T) {
 	for name, w := range map[string]*httptest.ResponseRecorder{
 		"origin lain":        preflight(r, "https://evil.example.com", "PUT", "content-type", "/api/v1/uploads/abc"),
 		"origin null":        preflight(r, "null", "PUT", "", "/api/v1/uploads/abc"),
-		"method DELETE":      preflight(r, "https://app.example.com", "DELETE", "", "/x"),
+		"method PATCH":       preflight(r, "https://app.example.com", "PATCH", "", "/x"),
 		"header tak dikenal": preflight(r, "https://app.example.com", "PUT", "content-type, x-evil", "/x"),
 		"skema beda":         preflight(r, "http://app.example.com", "PUT", "", "/x"),
 	} {
@@ -352,6 +352,13 @@ func TestCORSPreflightRejections(t *testing.T) {
 		if w.Header().Get("Access-Control-Allow-Origin") != "" {
 			t.Errorf("%s: tidak boleh ada ACAO pada penolakan", name)
 		}
+	}
+}
+
+// DELETE dipakai dashboard admin (hapus label/submission/foto, spec-labels-admin §5.3).
+func TestCORSPreflightAllowsDelete(t *testing.T) {
+	if w := preflight(corsEngine(), "https://app.example.com", "DELETE", "authorization", "/api/v1/admin/labels/3"); w.Code != 204 {
+		t.Fatalf("status = %d (%s)", w.Code, w.Body.String())
 	}
 }
 

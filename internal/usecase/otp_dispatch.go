@@ -14,11 +14,11 @@ import (
 
 // OTPDispatchConfig adalah parameter pengiriman OTP (spec §4.0 langkah 3, §9.5).
 type OTPDispatchConfig struct {
-	CodeTTL         time.Duration   // expires_at = sent_at + CodeTTL
-	MessageTemplate string          // memuat {code}; {ttl_minutes} opsional
+	CodeTTL         time.Duration // expires_at = sent_at + CodeTTL
+	MessageTemplate string        // memuat {code}; {ttl_minutes} opsional
 	// AdminMessageTemplate: pesan untuk challenge login admin (memuat {code}); kosong = MessageTemplate.
 	AdminMessageTemplate string
-	RetryDelays     []time.Duration // jeda sebelum percobaan ke-2, ke-3, …; total percobaan = len+1
+	RetryDelays          []time.Duration // jeda sebelum percobaan ke-2, ke-3, …; total percobaan = len+1
 	// StuckAfter: challenge sending yang diklaim lebih lama dari ini dianggap ditinggal worker yang
 	// mati, lalu diantrekan ulang. Harus melebihi timeout satu pengiriman.
 	StuckAfter time.Duration

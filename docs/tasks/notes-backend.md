@@ -7,7 +7,15 @@ Ditulis terpisah dari `plan.md`/`todo.md` agar tidak bentrok dengan pekerjaan fr
 
 Hal yang berbeda dari spec §5 (FE perlu menyesuaikan saat merge). Bila kosong, kontrak diikuti persis.
 
-_(lihat tiap task; ringkasan diperbarui di akhir)_
+Tidak ada penyimpangan dari bentuk JSON spec. Detail yang spec tidak sebutkan dan dipilih backend
+(FE perlu mengikutinya):
+
+- `description` label yang kosong dikirim sebagai `null` (bukan `""`), di `GET /labels` maupun `/admin/labels`.
+- `PUT /admin/labels/order` membalas `200` dengan bentuk yang sama dengan `GET /admin/labels` (`{ "labels": [...] }`).
+- `PUT /admin/labels/{id}` wajib membawa `color`; tanpa `color` → `422 INVALID_LABEL_COLOR`. `archived` yang tidak
+  dikirim dianggap `false` (replace), jadi FE harus selalu mengirim nilai `archived` saat mengubah label arsip.
+- Warna huruf besar (`#E4572E`) diterima dan disimpan huruf kecil.
+- `GET /admin/labels` diurutkan: label aktif menurut `sort_order`, lalu label arsip.
 
 ## Perubahan config untuk deploy
 
@@ -15,6 +23,7 @@ _(lihat tiap task; ringkasan diperbarui di akhir)_
   "login admin kini lewat OTP; hapus field ini dan isi admin.superadmin.phone".
 - `admin.superadmin: { "name": "...", "phone": "08…" }` wajib bila `admin.enabled`.
 - `admin.otp_message_template` opsional (default memuat kata ADMIN; wajib berisi `{code}`).
+- `limits.max_labels` (opsional, default 200).
 - `admin.enabled = true` kini mewajibkan `wa_notif.base_url`, `secrets.wa_notif_token`, `secrets.otp_pepper`,
   `secrets.admin_token_secret` di **semua** `auth.mode` (juga `none`).
 
@@ -49,3 +58,29 @@ field lama, mode none; signer: adm2, adm1 ditolak, ganti nomor membatalkan token
 berdampingan + CHECK; usecase: alur, decoy, nomor diganti di tengah alur, resend, kanal mati; e2e: mode none &
 otp, `/admin/login` 404, anti-enumerasi (respons, polling, verify, tanpa pesan), Turnstile, rate limit bersama,
 admin vs pengguna terpisah, log hygiene mencakup login admin)
+
+#### Task 38: Label + kelola label admin — **SELESAI**
+**Hasil:** migrasi `0007_labels` (tabel `labels` dengan id identity, nama unik `lower(name)`, CHECK warna/panjang;
+`annotations.label_id` FK `ON DELETE RESTRICT`, `text` nullable, CHECK `annotations_label_or_text`, indeks
+`annotations(label_id)`; `Down` menolak bila sudah ada anotasi berlabel). `domain.Label` + normalisasi nama/deskripsi/
+warna, palet bawaan 12 warna. Endpoint `GET /labels` (akses sama dengan presign, token admin boleh, `Cache-Control:
+private, max-age=60`), `GET/POST /admin/labels`, `PUT /admin/labels/{id}`, `PUT /admin/labels/order`,
+`DELETE /admin/labels/{id}`. CORS menerima `DELETE`. Config `limits.max_labels`.
+**Keputusan:**
+- Semua penulisan label berjalan dalam transaksi yang memegang `pg_advisory_xact_lock` khusus label, sehingga
+  batas 200 label aktif, `sort_order` label baru, dan urutan tidak bisa rusak oleh dua tab admin berbarengan (diuji 8
+  create paralel dengan batas 3).
+- Warna bawaan dipilih bergiliran dari palet berdasarkan jumlah label yang pernah ada (termasuk arsip).
+- Label yang dibuka arsipnya diletakkan di urutan terakhir; mengarsipkan tidak mengubah `sort_order`.
+- Hapus memeriksa pemakaian di **semua** anotasi (termasuk foto `deleted` yang belum dibersihkan) lalu FK RESTRICT
+  sebagai pagar terakhir. `usage_count` di daftar hanya menghitung foto `attached`.
+- `{id}` yang bukan bilangan bulat positif → `404` (sama dengan id yang tidak ada).
+- Log `admin action` untuk `label.create/update/archive/unarchive/reorder/delete` dengan id dan nama label.
+**Temuan:** migrasi test (`pgtest`) memakai session locker goose yang mengunci **seluruh database**; paket test yang
+berjalan paralel saling menunggu sampai melewati batas 30 detik (penyebab kegagalan acak di T37). `pgtest` kini
+memakai `MigrateUpUnlocked` (schema uji sudah terisolasi); `cmd/migrate` tetap memakai locker. Suite penuh turun dari
+±3 menit ke ±2 menit dan tidak lagi gagal acak.
+**Verification:** [x] `go vet`, `go build ./cmd/...`, `go test ./... -race` (domain: normalisasi; repo: CHECK, unik
+tanpa beda huruf, RESTRICT, Down ditolak bila terpakai; usecase: palet, batas, arsip/buka arsip, urutan basi/duplikat,
+hapus terpakai + usage_count, id tidak dipakai ulang, create paralel; e2e: CRUD lengkap, 401 tanpa token/token
+pengguna, mode otp, preflight DELETE, log hygiene mencakup kelola label)

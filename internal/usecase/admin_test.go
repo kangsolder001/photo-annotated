@@ -50,7 +50,7 @@ func (r *adminRig) login(t *testing.T, phone string) *usecase.AdminLogin {
 		t.Fatal(err)
 	}
 	return usecase.NewAdminLogin(r.otps, r.codes, r.channel, r.phones, tokens, r.clock, usecase.AdminLoginConfig{
-		OTP: usecase.OTPRequestConfig{ResendCooldown: time.Minute, MaxQueue: 200, DailyGlobalCap: 500, SendInterval: 1500 * time.Millisecond, CodeTTL: 5 * time.Minute},
+		OTP:         usecase.OTPRequestConfig{ResendCooldown: time.Minute, MaxQueue: 200, DailyGlobalCap: 500, SendInterval: 1500 * time.Millisecond, CodeTTL: 5 * time.Minute},
 		MaxAttempts: 5, TokenTTL: 8 * time.Hour, Name: "Super Admin", Phone: phone,
 	})
 }

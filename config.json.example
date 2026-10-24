@@ -52,6 +52,7 @@
     "max_upload_bytes": 2097152,
     "max_photos_per_submission": 5,
     "max_annotations_per_photo": 50,
+    "max_labels": 200,
     "max_annotation_text_len": 1000,
     "max_concurrent_uploads": 200,
     "upload_timeout": "60s",

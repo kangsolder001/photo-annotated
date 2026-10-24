@@ -69,6 +69,10 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 	io.Copy(io.Discard, r.Body)
 	r.Body.Close()
 	adminCode := s.wa.LastCodeFor(testSuperadmin)
+	_, lbl := admin.send(t, "POST", "/api/v1/admin/labels", `{"name":"Retak","description":"DESKRIPSI-LABEL"}`)
+	admin.send(t, "PUT", "/api/v1/admin/labels/"+idOf(lbl), `{"name":"Retak halus","color":"#000000","archived":true}`)
+	admin.send(t, "PUT", "/api/v1/admin/labels/order", `{"ids":[]}`)
+	admin.send(t, "DELETE", "/api/v1/admin/labels/"+idOf(lbl), "")
 	admin.get(t, "/api/v1/admin/me", nil)
 	_, fake := s.postJSON(t, "/api/v1/admin/otp/request", `{"phone":"0813-5555-6666","turnstile_token":"human"}`)
 	s.postJSON(t, "/api/v1/admin/otp/verify", `{"challenge_id":"`+fake["challenge_id"].(string)+`","code":"424242"}`)
@@ -80,14 +84,16 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 
 	out := logs.String()
 	if !strings.Contains(out, `"user_id"`) || !strings.Contains(out, `"code":"OTP_EXPIRED"`) ||
-		!strings.Contains(out, `"msg":"admin login"`) || !strings.Contains(out, `"phone":"62813****2222"`) {
+		!strings.Contains(out, `"msg":"admin login"`) || !strings.Contains(out, `"phone":"62813****2222"`) ||
+		!strings.Contains(out, `"action":"label.create"`) || !strings.Contains(out, `"action":"label.archive"`) ||
+		!strings.Contains(out, `"action":"label.reorder"`) || !strings.Contains(out, `"action":"label.delete"`) {
 		t.Fatalf("log kurang lengkap (user_id/code):\n%s", out)
 	}
 	secrets := map[string]string{
 		"kode OTP": code, "token sesi": token, "token admin": strings.TrimPrefix(adminTok, "Bearer "),
 		"nomor utuh": "6281277771234", "nomor input": "0812-7777-1234", "nama": "Rahasia Namanya",
 		"email": "surel.rahasia", "teks anotasi": "TEKS-ANOTASI-RAHASIA", "teks edit": "EDIT-RAHASIA",
-		"kode OTP admin": adminCode, "nomor superadmin": testSuperadmin, "nomor superadmin input": testSuperadminInput,
+		"kode OTP admin": adminCode, "deskripsi label": "DESKRIPSI-LABEL", "nomor superadmin": testSuperadmin, "nomor superadmin input": testSuperadminInput,
 		"nomor lain di login admin": "6281355556666", "kode admin salah": "424242",
 		"password daftar": "PASSWORD-RAHASIA-1", "token palsu": "token-palsu-rahasia", "tanda tangan URL": "sig=",
 		"header Authorization": "Bearer", "turnstile": `"human"`,

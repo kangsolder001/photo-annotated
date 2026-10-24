@@ -33,7 +33,7 @@ func newTestAdminLogin(otps usecase.OTPRepo, codes usecase.OTPCodes, channel *us
 		panic(err)
 	}
 	return usecase.NewAdminLogin(otps, codes, channel, phones, tokens, usecase.SystemClock{}, usecase.AdminLoginConfig{
-		OTP: usecase.OTPRequestConfig{ResendCooldown: time.Minute, MaxQueue: 200, DailyGlobalCap: 500, SendInterval: 1500 * time.Millisecond, CodeTTL: 5 * time.Minute},
+		OTP:         usecase.OTPRequestConfig{ResendCooldown: time.Minute, MaxQueue: 200, DailyGlobalCap: 500, SendInterval: 1500 * time.Millisecond, CodeTTL: 5 * time.Minute},
 		MaxAttempts: 5, TokenTTL: 8 * time.Hour, Name: "Super Admin", Phone: testSuperadmin,
 	})
 }

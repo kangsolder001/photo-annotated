@@ -155,6 +155,7 @@ type Limits struct {
 	MaxUploadBytes         int64      `json:"max_upload_bytes"`
 	MaxPhotosPerSubmission int        `json:"max_photos_per_submission"`
 	MaxAnnotationsPerPhoto int        `json:"max_annotations_per_photo"`
+	MaxLabels              int        `json:"max_labels"` // label aktif maksimal (spec-labels-admin §4.1)
 	MaxAnnotationTextLen   int        `json:"max_annotation_text_len"`
 	MaxConcurrentUploads   int        `json:"max_concurrent_uploads"`
 	UploadTimeout          Duration   `json:"upload_timeout"`
@@ -243,7 +244,7 @@ func Defaults() Config {
 			TokenTTL:           Duration(8 * time.Hour),
 			OTPMessageTemplate: "*{code}* adalah kode masuk ADMIN Photo Annotated. Berlaku {ttl_minutes} menit. Jika Anda tidak sedang masuk, abaikan dan periksa keamanan akun.",
 		},
-		Edit:  Edit{Window: Duration(24 * time.Hour)},
+		Edit: Edit{Window: Duration(24 * time.Hour)},
 		Turnstile: Turnstile{
 			Enabled: false,
 		},
@@ -257,6 +258,7 @@ func Defaults() Config {
 			MaxUploadBytes:         2 << 20,
 			MaxPhotosPerSubmission: 5,
 			MaxAnnotationsPerPhoto: 50,
+			MaxLabels:              200,
 			MaxAnnotationTextLen:   1000,
 			MaxConcurrentUploads:   200,
 			UploadTimeout:          Duration(60 * time.Second),
@@ -478,8 +480,8 @@ func (c *Config) Validate() error {
 	if l.MaxUploadBytes < 1 {
 		bad("limits.max_upload_bytes", "harus > 0")
 	}
-	if l.MaxPhotosPerSubmission < 1 || l.MaxAnnotationsPerPhoto < 1 || l.MaxAnnotationTextLen < 1 || l.MaxConcurrentUploads < 1 {
-		bad("limits", "max_photos_per_submission, max_annotations_per_photo, max_annotation_text_len, max_concurrent_uploads harus >= 1")
+	if l.MaxPhotosPerSubmission < 1 || l.MaxAnnotationsPerPhoto < 1 || l.MaxAnnotationTextLen < 1 || l.MaxConcurrentUploads < 1 || l.MaxLabels < 1 {
+		bad("limits", "max_photos_per_submission, max_annotations_per_photo, max_annotation_text_len, max_concurrent_uploads, max_labels harus >= 1")
 	}
 	if l.MaxAnnotationTextLen > maxAnnotationTextLenDB {
 		bad("limits.max_annotation_text_len", "tidak boleh > %d (batas CHECK di database)", maxAnnotationTextLenDB)

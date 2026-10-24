@@ -50,6 +50,8 @@ type Deps struct {
 	SubmissionsPerMin int               // batas rate limit POST /submissions per IP
 
 	Reader handler.Reader // usecase baca submission & foto (spec §5.3–5.5)
+	// Label terkontrol (spec-labels-admin §4); nil = rute /labels dan /admin/labels tidak dipasang.
+	Labels handler.LabelService
 	Editor handler.Editor // usecase edit submission (spec §5.4)
 
 	// Auth OTP (spec §5.8); nil bila auth.mode = none sehingga rute /auth/* menjadi 404.
@@ -158,6 +160,13 @@ func NewRouter(d Deps) *gin.Engine {
 	api.GET("/submissions/:id", chain(read, []gin.HandlerFunc{reads.GetSubmission})...)
 	api.GET("/photos/:id/url", chain(read, []gin.HandlerFunc{reads.PhotoURL})...)
 
+	var labels *handler.LabelHandler
+	if d.Labels != nil {
+		labels = handler.NewLabelHandler(d.Labels, d.Logger)
+		// akses sama dengan presign (tanpa Turnstile karena hanya baca); token admin juga boleh
+		api.GET("/labels", chain(read, []gin.HandlerFunc{labels.Active})...)
+	}
+
 	if d.OTPRequester != nil {
 		if d.OTPRequestPerMin < 1 || d.OTPChannel == nil || d.OTPVerifier == nil || d.Sessions == nil || d.OTPVerifyPerMin < 1 ||
 			d.PasswordLogin == nil || d.LoginPerMin < 1 {
@@ -196,7 +205,15 @@ func NewRouter(d Deps) *gin.Engine {
 		api.GET("/admin/otp/:id", adminAuth.Status)
 		api.POST("/admin/otp/verify", middleware.RateLimit(middleware.NewRateLimiter(d.OTPVerifyPerMin)), adminAuth.Verify)
 		api.GET("/admin/channel-status", adminAuth.ChannelStatus)
-		api.GET("/admin/me", authn.Require(middleware.Access{Admin: true}), adminAuth.Me)
+		adminOnly := authn.Require(middleware.Access{Admin: true})
+		api.GET("/admin/me", adminOnly, adminAuth.Me)
+		if labels != nil {
+			api.GET("/admin/labels", adminOnly, labels.AdminList)
+			api.POST("/admin/labels", adminOnly, labels.Create)
+			api.PUT("/admin/labels/order", adminOnly, labels.Reorder)
+			api.PUT("/admin/labels/:id", adminOnly, labels.Update)
+			api.DELETE("/admin/labels/:id", adminOnly, labels.Delete)
+		}
 	}
 
 	if d.Admin != nil && d.Exporter != nil {
