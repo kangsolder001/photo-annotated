@@ -1,23 +1,43 @@
 # Spec: Form dengan Upload & Anotasi Foto
 
-> Status: Draft v0.1
-> Target deploy: Raspberry Pi 4 (backend API) + Object Storage eksternal + CDN (frontend)
+> Status: Draft v0.5
+> Target deploy: Raspberry Pi 4 (backend API + PostgreSQL shared + wa-notif + foto di SSD lokal) + CDN (frontend)
+>
+> Perubahan v0.5: foto disimpan di **SSD lokal Raspi** (bukan Cloudflare R2 / object storage eksternal); upload lewat URL bertanda tangan ke API yang men-stream byte ke disk; isi file divalidasi di server; kontrak presign ke FE tetap sama. Dasar keputusan: Cloudflare R2 butuh kartu kredit, dan internet Pi terukur ±187 Mbps download / ±179 Mbps upload.
+>
+> Perubahan v0.2: arsitektur Go diubah ke Clean Architecture + Gin; open questions §14 dijawab (auth configurable, form free text, label bebas, retensi 3 bulan, export untuk model, edit oleh pemilik).
+>
+> Perubahan v0.4: jendela edit 24 jam; admin memakai akun statis di `config.json` (independen dari mode auth); kegagalan pengiriman OTP WhatsApp ditampilkan di FE; open questions dijawab; hanya nomor Indonesia.
+>
+> Perubahan v0.3: registrasi dengan nama, email, dan nomor HP, diverifikasi OTP yang dikirim lewat WhatsApp (service `wa-notif` yang sudah berjalan di Raspi); PostgreSQL dijalankan sebagai satu container shared di `/home/myrpi/docker/postgres` untuk banyak service.
 
 ## 1. Ringkasan
 
-Aplikasi web untuk mengisi form yang menyertakan satu atau lebih foto. User bisa mengambil/memilih foto, lalu membuat anotasi berupa bounding box (kotak) dengan label di atas foto tersebut. Semua pekerjaan berat (ambil foto, resize/kompresi, anotasi) dilakukan di browser. Upload foto dilakukan langsung dari browser ke object storage memakai presigned URL, sehingga backend di Raspberry Pi hanya menangani request JSON yang ringan.
+Aplikasi web untuk mengunggah satu atau lebih foto, lalu membuat anotasi berupa bounding box (kotak) di atas foto, dengan **teks bebas pada setiap anotasi**. Tidak ada field form terstruktur: isi submission adalah foto + anotasi + teks anotasi.
+
+Semua pekerjaan berat (ambil foto, resize/kompresi, anotasi) dilakukan di browser. Foto di-upload dari browser ke API di Raspberry Pi memakai **URL bertanda tangan berumur pendek**, lalu API men-stream byte-nya langsung ke **SSD lokal** (tanpa di-buffer di memori dan tanpa diproses ulang). Data anotasi disimpan terstruktur di PostgreSQL agar bisa diekspor ke format yang dapat dibaca model.
 
 ## 2. Goals & Non-Goals
 
 ### Goals
-- Mendukung **500–1000 user aktif bersamaan** di atas satu Raspberry Pi 4.
-- Backend tidak pernah menerima/memproses byte file foto.
+- Mendukung **500–1000 user aktif bersamaan** di atas satu Raspberry Pi 4. Throughput foto masuk dibatasi bandwidth internet rumah: dengan ±187 Mbps download (terukur) dan foto ±400 KB, target berkelanjutan **±30 foto/detik** (batas teoretis ±58).
+- Backend hanya me-**stream** byte foto ke disk: tidak di-buffer di memori (memori per upload konstan, tidak bergantung ukuran file), tidak di-resize, dan tidak di-decode pikselnya (hanya header dibaca untuk validasi).
 - Anotasi disimpan sebagai data terstruktur (bisa di-query, di-render ulang, di-export).
+- Pemilik submission bisa mengedit submission-nya setelah dikirim.
+- Autentikasi bisa diatur lewat `config.json`: `none` (anonim) atau `otp` (registrasi nama + email + nomor HP, verifikasi OTP via WhatsApp).
+- Satu instance PostgreSQL di Raspi dipakai bersama banyak service (database + role terpisah per service).
+- Data siap diekspor ke format yang bisa dibaca model (JSONL, lihat §5.7).
 - Bekerja dengan baik di mobile browser (kamera belakang, koneksi lambat).
 
 ### Non-Goals (untuk v1)
 - Image processing di server (thumbnail generation, ML inference, dsb).
+- Redundansi/replikasi foto: v1 memakai satu SSD; perlindungan data lewat backup (§11.5).
+- Object storage eksternal (S3/R2/B2): ditunda; port `PhotoStore` memungkinkan menambahkannya nanti (§3.1).
 - Bentuk anotasi selain rectangle (polygon, freehand, keypoint).
+- Field form terstruktur dan daftar label terkontrol.
+- Export format COCO / YOLO (hanya disiapkan lewat interface, lihat §3.2).
+- Verifikasi email (email hanya data kontak; identitas diverifikasi lewat nomor HP).
+- Channel OTP selain WhatsApp (SMS, email) dan password.
 - Editor anotasi kolaboratif / real-time.
 - Offline mode penuh (PWA dengan sync queue) — kandidat v2.
 
@@ -30,60 +50,146 @@ Aplikasi web untuk mengisi form yang menyertakan satu atau lebih foto. User bisa
                          └──────────────┬─────────────┘
                                         │ load app
                                         ▼
-┌──────────────┐  (1) presign    ┌─────────────────────┐
-│   Browser    │ ──────────────▶ │ Cloudflare Tunnel   │
-│              │ ◀────────────── │        ▼            │
-│ - kamera     │   URL + key     │ Raspberry Pi 4      │
-│ - resize     │                 │  - Go API           │
-│ - anotasi    │  (3) submit     │  - PostgreSQL (SSD) │
-│              │ ──────────────▶ │                     │
-└──────┬───────┘                 └──────────┬──────────┘
-       │ (2) PUT foto                       │ HeadObject (verifikasi)
-       ▼                                    ▼
-┌────────────────────────────────────────────────────┐
-│ Object Storage (S3-compatible, rekomendasi: R2)    │
-└────────────────────────────────────────────────────┘
+┌──────────────┐  (1) presign    ┌──────────────────────────────────┐
+│   Browser    │ ──────────────▶ │ Cloudflare Tunnel                │
+│              │ ◀────────────── │        ▼                         │
+│ - kamera     │  URL bertanda   │ Raspberry Pi 4                   │
+│ - resize     │  tangan         │  Go API (Gin)                    │
+│ - anotasi    │ (2) PUT foto    │   ├─▶ SSD lokal (foto, ext4)     │
+│              │ ──────────────▶ │   ├─▶ shared-postgres            │
+│              │ (3) submit      │   └─▶ wa-notif :3030 ─▶ WhatsApp │
+│              │ ──────────────▶ │                                  │
+└──────────────┘                 └──────────────────────────────────┘
 ```
 
 ### Komponen
 
 | Komponen | Teknologi | Lokasi | Tanggung jawab |
 |---|---|---|---|
-| Frontend | SPA statis (mis. React/Svelte + Vite) | CDN | Form, kamera, resize, anotasi, upload |
-| Library anotasi | Annotorious (alternatif: Konva.js) | FE | Gambar & edit bounding box + label |
-| API | Go (`net/http` / chi), `aws-sdk-go-v2`, `pgx` | Raspi | Presign, validasi, simpan form & anotasi |
-| Database | PostgreSQL 16 | Raspi (SSD) | Submission, foto, anotasi |
-| Object storage | Cloudflare R2 (S3-compatible) | Eksternal | Simpan file foto |
+| Frontend | SPA statis (mis. React/Svelte + Vite) | CDN | Kamera, resize, anotasi, upload, edit |
+| Library anotasi | Annotorious (alternatif: Konva.js) | FE | Gambar & edit bounding box + teks |
+| API | Go (≥ 1.24), **Gin**, `pgx`, Clean Architecture | Raspi | URL bertanda tangan, terima & validasi upload foto, simpan & edit submission, layani foto, export |
+| Database | **PostgreSQL 17 shared** (container `shared-postgres`, §11.1) | Raspi | User, OTP, session, submission, foto, anotasi |
+| WhatsApp gateway | `wa-notif` (Go + whatsmeow, sudah berjalan, port 3030) | Raspi | Mengirim pesan OTP lewat `POST /api/v1/messages/send` |
+| Penyimpanan foto | Filesystem lokal (ext4) di **SSD USB 3.0**, di-mount ke container `api` (§8) | Raspi | Simpan file foto |
 | Ingress | Cloudflare Tunnel (`cloudflared`) | Raspi | Expose API tanpa port forwarding, TLS, rate limit edge |
 | Observability | Promtail → Loki → Grafana | Raspi (`pisee`) | Log & dashboard |
 
-**Aturan penting:** FE bundle tidak boleh di-serve dari Raspi. Uplink internet rumah adalah resource paling terbatas.
+**Aturan penting:** FE bundle tidak boleh di-serve dari Raspi. Bandwidth internet rumah (terukur ±187 Mbps down / ±179 Mbps up, ping ±20 ms) dipakai untuk upload foto, jadi tidak boleh dihabiskan untuk file statis.
+
+### 3.1 Clean Architecture (backend)
+
+Aturan dependensi: **panah selalu mengarah ke dalam**. `domain` tidak meng-import apa pun dari luar; `usecase` hanya mengenal `domain` dan interface (port) yang ia definisikan sendiri; `adapter` dan `delivery` mengimplementasikan/memanggil port.
+
+```
+delivery/http (Gin) ──▶ usecase ──▶ domain
+adapter/postgres ─────▶ (implements usecase ports)
+adapter/localfs, signer, wanotif, auth, turnstile ──▶ (implements usecase ports)
+```
+
+Struktur direktori:
+
+```
+cmd/
+  api/main.go            # composition root: load config, wiring manual (DI), start server + cleanup job
+  migrate/main.go        # jalankan migrasi DB (terpisah dari server)
+internal/
+  domain/                # entity: User, OTPChallenge, Session, Submission, Photo, Annotation, Principal
+                         # aturan murni: normalisasi/validasi nomor HP, validasi bbox & teks,
+                         #               status foto, status OTP, error domain
+  usecase/
+    ports.go             # interface: UserRepo, OTPRepo, SessionRepo, SubmissionRepo, PhotoRepo,
+                         #            PhotoStore, URLSigner, OTPSender, TxManager,
+                         #            TurnstileVerifier, Clock, TokenSigner, Exporter
+    register.go  otp_request.go  otp_verify.go  otp_dispatch.go  session.go
+    presign.go  upload.go  submit.go  edit.go  get.go  photourl.go  photo_content.go
+    export.go  cleanup.go
+  adapter/
+    postgres/            # implementasi repo (pgx) + TxManager
+    localfs/             # implementasi PhotoStore: tulis aman (temp→fsync→rename), Open, Stat, Delete,
+                         #   free space; memakai os.Root agar path tidak bisa keluar dari root
+    signer/              # implementasi URLSigner: HMAC-SHA256 untuk URL upload & lihat foto
+    wanotif/             # implementasi OTPSender: HTTP client ke wa-notif
+    auth/                # Authenticator: none (edit_token), otp (session bearer token)
+    turnstile/           # verifikasi token Turnstile
+    export/              # implementasi Exporter (jsonl)
+  delivery/http/
+    router.go            # gin.Engine, grouping route, middleware
+    handler/             # handler tipis: bind → panggil usecase → map hasil
+    dto/                 # request/response JSON (terpisah dari entity domain)
+    middleware/          # request_id, slog logger, recovery, auth, rate limit, body limit
+  config/                # load & validasi config.json + override env
+migrations/              # SQL migrasi (golang-migrate atau goose)
+config.json.example
+```
+
+Aturan implementasi:
+- **Handler tipis.** Handler Gin hanya bind + validasi bentuk request, memanggil satu usecase, lalu memetakan hasil/error. Tidak ada logika bisnis dan tidak ada akses DB/disk langsung di handler.
+- **Error domain → HTTP** dipetakan di satu tempat di `delivery/http` (mis. `ErrNotFound`→404, `ErrForbidden`→403, `ErrVersionConflict`→409, `ErrValidation`→422). Usecase tidak mengenal kode HTTP.
+- **Penyimpanan foto di balik port `PhotoStore`** (`Save`, `Open`, `Stat`, `Delete`, `FreeSpace`). v1 hanya punya adapter `localfs` (`storage.driver = "local"`). Jika nanti pindah ke S3/B2, port diperluas dengan presigned URL dan FE tidak berubah, karena kontrak `presign` tetap sama (hanya host pada `url` yang berbeda).
+- **Transaksi** lewat port `TxManager.WithTx(ctx, func(ctx) error)`; usecase menentukan batas transaksi, adapter postgres mengimplementasikannya.
+- **Otorisasi (owner/admin)** diputuskan di usecase. Middleware auth hanya mengisi `domain.Principal` ke context.
+- **Gin:** `gin.SetMode(gin.ReleaseMode)`, `gin.New()` (bukan `Default()`) dengan middleware sendiri. Set `SetTrustedProxies` ke alamat `cloudflared` saja, dan hanya percaya header `CF-Connecting-IP` dari proxy tersebut. Body request JSON dibatasi 64 KB lewat `http.MaxBytesReader`; rute upload foto memakai batas sendiri (§5.1b).
+- **Pengujian:** usecase diuji dengan fake port (tanpa DB/disk); repo postgres diuji terhadap database uji (`TEST_DATABASE_URL`); `localfs` diuji di direktori sementara (`t.TempDir()`); handler diuji dengan `httptest`.
+
+### 3.2 Jalur ekstensi export
+
+Export dimodelkan sebagai port `Exporter` (`Format() string` dan `Write(ctx, io.Writer, iter)`), dengan satu implementasi di v1: `jsonl`. Menambah COCO/YOLO nanti berarti menambah implementasi baru, tanpa mengubah usecase atau schema.
+
+Agar data yang disimpan sekarang selalu bisa diekspor ke format model yang dibutuhkan nanti, penyimpanan menjaga aturan berikut:
+- Koordinat disimpan **apa adanya dalam bentuk ternormalisasi** (`x,y,w,h`), bersama dimensi foto hasil proses (`photos.width/height`). Dari keduanya bisa dihitung piksel, COCO (`[x,y,w,h]` piksel), atau YOLO (pusat + ukuran ternormalisasi) tanpa kehilangan informasi.
+- Teks anotasi disimpan verbatim (hanya `trim`), tanpa dipetakan ke kelas. Pemetaan teks → kelas dilakukan saat export, bukan saat simpan.
+- Foto disimpan dalam format hasil proses FE (WebP/JPEG, sisi terpanjang ≤ 1920) dengan `storage_key` stabil (path relatif di bawah root SSD); anotasi tidak pernah di-burn ke gambar. `sha256` tiap foto dicatat untuk verifikasi integritas dan deteksi duplikat.
+- Urutan foto (`position`) dan `created_at` dipertahankan.
+- **Perhatian:** retensi 90 hari menghapus foto dan anotasi (§8.3). Export v1 hanya menghasilkan referensi (`storage_key`/URL sementara), bukan salinan permanen. Karena foto ada di SSD lokal, menyalin dataset cukup dengan `rsync` dari root foto memakai `storage_key` dari export; untuk dataset yang dipakai lebih lama dari 90 hari, salinan itu harus dibuat sebelum retensi berjalan (§14.2).
 
 ## 4. Alur Utama
 
-### 4.1 Isi form + upload foto
+### 4.0 Registrasi & login (hanya `auth.mode = otp`)
 
-1. User membuka app (FE dari CDN).
-2. User mengisi field form.
-3. User mengambil/memilih foto.
-4. FE memproses foto (lihat §6): koreksi orientasi, resize, encode ulang.
-5. FE memanggil `POST /api/v1/uploads/presign` dengan `content_type` dan `size_bytes` hasil proses.
-6. API memvalidasi, membuat record `photos` berstatus `pending`, lalu mengembalikan presigned PUT URL.
-7. FE melakukan `PUT` langsung ke object storage. Progress ditampilkan ke user.
-8. User membuat anotasi (kotak + label) di atas foto. Anotasi bisa dibuat sebelum atau sesudah upload selesai.
-9. User menekan Submit. FE memanggil `POST /api/v1/submissions` berisi data form, daftar `photo_id`, dan anotasi tiap foto.
-10. API memverifikasi setiap foto (`HeadObject`: ada, ukuran & content-type cocok), lalu menyimpan submission, foto, dan anotasi dalam **satu transaksi**. Status foto berubah menjadi `attached`.
+Registrasi dan login memakai alur OTP yang sama, tanpa password.
+
+1. User mengisi **nama, email, dan nomor HP** lalu submit → `POST /auth/register` (Turnstile wajib, §9.5).
+2. Jika kanal WhatsApp sedang tidak tersedia (§9.5), API langsung membalas `503 OTP_UNAVAILABLE` tanpa membuat challenge. Jika tersedia, API menormalisasi nomor HP (§7.4), membuat `users` berstatus `pending` (atau memakai user yang sudah ada), membuat `otp_challenges` berstatus `queued`, lalu langsung membalas `202` dengan `challenge_id`. **Pengiriman WhatsApp tidak dilakukan di dalam request.**
+3. Worker dispatcher (satu goroutine di proses API) mengambil challenge `queued` satu per satu, lalu memanggil `wa-notif` (`POST /api/v1/messages/send`). Berhasil → status `sent`, `sent_at` dan `expires_at = sent_at + 5 menit` diisi. Gagal → retry maksimal 3 percobaan dengan jeda singkat (3 detik, 10 detik) agar user cepat tahu, lalu status `failed` dengan `failure_reason` (§9.5): `WA_UNAVAILABLE` (gateway tidak terhubung/timeout) atau `SEND_FAILED`.
+4. FE memantau hasil pengiriman lewat `GET /auth/otp/{challenge_id}` (tiap 2 detik): `queued` → "menunggu giliran", `sent` → "kode dikirim, cek WhatsApp Anda", `failed` → pesan gagal sesuai `failure_reason` (mis. "Layanan WhatsApp sedang bermasalah, coba lagi beberapa saat") dan tombol kirim ulang langsung aktif. User menerima pesan WhatsApp berisi kode 6 digit, memasukkannya di FE → `POST /auth/otp/verify`.
+5. Kode benar → user menjadi `active` (`phone_verified_at` diisi), API membuat session dan mengembalikan `access_token` (bearer, berlaku 30 hari).
+6. Login berikutnya (perangkat baru, token habis): user hanya memasukkan nomor HP → `POST /auth/otp/request` → verifikasi OTP seperti di atas.
+7. FE menyimpan `access_token` dan mengirimnya sebagai `Authorization: Bearer <token>` di semua request lain. Menerima `401` → FE kembali ke layar login.
+
+Catatan kapasitas: `wa-notif` mengirim pesan **satu per satu dengan jeda 1,5 detik** (`rate_limit_seconds`), yaitu sekitar 40 OTP per menit. Karena itu antrean dan pembatasan pada §9.5 wajib ada, dan masa berlaku OTP dihitung dari saat terkirim, bukan saat diminta.
+
+### 4.1 Buat submission
+
+1. User membuka app (FE dari CDN). Pada `auth.mode = otp`, user harus sudah login (§4.0); pada `none`, FE memakai Turnstile (§9).
+2. User mengambil/memilih foto.
+3. FE memproses foto (lihat §6): koreksi orientasi, resize, encode ulang.
+4. FE memanggil `POST /api/v1/uploads/presign` dengan `content_type`, `size_bytes`, `width`, `height` hasil proses.
+5. API memvalidasi, membuat record `photos` berstatus `pending`, lalu mengembalikan **URL upload bertanda tangan** yang menunjuk ke API sendiri (§5.1).
+6. FE melakukan `PUT` ke URL itu. API men-stream body ke SSD, memvalidasi isi file (§5.1b), lalu mencatat `uploaded_at`. Progress ditampilkan ke user.
+7. User menggambar kotak di atas foto dan mengisi **teks bebas** untuk tiap kotak. Anotasi bisa dibuat sebelum atau sesudah upload selesai.
+8. User menekan Submit. FE memanggil `POST /api/v1/submissions` berisi daftar `photo_id` beserta anotasi (koordinat + teks).
+9. API memverifikasi setiap foto (sudah ter-upload: `uploaded_at` terisi dan file ada di disk dengan ukuran yang cocok), lalu menyimpan submission, foto, dan anotasi dalam **satu transaksi**. Status foto berubah menjadi `attached`.
+10. Pada `auth.mode = none`, response berisi `edit_token` yang disimpan FE di `localStorage` untuk edit di kemudian hari (§4.4).
 
 ### 4.2 Upload gagal / user batal
-- Jika PUT gagal, FE retry maksimal 3 kali dengan exponential backoff. Jika URL expired, FE meminta presign baru.
-- Foto yang tetap `pending` lebih dari 24 jam dihapus oleh cleanup job (lihat §8.3).
+- Jika PUT gagal (termasuk `503 UPLOAD_BUSY`; hormati `Retry-After`), FE retry maksimal 3 kali dengan exponential backoff. PUT ulang pada foto yang masih `pending` aman: file ditimpa secara atomik. Jika URL expired, FE meminta presign baru. `503 STORAGE_FULL` / `STORAGE_UNAVAILABLE` tidak di-retry; FE menampilkan pesan bahwa layanan sedang penuh/bermasalah.
+- Foto yang tetap `pending` lebih dari 24 jam dihapus oleh cleanup job (§8.3).
 
-### 4.3 Melihat foto (admin / review)
-- Bucket **private**. Foto diakses via `GET /api/v1/photos/{id}/url` yang mengembalikan presigned GET URL berumur pendek.
+### 4.3 Melihat submission
+- Foto **tidak pernah publik**. FE memanggil `GET /api/v1/photos/{id}/url` (dicek pemilik/admin) dan menerima URL bertanda tangan berumur 5 menit ke `GET /api/v1/photos/{id}/content`, yang bisa langsung dipakai di `<img src>` tanpa header Authorization.
+- Yang boleh melihat: pemilik submission atau admin (§9.2).
+
+### 4.4 Edit setelah submit
+- Hanya **pemilik** (user yang mengunggah foto) yang boleh mengedit. Admin hanya bisa membaca.
+- FE memuat submission lewat `GET /submissions/{id}`, user mengubah anotasi/teks, menambah foto baru (alur presign biasa), atau menghapus foto, lalu FE memanggil `PUT /submissions/{id}` berisi **keadaan akhir** (bukan diff) dan `version` terakhir yang dilihat.
+- Foto yang ada sebelumnya tetapi tidak ada di request menjadi `deleted`, dan filenya dihapus oleh cleanup job.
+- Konflik (`version` tidak cocok, mis. edit dari dua tab) → `409 VERSION_CONFLICT`.
+- **Jendela edit 24 jam** sejak `created_at` submission (`edit.window`, default `24h`). Edit tidak memperpanjang jendela. Setelah itu `PUT` ditolak `403 EDIT_WINDOW_CLOSED`; submission tetap bisa dibaca sampai retensi (§8.3).
 
 ## 5. API
 
-Base path: `/api/v1`. Semua request & response berformat JSON. Error memakai format:
+Base path: `/api/v1`. Semua request & response berformat JSON, kecuali export (NDJSON), upload foto (byte mentah), dan konten foto. Error memakai format:
 
 ```json
 { "error": { "code": "INVALID_CONTENT_TYPE", "message": "content_type must be image/webp or image/jpeg" } }
@@ -112,7 +218,7 @@ Response `201`:
   "photo_id": "0b6c1c2e-6a5e-4c55-9c0b-2f6c2d8e9a11",
   "upload": {
     "method": "PUT",
-    "url": "https://<account>.r2.cloudflarestorage.com/forms/uploads/2026/10/0b6c....webp?X-Amz-...",
+    "url": "https://api.example.com/api/v1/uploads/0b6c1c2e-6a5e-4c55-9c0b-2f6c2d8e9a11?exp=1761214500&sig=...",
     "headers": { "Content-Type": "image/webp" },
     "expires_at": "2026-10-23T10:15:00Z"
   }
@@ -120,26 +226,38 @@ Response `201`:
 ```
 
 Catatan:
-- Object key **selalu di-generate server**: `uploads/{yyyy}/{mm}/{uuid}.{ext}`. Client tidak pernah menentukan key.
-- Expiry presigned URL: 10 menit.
-- `Content-Type` ikut di-sign, jadi client wajib mengirim header yang sama.
+- `storage_key` **selalu di-generate server**: `{yyyy}/{mm}/{dd}/{uuid}.{ext}` (relatif terhadap root SSD, §8.1). Client tidak pernah menentukan key.
+- Expiry URL upload: 10 menit (`storage.upload_url_ttl`).
+- Tanda tangan: `sig = base64url(HMAC-SHA256(STORAGE_SIGNING_SECRET, "upload\n" ‖ photo_id ‖ "\n" ‖ exp ‖ "\n" ‖ content_type ‖ "\n" ‖ size_bytes))`. Mengubah ukuran atau tipe membuat tanda tangan tidak valid.
+- Jika sisa ruang SSD di bawah `storage.local.min_free_bytes` atau SSD tidak ter-mount, presign ditolak `503 STORAGE_FULL` / `503 STORAGE_UNAVAILABLE` (§8.2).
+- Foto mencatat `owner_id` pembuatnya (pada mode dengan auth) agar tidak bisa dipakai submission milik orang lain.
+
+### 5.1b `PUT /uploads/{photo_id}?exp=…&sig=…`
+
+Menerima **byte foto mentah** (bukan multipart). Tidak memakai header `Authorization`: otorisasi ada pada tanda tangan URL, yang hanya diterbitkan setelah pengecekan auth/Turnstile di presign.
+
+Header wajib: `Content-Type` sama dengan deklarasi dan `Content-Length` sama dengan `size_bytes` (tanpa `Content-Length`/chunked → `411`).
+
+Pemrosesan di server:
+1. Verifikasi `exp` belum lewat dan `sig` valid (constant-time); foto harus `pending`. Tidak valid → `403 INVALID_SIGNATURE`, kedaluwarsa → `410 URL_EXPIRED`, status bukan `pending` → `409`.
+2. Ambil slot upload (`limits.max_concurrent_uploads`, default 200). Penuh → `503 UPLOAD_BUSY` + `Retry-After`.
+3. Body dibungkus `http.MaxBytesReader(size_bytes)` dengan deadline baca total `limits.upload_timeout` (60 detik), lalu di-stream ke `tmp/{photo_id}.part` memakai buffer tetap 32 KB sambil menghitung SHA-256. Jumlah byte aktual ≠ `size_bytes` → `422 SIZE_MISMATCH`, file sementara dihapus.
+4. Validasi isi tanpa decode piksel: magic bytes JPEG (`FF D8 FF`) atau WebP (`RIFF….WEBP`) harus cocok dengan `Content-Type`; header gambar dibaca (`image.DecodeConfig`) dan dimensinya harus sama dengan `width`/`height` yang dideklarasikan. Gagal → `422 INVALID_IMAGE`, file dihapus, foto ditandai `rejected`.
+5. `fsync` file, `rename` atomik ke lokasi akhir, `fsync` direktori, lalu update `photos` (`uploaded_at`, `sha256`). Response `204`.
+
+Catatan: FE membaca progres dari event upload XHR. Request lintas-origin dengan `Content-Type` memicu preflight `OPTIONS` yang harus diizinkan CORS (§9.4).
 
 ### 5.2 `POST /submissions`
 
 Request:
 ```json
 {
-  "form": {
-    "nama": "Budi",
-    "lokasi": "Gudang A",
-    "catatan": "Paket rusak di sisi kiri"
-  },
   "photos": [
     {
       "photo_id": "0b6c1c2e-6a5e-4c55-9c0b-2f6c2d8e9a11",
       "annotations": [
-        { "label": "kerusakan", "x": 0.12, "y": 0.30, "w": 0.25, "h": 0.18 },
-        { "label": "label_resi", "x": 0.55, "y": 0.10, "w": 0.30, "h": 0.12 }
+        { "text": "Kerusakan di sisi kiri paket", "x": 0.12, "y": 0.30, "w": 0.25, "h": 0.18 },
+        { "text": "Label resi terlipat", "x": 0.55, "y": 0.10, "w": 0.30, "h": 0.12 }
       ]
     }
   ],
@@ -148,30 +266,129 @@ Request:
 ```
 
 Validasi:
-- Field form sesuai schema form (lihat §7.4).
-- Jumlah foto: 1–5 per submission.
-- Setiap `photo_id` harus ada, berstatus `pending`, dan belum dipakai submission lain.
-- `HeadObject` tiap foto: object ada, `ContentLength` ≤ batas dan sama dengan yang dideklarasikan, `ContentType` cocok. Jika tidak cocok → tolak dengan `422` dan tandai foto `rejected`.
-- Anotasi: maksimal 50 per foto; koordinat valid (§6.3); `label` ada di daftar label yang diizinkan.
-- `client_request_id` dipakai sebagai **idempotency key** agar double-submit (tap dua kali, retry jaringan) tidak membuat duplikat.
+- Jumlah foto: 1–5 per submission. Urutan array = urutan tampil (`position`).
+- Setiap `photo_id` harus ada, berstatus `pending`, belum dipakai submission lain, dan (jika ada auth) dibuat oleh principal yang sama.
+- Setiap foto harus sudah ter-upload: `uploaded_at` terisi dan file ada di disk dengan ukuran sama dengan `size_bytes` (`Stat`, tanpa membaca isi). `uploaded_at` kosong → `422 PHOTO_NOT_UPLOADED` (foto tetap `pending`, bisa di-upload ulang); file hilang atau ukuran tidak cocok → `422` dan foto ditandai `rejected`.
+- Anotasi: 0–50 per foto; koordinat valid (§6.3); `text` wajib, setelah `trim` panjang 1–1000 karakter (rune), tanpa karakter kontrol selain newline.
+- `client_request_id` (UUID) dipakai sebagai **idempotency key**. Request ulang dengan ID yang sama mengembalikan response submission yang sama (termasuk `edit_token`, lihat §9.3), bukan membuat duplikat.
 
 Response `201`:
 ```json
-{ "submission_id": "7d2a...", "created_at": "2026-10-23T10:05:12Z" }
+{
+  "submission_id": "7d2a...",
+  "version": 1,
+  "created_at": "2026-10-23T10:05:12Z",
+  "edit_token": "..."
+}
 ```
+`edit_token` hanya ada jika `auth.mode = none`.
 
 ### 5.3 `GET /submissions/{id}`
-Mengembalikan data form, metadata foto, dan anotasi. (Akses dibatasi — lihat §9.)
+Mengembalikan metadata foto dan anotasi (termasuk `version` dan `editable_until` = `created_at + edit.window`). Akses: pemilik atau admin (§9.2).
 
-### 5.4 `GET /photos/{id}/url`
-Response: `{ "url": "...", "expires_at": "..." }` — presigned GET, expiry 5 menit.
+### 5.4 `PUT /submissions/{id}`
 
-### 5.5 `GET /labels`
-Daftar label yang diizinkan untuk anotasi (di-cache FE).
+Request sama seperti §5.2 ditambah `"version": <int>`, tanpa `client_request_id`. Semantik: **replace** — daftar `photos` dan `annotations` di request menjadi keadaan akhir.
+
+Validasi sama dengan §5.2. Foto baru harus berstatus `pending`; foto lama yang sudah `attached` ke submission ini boleh dipertahankan tanpa pengecekan ulang.
+
+Pelaksanaan (satu transaksi): `UPDATE submissions SET version = version + 1 ... WHERE id = $1 AND version = $2`; 0 baris terpengaruh → `409 VERSION_CONFLICT`. Anotasi tiap foto diganti seluruhnya.
+
+Response `200`: `{ "submission_id": "...", "version": 2, "updated_at": "..." }`
+
+Akses: hanya pemilik (§9.2), dan hanya dalam jendela edit 24 jam (§4.4); di luar itu `403 EDIT_WINDOW_CLOSED`.
+
+### 5.5 `GET /photos/{id}/url`
+Response: `{ "url": "...", "expires_at": "..." }` — URL bertanda tangan ke `GET /photos/{id}/content?exp=…&sig=…`, berlaku 5 menit (`storage.view_url_ttl`). Akses: pemilik submission atau admin (dicek saat URL diterbitkan).
+
+#### `GET /photos/{id}/content?exp=…&sig=…`
+Melayani file foto lewat `http.ServeContent` (mendukung `Range` dan `If-Modified-Since`). Otorisasi hanya tanda tangan URL (tanpa header `Authorization`, agar bisa dipakai di `<img>`). Header respons: `Content-Type` dari DB, `X-Content-Type-Options: nosniff`, `Content-Disposition: inline`, `Cache-Control: private, max-age=300`. Foto berstatus `deleted`/`rejected` → `404`. Deadline tulis diperpanjang lewat `ResponseController` karena `WriteTimeout` 15 detik terlalu pendek untuk klien lambat.
 
 ### 5.6 Operasional
 - `GET /healthz` — liveness (proses hidup).
 - `GET /readyz` — readiness (DB bisa di-ping).
+
+### 5.7 `GET /admin/export`
+
+Query: `format=jsonl` (default & satu-satunya di v1), `from`, `to` (filter `created_at`, opsional), `include_urls=true|false` (default `false`; jika `true`, tiap foto menyertakan URL bertanda tangan ke `/photos/{id}/content` berumur 1 jam).
+
+Akses: admin saja (token dari `POST /admin/login`, §5.9), di mode auth apa pun.
+
+Response: `Content-Type: application/x-ndjson`, **satu baris JSON per foto**, di-stream dengan keyset pagination `(created_at, id)` agar memori tetap kecil:
+
+```json
+{"submission_id":"7d2a...","photo_id":"0b6c...","image":{"storage_key":"2026/10/23/0b6c....webp","sha256":"9f2c…","url":null,"width":1920,"height":1440},"annotations":[{"text":"Kerusakan di sisi kiri paket","bbox_norm":[0.12,0.30,0.25,0.18],"bbox_px":[230,432,480,259]}],"created_at":"2026-10-23T10:05:12Z"}
+```
+
+- `bbox_norm` = `[x, y, w, h]` ternormalisasi (nilai asli di DB); `bbox_px` = `[x, y, w, h]` dalam piksel foto hasil proses, dihitung saat export. Konsumen tidak perlu mengetahui aturan normalisasi.
+- Teks anotasi disertakan apa adanya sehingga cocok untuk dataset grounding (gambar + teks + kotak). Pemetaan teks bebas ke kelas (untuk COCO/YOLO) sengaja ditunda (§14).
+- Karena `WriteTimeout` server 15 detik, handler ini memperpanjang deadline per-request lewat `http.ResponseController.SetWriteDeadline`.
+- Export **tidak memuat data pribadi** (nama, email, nomor HP, `owner_id`); hanya foto, anotasi, dan teks.
+- `storage_key` adalah path relatif di bawah root foto (§8.1): admin dengan akses ke Pi dapat menyalin dataset langsung dengan `rsync --files-from`. `sha256` memungkinkan verifikasi salinan dan deteksi duplikat.
+
+### 5.8 Auth (hanya `auth.mode = otp`; pada mode `none` semua endpoint ini mengembalikan `404`)
+
+Semua request yang membutuhkan login memakai header `Authorization: Bearer <access_token>`.
+
+#### `POST /auth/register`
+Request:
+```json
+{ "name": "Budi Santoso", "email": "budi@example.com", "phone": "0812-3456-7890", "turnstile_token": "..." }
+```
+Validasi:
+- `name`: trim, 1–100 karakter.
+- `email`: format email, maks 254 karakter, disimpan lowercase. Tidak diverifikasi dan tidak harus unik.
+- `phone`: dinormalisasi server-side (§7.4); format yang diterima `08…`, `+628…`, `628…` (spasi dan tanda hubung diabaikan). Nilai yang mengandung `@` atau bukan nomor seluler Indonesia ditolak `422 INVALID_PHONE`.
+- `turnstile_token` wajib jika `turnstile.enabled`.
+
+Response `202` (selalu berbentuk sama, baik nomor baru maupun yang sudah terdaftar, agar nomor yang terdaftar tidak bisa ditebak):
+```json
+{ "challenge_id": "5e1c...", "status": "queued", "resend_after_seconds": 60, "estimated_wait_seconds": 8 }
+```
+- `estimated_wait_seconds` = (jumlah challenge `queued` di depan) × jeda kirim; FE menampilkannya sebagai perkiraan.
+- Jika nomor sudah terdaftar dan aktif, `name`/`email` dari request **tidak menimpa** data yang ada; hasilnya diperlakukan sebagai login.
+- Error: `422 INVALID_*`, `429 RATE_LIMITED` (dengan `Retry-After`), `503 OTP_BUSY` (antrean penuh), `503 OTP_UNAVAILABLE` (kanal WhatsApp sedang bermasalah, lihat `GET /auth/channel-status`).
+
+#### `POST /auth/otp/request`
+Request: `{ "phone": "081234567890", "turnstile_token": "..." }`. Dipakai untuk login dan kirim ulang OTP. Response `202` sama dengan di atas. Untuk nomor yang tidak terdaftar, API membalas `202` dengan `challenge_id` acak tanpa mengirim apa pun. Request baru untuk nomor yang sama membatalkan challenge sebelumnya. Cooldown 60 detik **tidak berlaku** jika challenge sebelumnya berstatus `failed`, sehingga user bisa langsung mencoba lagi setelah kegagalan kirim.
+
+#### `POST /auth/otp/verify`
+Request: `{ "challenge_id": "5e1c...", "code": "123456" }`
+
+Response `200`:
+```json
+{
+  "access_token": "…",
+  "expires_at": "2026-11-23T10:05:12Z",
+  "user": { "id": "…", "name": "Budi Santoso", "email": "budi@example.com", "phone": "62812****7890", "role": "user" }
+}
+```
+Error: `422 OTP_INVALID` (menyertakan `attempts_left`), `410 OTP_EXPIRED`, `429 OTP_TOO_MANY_ATTEMPTS` (challenge dibatalkan; user harus meminta kode baru), `409 OTP_NOT_SENT` (kode belum terkirim).
+
+#### `GET /auth/otp/{challenge_id}`
+Dipakai FE untuk memantau pengiriman (polling 2 detik). Response `200`:
+```json
+{ "status": "failed", "failure_reason": "WA_UNAVAILABLE", "resend_after_seconds": 0, "expires_at": null }
+```
+- `status`: `queued` / `sent` / `failed` / `expired` / `consumed`.
+- `failure_reason` (hanya saat `failed`): `WA_UNAVAILABLE` (gateway WhatsApp tidak terhubung, timeout, atau token ditolak), `SEND_FAILED` (gateway menolak pengiriman).
+- Tidak mengembalikan data pengguna atau kode. `challenge_id` tidak dapat ditebak (UUID acak); `challenge_id` yang tidak dikenal mengembalikan `status: "queued"` agar tidak membuka informasi.
+
+#### `GET /auth/channel-status`
+Publik, ringan, tanpa Turnstile. Response: `{ "otp_available": true }`. FE memanggilnya saat layar login dibuka dan menampilkan banner "Pengiriman kode WhatsApp sedang bermasalah" bila `false`. Nilainya berasal dari probe berkala ke `wa-notif` dan hasil pengiriman terakhir (§9.5).
+
+#### `GET /auth/me`
+Mengembalikan profil user dan `role` (nomor HP disamarkan).
+
+#### `POST /auth/logout`
+Mencabut session saat ini. Response `204`.
+
+### 5.9 Admin (semua mode auth)
+
+#### `POST /admin/login`
+Request: `{ "username": "admin", "password": "…" }`. Dibandingkan dengan `admin.username` dan hash bcrypt `admin.password_bcrypt` di `config.json` (§9.1). Response `200`: `{ "access_token": "…", "expires_at": "…" }`; token bertanda tangan HMAC, stateless, berlaku `admin.token_ttl` (default 8 jam). Kredensial salah → `401 INVALID_CREDENTIALS` (pesan sama untuk username atau password salah). Rate limit 5 / menit per IP. Jika `admin.enabled = false`, endpoint ini `404`.
+
+Token dipakai sebagai `Authorization: Bearer <token>` pada `GET /admin/export`, serta `GET /submissions/{id}` dan `GET /photos/{id}/url` (baca saja). Admin tidak bisa memanggil `PUT /submissions/{id}`.
 
 ## 6. Pemrosesan di Frontend
 
@@ -192,37 +409,52 @@ Efek samping yang diinginkan: re-encode lewat canvas **menghapus metadata EXIF t
 Target ukuran hasil: 200–500 KB per foto.
 
 ### 6.3 Format anotasi
-- Bentuk: rectangle, axis-aligned.
+- Bentuk: rectangle, axis-aligned, dengan satu teks bebas per kotak.
 - Koordinat **dinormalisasi 0–1** relatif terhadap dimensi foto **hasil proses** (yang di-upload), origin di kiri atas.
 - `x`, `y` = pojok kiri atas; `w`, `h` = lebar & tinggi.
 - Aturan validasi (FE & BE): `0 ≤ x,y < 1`, `0 < w,h ≤ 1`, `x + w ≤ 1`, `y + h ≤ 1`, dan ukuran minimum `w,h ≥ 0.005` untuk mencegah kotak tak sengaja.
+- `text`: wajib, 1–1000 karakter setelah `trim`.
 - Anotasi tidak di-"burn" ke gambar. Render overlay dilakukan di client.
 
 ### 6.4 UX
-- Tampilkan progress upload per foto; tombol Submit nonaktif sampai semua upload selesai.
-- Simpan draft form & anotasi di `localStorage` agar tidak hilang saat reload (file foto tidak disimpan di draft v1).
+- **Registrasi/login (mode `otp`):** satu layar isi nama, email, nomor HP; layar berikutnya input 6 digit dengan hitung mundur kirim ulang (60 detik) dan pesan "kode dikirim lewat WhatsApp, bisa memakan waktu hingga `estimated_wait_seconds` detik saat ramai". `access_token` disimpan di `localStorage`; saat `401`, token dihapus dan user diarahkan ke login. Teks input OTP memakai `autocomplete="one-time-code"` dan `inputmode="numeric"`.
+- **Kegagalan WhatsApp:** jika `channel-status` false, atau status challenge `failed`, tampilkan pesan jelas ("Layanan WhatsApp sedang bermasalah, coba lagi beberapa saat") dan tombol "Kirim ulang"; jangan biarkan user menunggu kode yang tidak akan datang.
+- **Edit:** tampilkan sisa waktu edit dari `editable_until`; setelah lewat, layar menjadi baca-saja.
+- Tampilkan progress upload per foto; tombol Submit nonaktif sampai semua upload selesai dan semua kotak punya teks.
+- Simpan draft anotasi & teks di `localStorage` agar tidak hilang saat reload (file foto tidak disimpan di draft v1).
+- Pada `auth.mode = none`, simpan `{submission_id, edit_token}` di `localStorage` agar user bisa kembali mengedit. Jika storage hilang, submission tidak bisa diedit lagi (§14).
+- Mode edit memakai `version` dari `GET`; saat menerima `409`, tawarkan muat ulang.
 
 ## 7. Data Model (PostgreSQL)
+
+Memakai database khusus `photo_annotated` (role khusus) di instance PostgreSQL 17 shared (§11.1). Migrasi dikelola lewat `cmd/migrate`.
 
 ### 7.1 `submissions`
 | Kolom | Tipe | Catatan |
 |---|---|---|
 | `id` | `uuid` PK | |
-| `form_data` | `jsonb` NOT NULL | Isi field form, tervalidasi terhadap schema |
-| `form_version` | `int` NOT NULL | Versi schema form |
+| `owner_id` | `uuid` FK → users NULL, ON DELETE SET NULL | Pemilik (`users.id`); NULL pada `auth.mode = none` |
 | `client_request_id` | `uuid` UNIQUE NOT NULL | Idempotency key |
 | `client_ip` | `inet` | Dari header `CF-Connecting-IP` |
-| `created_at` | `timestamptz` NOT NULL DEFAULT now() | |
+| `version` | `int` NOT NULL DEFAULT 1 | Optimistic locking untuk edit |
+| `created_at` | `timestamptz` NOT NULL DEFAULT now() | Dasar perhitungan retensi |
+| `updated_at` | `timestamptz` NOT NULL DEFAULT now() | |
+
+Index: `(owner_id)`, `(created_at)` untuk cleanup retensi.
 
 ### 7.2 `photos`
 | Kolom | Tipe | Catatan |
 |---|---|---|
 | `id` | `uuid` PK | |
-| `submission_id` | `uuid` FK → submissions NULL | NULL selama `pending` |
-| `object_key` | `text` UNIQUE NOT NULL | |
+| `submission_id` | `uuid` FK → submissions NULL, ON DELETE CASCADE | NULL selama `pending` |
+| `owner_id` | `uuid` FK → users NULL, ON DELETE SET NULL | Pembuat presign; NULL pada `auth.mode = none` |
+| `position` | `smallint` NOT NULL DEFAULT 0 | Urutan dalam submission |
+| `storage_key` | `text` UNIQUE NOT NULL | Path relatif di bawah root SSD: `{yyyy}/{mm}/{dd}/{uuid}.{ext}` |
 | `content_type` | `text` NOT NULL | |
-| `size_bytes` | `int` NOT NULL | Dideklarasikan saat presign |
-| `width`, `height` | `int` NOT NULL | |
+| `size_bytes` | `int` NOT NULL | Dideklarasikan saat presign; harus sama dengan byte aktual saat upload |
+| `width`, `height` | `int` NOT NULL | Dideklarasikan saat presign; dicocokkan dengan header gambar saat upload |
+| `uploaded_at` | `timestamptz` NULL | Diisi setelah PUT sukses dan lolos validasi isi |
+| `sha256` | `bytea` NULL | Dihitung saat streaming upload |
 | `status` | `text` NOT NULL | `pending` / `attached` / `rejected` / `deleted` |
 | `created_at` | `timestamptz` NOT NULL DEFAULT now() | |
 
@@ -233,104 +465,317 @@ Index: `(status, created_at)` untuk cleanup job; `(submission_id)`.
 |---|---|---|
 | `id` | `bigserial` PK | |
 | `photo_id` | `uuid` FK → photos NOT NULL | ON DELETE CASCADE |
-| `label_id` | `int` FK → labels NOT NULL | |
+| `text` | `text` NOT NULL | CHECK `char_length(text) BETWEEN 1 AND 1000` |
 | `x`, `y`, `w`, `h` | `real` NOT NULL | Dengan CHECK constraint sesuai §6.3 |
 | `created_at` | `timestamptz` NOT NULL DEFAULT now() | |
 
-Index: `(photo_id)`, `(label_id)`.
+Index: `(photo_id)`.
 
-### 7.4 `labels` & schema form
-- `labels(id serial PK, code text UNIQUE, display_name text, active bool)`.
-- Schema field form v1 didefinisikan di kode/config (bukan DB) dan di-versioning lewat `form_version`.
+Tidak ada tabel `labels` dan tidak ada schema form: isi submission sepenuhnya foto + anotasi + teks anotasi.
 
-## 8. Object Storage
+### 7.4 `users` (mode `otp`)
+| Kolom | Tipe | Catatan |
+|---|---|---|
+| `id` | `uuid` PK | |
+| `name` | `text` NOT NULL | CHECK `char_length(name) BETWEEN 1 AND 100` |
+| `email` | `text` NOT NULL | Lowercase, maks 254; **tidak unik, tidak diverifikasi** |
+| `phone` | `text` UNIQUE NOT NULL | Bentuk kanonik `62…` tanpa `+`, spasi, atau `-` |
+| `status` | `text` NOT NULL | `pending` (OTP pertama belum diverifikasi) / `active` |
+| `phone_verified_at` | `timestamptz` NULL | |
+| `created_at` | `timestamptz` NOT NULL DEFAULT now() | |
+| `last_login_at` | `timestamptz` NULL | |
 
-### 8.1 Bucket
-- Satu bucket private, misal `forms`.
-- Rekomendasi Cloudflare R2: S3-compatible dan tanpa biaya egress.
-- **Jangan** menjalankan MinIO di Raspi — bertentangan dengan tujuan arsitektur.
+**Normalisasi nomor HP (di `domain`, bukan di handler):** buang semua karakter non-digit (kecuali satu `+` di awal); awalan `0` → `62`; awalan `8` → `62` + nomor; hasil harus cocok `^628[0-9]{8,12}$` (nomor seluler Indonesia). Input yang mengandung `@` ditolak. Ini penting karena `wa-notif` menerima JID mentah, termasuk JID grup (`…@g.us`); API ini **tidak boleh pernah meneruskan input user apa adanya** ke `wa-notif`, hanya nomor kanonik hasil normalisasi.
 
-### 8.2 CORS
-```json
-[
-  {
-    "AllowedOrigins": ["https://app.example.com"],
-    "AllowedMethods": ["PUT", "GET"],
-    "AllowedHeaders": ["Content-Type"],
-    "MaxAgeSeconds": 3600
-  }
-]
-```
+Semua baris `users` berperan `user`. Admin bukan baris `users`; admin memakai akun statis di `config.json` (§9.1).
 
-### 8.3 Cleanup
-- Job periodik di API (tiap 1 jam): ambil `photos` berstatus `pending` dengan `created_at < now() - 24h`, panggil `DeleteObject`, set status `deleted`. Batch 100 per putaran.
-- Foto `rejected` dihapus dengan cara yang sama.
+### 7.5 `otp_challenges`
+| Kolom | Tipe | Catatan |
+|---|---|---|
+| `id` | `uuid` PK | = `challenge_id` |
+| `user_id` | `uuid` FK → users NOT NULL, ON DELETE CASCADE | |
+| `phone` | `text` NOT NULL | Salinan nomor kanonik saat dibuat |
+| `code_hash` | `bytea` NOT NULL | `HMAC-SHA256(OTP_PEPPER, id ‖ code)`; kode asli tidak disimpan |
+| `status` | `text` NOT NULL | `queued` / `sending` / `sent` / `failed` / `consumed` / `expired` |
+| `failure_reason` | `text` NULL | `WA_UNAVAILABLE` / `SEND_FAILED`; hanya saat `failed` |
+| `verify_attempts` | `smallint` NOT NULL DEFAULT 0 | Maks `auth.otp.max_verify_attempts` |
+| `send_attempts` | `smallint` NOT NULL DEFAULT 0 | Maks 3 |
+| `next_attempt_at` | `timestamptz` NOT NULL DEFAULT now() | Untuk backoff retry kirim |
+| `wa_message_id` | `text` NULL | Dari response `wa-notif` |
+| `client_ip` | `inet` | |
+| `created_at` | `timestamptz` NOT NULL DEFAULT now() | |
+| `sent_at` | `timestamptz` NULL | |
+| `expires_at` | `timestamptz` NULL | `sent_at + auth.otp.ttl`; NULL selama belum terkirim |
 
-## 9. Keamanan
+Index: `(status, next_attempt_at)` untuk worker (`SELECT … FOR UPDATE SKIP LOCKED`); `(phone, created_at)` untuk batas per nomor. Satu nomor hanya punya satu challenge aktif; request baru menandai yang lama `expired`.
 
-- **Akses aplikasi:** _belum diputuskan_ (lihat §14). Default v1: form publik dengan Cloudflare Turnstile diverifikasi saat presign dan submit.
-- **Endpoint baca** (`GET /submissions/{id}`, `GET /photos/{id}/url`): wajib autentikasi admin (mis. Cloudflare Access di depan path admin, atau token).
-- **Rate limit** (per IP, dari `CF-Connecting-IP`):
+### 7.6 `sessions`
+| Kolom | Tipe | Catatan |
+|---|---|---|
+| `id` | `uuid` PK | |
+| `user_id` | `uuid` FK → users NOT NULL, ON DELETE CASCADE | |
+| `token_hash` | `bytea` UNIQUE NOT NULL | SHA-256 dari token acak 32 byte; token asli hanya dikirim sekali ke client |
+| `created_at` | `timestamptz` NOT NULL DEFAULT now() | |
+| `expires_at` | `timestamptz` NOT NULL | `created_at + auth.session_ttl` (default 30 hari) |
+| `revoked_at` | `timestamptz` NULL | Diisi saat logout |
+| `client_ip` | `inet` | |
+
+Index: `(user_id)`. Validasi token = satu lookup indeks unik per request (tidak ada penulisan per request).
+
+## 8. Penyimpanan Foto (SSD Lokal) & Retensi
+
+### 8.1 Lokasi dan layout
+- Foto disimpan di SSD USB 3.0 yang di-mount di Raspi, mis. `/mnt/ssd`, dengan root foto `/mnt/ssd/photo-annotated/photos` (config `storage.local.root`). Di container `api`, root itu di-bind-mount ke `/data/photos`.
+- Layout: `{root}/{yyyy}/{mm}/{dd}/{uuid}.{ext}` untuk file akhir dan `{root}/tmp/` untuk upload yang sedang berjalan. Pembagian per hari menjaga jumlah file per direktori tetap kecil (ratusan, bukan puluhan ribu).
+- Sistem berkas ext4, mount dengan `noatime`, memakai UUID di `/etc/fstab`.
+- **Akses file lewat `os.Root`** (Go ≥ 1.24) sehingga path tidak bisa keluar dari root lewat `..` atau symlink. `storage_key` selalu dibuat server dari UUID dan tanggal, tidak pernah dari input client.
+- Container `api` berjalan sebagai user non-root; direktori root foto dimiliki UID yang sama.
+
+### 8.2 Penjagaan SSD (fail fast)
+- **Wajib ter-mount:** dengan `storage.local.require_mount = true` (wajib di produksi), API menolak start jika root foto bukan mount point tersendiri (device berbeda dari direktori induknya). Tanpa ini, jika SSD lepas atau belum ter-mount, upload diam-diam menulis ke SD card dan mengisinya. Saat pengembangan sebelum SSD terpasang, `require_mount = false` dengan direktori biasa.
+- **Cek berkala (tiap 30 detik) dan saat presign:** root masih ter-mount dan dapat ditulis, sisa ruang ≥ `storage.local.min_free_bytes` (default 5 GB). Jika tidak, presign dan upload dijawab `503 STORAGE_FULL` / `503 STORAGE_UNAVAILABLE`, dan alert menyala (§12).
+- **Penulisan aman:** file ditulis ke `tmp/`, `fsync`, `rename` atomik ke lokasi akhir, lalu `fsync` direktori. Mati listrik tidak meninggalkan file separuh di lokasi akhir; sisa `tmp/` dibersihkan §8.3.
+- **Tidak ada redundansi:** satu SSD adalah satu titik kegagalan; mitigasinya backup (§11.5).
+- **Kapasitas:** foto ±400 KB; SSD 256 GB muat ±650 ribu foto, jauh di atas kebutuhan retensi 90 hari pada beban realistis.
+
+### 8.3 Cleanup & retensi
+
+Job periodik di proses API (default tiap 1 jam, batch 100 per putaran), semua parameter dari `config.json` (§11.4). Seluruhnya dijalankan oleh usecase `cleanup`:
+
+1. **Foto yatim:** `photos` berstatus `pending` dengan `created_at < now() - pending_photo_ttl` (default 24 jam), serta foto `rejected` dan `deleted` → hapus file dari SSD (`Delete`, idempotent), lalu baris diberi status `deleted` (atau dihapus jika file sudah tidak ada).
+2. **Retensi data:** `submissions` dengan `created_at < now() - retention.days` (**default 90 hari / 3 bulan**) → tandai foto-fotonya `deleted`, hapus file tiap foto, lalu hapus baris submission (anotasi ikut terhapus lewat `ON DELETE CASCADE`).
+3. Urutan selalu **file dulu, baris kemudian**. Jika penghapusan file gagal (selain "tidak ditemukan", yang dianggap sukses), baris dipertahankan dan dicoba lagi di putaran berikutnya.
+4. **Data auth:** hapus `users` berstatus `pending` yang lebih tua dari 24 jam, `otp_challenges` yang lebih tua dari 24 jam, dan `sessions` yang sudah kedaluwarsa atau dicabut lebih dari 7 hari.
+5. **File yatim di disk:** sapuan harian menghapus `tmp/*.part` yang lebih tua dari 1 jam (upload terputus) dan file di root foto yang tidak punya baris `photos` serta lebih tua dari 24 jam (mis. proses mati antara `rename` dan update DB). Sapuan dibatasi jumlahnya per putaran dan tidak pernah menyentuh file yang lebih muda dari 24 jam.
+6. Hasil tiap putaran (jumlah dihapus, gagal) dicatat ke log untuk dashboard §12.
+
+## 9. Keamanan & Autentikasi
+
+### 9.1 Mode autentikasi (`config.json` → `auth.mode`)
+
+| Mode | Identitas | Keterangan |
+|---|---|---|
+| `none` | Anonim | Form publik. Wajib dikombinasikan dengan Turnstile (`turnstile.enabled`) dan rate limit. Kepemilikan lewat `edit_token` (§9.3). Tidak ada admin. |
+| `otp` | User terdaftar | Registrasi nama + email + nomor HP, verifikasi OTP lewat WhatsApp (§4.0), lalu bearer session token (§7.6). |
+
+**Admin tidak bergantung pada `auth.mode`.** Admin adalah satu akun statis di `config.json` (`admin.username`, `admin.password_bcrypt`), login lewat `POST /admin/login` (§5.9), dan menerima token bertanda tangan HMAC (stateless, kunci `ADMIN_TOKEN_SECRET`, default berlaku 8 jam). Password di config disimpan sebagai **hash bcrypt**, bukan plaintext; hash dibuat dengan `htpasswd -bnBC 10 "" '<password>' | tr -d ':\n'`. Perbandingan username memakai constant-time, login dibatasi 5 percobaan/menit per IP. Admin boleh membaca submission/foto dan mengekspor, tetapi tidak boleh mengedit submission.
+
+Peran: `user` (mode `otp`), pemilik anonim (mode `none`, dibuktikan `edit_token`), dan `admin`. Config divalidasi saat startup; konfigurasi mode yang tidak lengkap (mis. `otp` tanpa `wa_notif.base_url` atau `OTP_PEPPER`) membuat API **gagal start** (fail fast), tidak jatuh diam-diam ke `none`. Mode lain (mis. `static_token`, `jwt`/Cloudflare Access) bisa ditambahkan nanti lewat port `Authenticator` tanpa mengubah usecase.
+
+### 9.2 Matriks akses
+
+| Endpoint | `none` | `otp` |
+|---|---|---|
+| `/auth/*` | `404` | Publik (Turnstile + rate limit, §9.5), kecuali `me` dan `logout` yang butuh session |
+| `POST /uploads/presign` | Publik + Turnstile | `user` / `admin` |
+| `PUT /uploads/{photo_id}` | Tanda tangan URL dari presign | Tanda tangan URL dari presign |
+| `POST /submissions` | Publik + Turnstile | `user` / `admin` |
+| `GET /submissions/{id}`, `GET /photos/{id}/url` | Pemilik (`edit_token`) atau `admin` | Pemilik (`owner_id` = user) atau `admin` |
+| `GET /photos/{id}/content` | Tanda tangan URL dari `/url` | Tanda tangan URL dari `/url` |
+| `PUT /submissions/{id}` | Pemilik (`edit_token`), dalam 24 jam | Pemilik saja, dalam 24 jam |
+| `POST /admin/login` | Publik (rate limit) | Publik (rate limit) |
+| `GET /admin/export` | `admin` | `admin` |
+| `/healthz`, `/readyz` | Publik | Publik |
+
+Akses ke resource milik orang lain mengembalikan `404` (bukan `403`) agar ID tidak bisa di-probe.
+
+### 9.3 `edit_token` (hanya `auth.mode = none`)
+- Dihitung **stateless**: `edit_token = base64url(HMAC-SHA256(EDIT_TOKEN_SECRET, submission_id))`. Tidak ada kolom token di DB, dan retry idempotent (§5.2) mengembalikan token yang sama.
+- Dikirim client lewat header `X-Edit-Token`, dibandingkan dengan `hmac.Equal` (constant-time).
+- Merotasi `EDIT_TOKEN_SECRET` membatalkan semua token yang sudah beredar.
+
+### 9.4 Kontrol lain
+- **Turnstile** (`turnstile.enabled`): pada mode `none` diverifikasi saat presign dan submit; pada mode `otp` diverifikasi saat `register` dan `otp/request` (§9.5).
+- **Rate limit** (per IP dari `CF-Connecting-IP`; nilai bisa diubah di config):
   - presign: 30 / menit
-  - submissions: 10 / menit
+  - submissions (POST & PUT): 10 / menit
+  - `auth/register` + `auth/otp/request`: 5 / menit; `auth/otp/verify`: 20 / menit; `admin/login`: 5 / menit
   - Tambahan rate limit di edge Cloudflare.
-- Kredensial object storage hanya ada di Raspi (env/secret), dengan scope token minimum: hanya bucket `forms`, izin object read/write/delete.
-- Presigned URL berumur pendek (PUT 10 menit, GET 5 menit).
-- Validasi ukuran ganda: saat presign (deklarasi) dan saat submit (`HeadObject`).
-- Request body API dibatasi 64 KB (`http.MaxBytesReader`).
+- **CORS API:** `allowed_origins` dari config; method `GET, POST, PUT, OPTIONS`; header yang diizinkan `Content-Type`, `Authorization`, `X-Edit-Token`; preflight di-cache 1 jam (`Access-Control-Max-Age`). Upload `PUT` lintas-origin dengan `Content-Type` memicu preflight, jadi rute `/uploads/*` wajib tercakup.
+- `STORAGE_SIGNING_SECRET` (kunci HMAC URL upload dan lihat foto, ≥ 32 byte acak) hanya ada di env Raspi. Merotasinya membatalkan semua URL yang belum kedaluwarsa (umurnya pendek, dampaknya kecil). Pesan yang ditandatangani diberi awalan tujuan (`upload`/`view`) agar tanda tangan satu tujuan tidak bisa dipakai untuk yang lain.
+- **Secret tidak disimpan di `config.json`** (lihat §11.4).
+- URL bertanda tangan berumur pendek (upload 10 menit, lihat foto 5 menit).
+- Validasi berlapis: saat presign (deklarasi), saat upload (`Content-Length` dan jumlah byte aktual), dan setelah tulis (magic bytes + dimensi dari header gambar). Server benar-benar memeriksa isi file, sehingga file non-gambar dengan `Content-Type` palsu ditolak.
+- Request body JSON dibatasi 64 KB (`http.MaxBytesReader`); body upload dibatasi tepat `size_bytes` (maks 2 MB).
+- Foto disajikan dengan `X-Content-Type-Options: nosniff` dan `Content-Disposition: inline`, hanya dari file yang sudah divalidasi sebagai gambar.
 - Semua query memakai parameterized query (`pgx`).
+- Teks anotasi diperlakukan sebagai data tak tepercaya: FE merender sebagai teks (bukan HTML), dan export tidak menjalankan interpretasi apa pun.
+
+### 9.5 OTP, session, dan integrasi `wa-notif`
+
+Risiko utama: endpoint OTP publik membuat API ini bisa dipakai untuk **mengirim WhatsApp ke nomor sembarang dari satu nomor pengirim**. Penyalahgunaan bisa membuat nomor pengirim ditandai spam atau diblokir WhatsApp, dan itu juga mematikan notifikasi lain yang memakai `wa-notif`. Karena itu:
+
+- **Kode OTP:** 6 digit dari `crypto/rand`, berlaku 5 menit sejak terkirim, sekali pakai. Disimpan sebagai HMAC dengan `OTP_PEPPER` (6 digit tanpa pepper mudah di-brute-force dari hash). Perbandingan memakai `hmac.Equal`. Maksimal 5 percobaan verifikasi per challenge, setelah itu challenge dibatalkan.
+- **Pembatasan kirim:**
+  - cooldown 60 detik per nomor, maksimal 5 OTP per nomor per jam;
+  - rate limit per IP (§9.4) + Turnstile wajib pada `register` dan `otp/request`;
+  - panjang antrean `queued` dibatasi (`max_queue`, default 200); penuh → `503 OTP_BUSY`;
+  - **batas harian global** (`daily_global_cap`, default 500) sebagai rem darurat; terlampaui → `503 OTP_BUSY` dan alert.
+- **Nomor tujuan** hanya nomor kanonik hasil normalisasi §7.4 (tidak pernah JID atau input mentah).
+- **Anti-enumerasi:** `register` dan `otp/request` selalu membalas `202` berbentuk sama, baik nomor sudah terdaftar atau belum.
+- **Session token:** 32 byte acak, hanya hash SHA-256 yang disimpan, berlaku 30 hari, dicabut saat logout. Dikirim sebagai `Authorization: Bearer`. Karena disimpan di `localStorage`, FE wajib memakai CSP ketat dan merender teks user sebagai teks.
+- **Kredensial `wa-notif`:** bearer token `wa-notif` ada di env `WA_NOTIF_TOKEN` (bukan di `config.json`) dan tidak pernah dikirim ke FE.
+- **Pemetaan hasil `wa-notif` → `failure_reason`** (berdasarkan kode `wa-notif` saat ini):
+
+  | Respons `wa-notif` | Perlakuan | `failure_reason` |
+  |---|---|---|
+  | `200` `success: true` | `sent` | – |
+  | `503` `WA_NOT_CONNECTED` | retry, lalu `failed` | `WA_UNAVAILABLE` |
+  | timeout / koneksi gagal | retry, lalu `failed` | `WA_UNAVAILABLE` |
+  | `401` (token ditolak) | `failed` tanpa retry + alert (salah konfigurasi) | `WA_UNAVAILABLE` |
+  | `500` `SEND_FAILED` (termasuk nomor ditolak; `wa-notif` memetakan semua error selain tidak-terhubung ke 500) | retry, lalu `failed` | `SEND_FAILED` |
+
+  `200` hanya berarti protokol WhatsApp menerima pesan, bukan bahwa pesan dibaca atau diterima oleh nomor tujuan.
+- **Status kanal (`otp_available`):** API menjalankan probe `GET /api/v1/session/status` ke `wa-notif` setiap 30 detik. `otp_available = false` jika probe menunjukkan tidak `connected` / tidak terjangkau, atau 3 pengiriman terakhir berturut-turut gagal; kembali `true` setelah probe/pengiriman berikutnya berhasil. Saat `false`, `register` dan `otp/request` langsung `503 OTP_UNAVAILABLE` tanpa mengantrekan.
+- **Jaringan:** API memanggil `wa-notif` hanya lewat jaringan internal Raspi. Port `3030` **tidak boleh** di-expose lewat Cloudflare Tunnel. Halaman `/login` `wa-notif` menampilkan QR pairing tanpa autentikasi, jadi batasi akses ke port itu (firewall/LAN saja), atau sebaiknya bergabung lewat network Docker bersama sehingga port tidak perlu dipublikasikan.
+- **Privasi:** nama, email, dan nomor HP adalah data pribadi. Nomor di log dan response disamarkan (`62812****7890`); kode OTP dan isi pesan tidak pernah dicatat di log.
 
 ## 10. Non-Functional Requirements
 
 | Metrik | Target |
 |---|---|
 | User aktif bersamaan | 1000 |
-| Throughput puncak API | ≥ 150 req/s tanpa error |
+| Throughput puncak API (JSON) | ≥ 150 req/s tanpa error |
+| Foto masuk berkelanjutan | ≥ 30 foto/s (≈ 96 Mbps); dibatasi internet rumah (terukur ±187 Mbps down) |
+| Upload bersamaan | ≥ 200 koneksi (`max_concurrent_uploads`), memori per upload konstan |
 | p95 latency `presign` (di Raspi) | < 50 ms |
-| p95 latency `submissions` (termasuk HeadObject) | < 500 ms |
+| p95 latency `PUT /uploads/{id}` untuk 400 KB (sisi server, tidak termasuk jaringan klien) | < 300 ms |
+| p95 latency `submissions` (termasuk cek file di disk) | < 500 ms |
 | Error rate saat load test | < 0.5% |
 | Ukuran foto setelah kompresi | rata-rata ≤ 500 KB, maks 2 MB |
+| Retensi data | 90 hari (configurable) |
+| Kapasitas OTP | ≈ 40 OTP/menit (dibatasi jeda 1,5 detik `wa-notif`); estimasi tunggu ditampilkan ke user |
+| p95 latency `auth/register`, `auth/otp/request` | < 100 ms (hanya menulis antrean; kirim WhatsApp asinkron) |
+| Waktu OTP terkirim saat tidak ramai | p95 < 10 detik sejak diminta |
 
 ## 11. Deployment
 
-### 11.1 Hardware Raspi
-- Raspberry Pi 4, RAM minimal 4 GB.
+### 11.1 Hardware Raspi & PostgreSQL shared
+- Raspberry Pi 4 (aarch64), RAM 4 GB (kondisi saat ini ±3,8 GB, dibagi dengan `wa-notif` dan service lain).
 - **Ethernet** (bukan WiFi) untuk produksi.
-- SSD via USB 3.0 untuk data PostgreSQL (bukan SD card).
 - Heatsink + fan untuk mencegah thermal throttling.
+- **Storage:** saat ini hanya SD card (`/dev/mmcblk0p2`, ±12 GB bebas). **SSD untuk foto (§8) sudah terpasang dan siap** (24 Okt 2026): Samsung 970 EVO 250 GB (NVMe) di enclosure USB 3.0 berchip RTL9210, driver `uas`, link 5 Gbps, `throttled=0x0`. Partisi tunggal **ext4** (label `photos`, UUID `76b14e6c-3abf-448f-969d-5350020b7e76`), ter-mount di `/mnt/ssd` lewat `/etc/fstab` (`defaults,noatime,nofail,x-systemd.device-timeout=10s`). Terukur: tulis sekuensial ±211 MB/s, baca ±353 MB/s, 127 file/s untuk file 400 KB dengan `fsync`+`rename`. **Harus di port USB 3 (biru)**: pada USB 2.0 kecepatannya hanya ±35 MB/s (periksa `lsusb -t`: `Driver=uas`, 5000M). Direktori `/mnt/ssd/photo-annotated/photos` (dengan `tmp/`) dimiliki UID 65532 (mode 750). Data PostgreSQL tetap di SD card untuk sementara (keputusan #18) dan bisa dipindah ke SSD yang sama nanti dengan mengubah bind mount `./data` di compose shared.
+- **Internet (terukur dari Pi, Okt 2026):** Ethernet 1 Gbps; ±187 Mbps download / ±179 Mbps upload (multi-koneksi), ±117 / ±92 Mbps (satu koneksi), ping ±20 ms. Foto masuk memakai sisi download; melihat foto, export, dan backup memakai sisi upload.
+- **PostgreSQL 17 berjalan sebagai satu container shared** yang didefinisikan di `/home/myrpi/docker/postgres/docker-compose.yml` (di luar repo ini):
+  - Image `postgres:17-alpine`, container `shared-postgres`, `max_connections=100`, `shared_buffers=256MB`.
+  - Port hanya di `127.0.0.1:5432` (admin lewat SSH). Service lain bergabung ke network Docker eksternal **`shared-db`** dan memakai host `shared-postgres:5432`.
+  - Satu **database + role per service**, dibuat dengan `/home/myrpi/docker/postgres/create-service-db.sh <nama>` (mencetak `DATABASE_URL` dengan password acak). Untuk project ini: `./create-service-db.sh photo_annotated`.
+  - Password superuser ada di `/home/myrpi/docker/postgres/.env` (mode 600, tidak di-commit). Service tidak pernah memakai superuser.
+  - Batas memori `1g` di compose belum berlaku karena kernel Pi belum mengaktifkan memory cgroup; aktifkan (`cgroup_enable=memory cgroup_memory=1` di `cmdline.txt`) bila ingin batas itu ditegakkan.
+- Prasyarat project ini: jalankan `create-service-db.sh photo_annotated`, simpan `DATABASE_URL` ke env `api`, lalu jalankan `cmd/migrate` sebelum API pertama kali dijalankan.
+- Karena instance dipakai bersama, jumlah `database.max_conns` semua service digabung harus < `max_connections` (100) dikurangi cadangan untuk admin.
 
 ### 11.2 Container (Docker Compose)
 - `api` — binary Go (image arm64, multi-stage build, distroless/alpine).
-- `postgres` — PostgreSQL 16, volume di SSD.
 - `cloudflared` — Cloudflare Tunnel ke `api`.
+- Tidak ada service `postgres` di compose project ini. `api` bergabung ke dua network eksternal:
+  - `shared-db` → PostgreSQL (`DATABASE_URL=postgres://photo_annotated:…@shared-postgres:5432/photo_annotated?sslmode=disable`).
+  - `wa-notif_default` → `wa-notif` (`wa_notif.base_url = http://wa-notif-service:3030`), sehingga tidak bergantung pada port host.
+- `config.json` di-mount read-only ke container `api`.
+- Root foto di-bind-mount dari SSD: `/mnt/ssd/photo-annotated/photos:/data/photos` (baca-tulis). Jika SSD belum ter-mount, bind mount mengarah ke direktori di SD card; karena itu `storage.local.require_mount` wajib `true` di produksi (§8.2).
+- `ulimits: nofile: 65536` untuk `api` (banyak koneksi dan file terbuka bersamaan).
 
 ### 11.3 Tuning awal
-- PostgreSQL: `max_connections = 50`, `shared_buffers = 512MB` (4 GB RAM) atau `1GB` (8 GB RAM).
-- Go `pgxpool`: `MaxConns = 20`.
-- HTTP server: `ReadTimeout 10s`, `WriteTimeout 15s`, `IdleTimeout 60s`.
-- Client S3: reuse satu instance; timeout `HeadObject` 3 detik.
+- Go `pgxpool`: `MaxConns = 20` (config: `database.max_conns`).
+- HTTP server: `ReadHeaderTimeout 10s`, `IdleTimeout 60s`; **tanpa** `ReadTimeout`/`WriteTimeout` global. Rute JSON memasang deadline baca 10 detik dan tulis 15 detik lewat `http.ResponseController`; rute upload memakai deadline baca 60 detik (`limits.upload_timeout`); rute `export` dan `photos/{id}/content` memperpanjang deadline tulis sendiri. Alasannya: `ReadTimeout` global 10 detik akan memutus upload dari koneksi HP yang lambat.
+- Upload: `max_concurrent_uploads` 200 (slot dilepas saat selesai/timeout), buffer salin 32 KB per upload, hanya header gambar yang di-decode.
+- Tuning PostgreSQL dikelola di compose shared (§11.1), bukan di project ini.
+- Dispatcher OTP: satu worker, timeout panggilan `wa-notif` 10 detik, maksimal 3 percobaan dengan jeda 3s → 10s (kegagalan permanen diketahui user dalam ±25 detik), probe status `wa-notif` tiap 30 detik.
 
-### 11.4 Konfigurasi (env)
+### 11.4 Konfigurasi
+
+Konfigurasi non-rahasia di `config.json` (path dari env `CONFIG_PATH`, default `./config.json`). **Secret hanya lewat env** dan tidak boleh ada di file config yang di-commit; env menimpa nilai file.
+
+`config.json.example`:
+```json
+{
+  "app": {
+    "env": "production",
+    "http_addr": ":8080",
+    "public_base_url": "https://api.example.com",
+    "allowed_origins": ["https://app.example.com"]
+  },
+  "auth": {
+    "mode": "otp",
+    "session_ttl": "720h",
+    "otp": {
+      "length": 6,
+      "ttl": "5m",
+      "max_verify_attempts": 5,
+      "resend_cooldown": "60s",
+      "max_per_phone_per_hour": 5,
+      "max_queue": 200,
+      "daily_global_cap": 500,
+      "message_template": "*{code}* adalah kode verifikasi Photo Annotated Anda. Berlaku {ttl_minutes} menit. Jangan bagikan kode ini ke siapa pun."
+    }
+  },
+  "wa_notif": {
+    "base_url": "http://wa-notif-service:3030",
+    "timeout": "10s",
+    "health_probe_interval": "30s"
+  },
+  "admin": {
+    "enabled": true,
+    "username": "admin",
+    "password_bcrypt": "$2y$10$<hash>",
+    "token_ttl": "8h"
+  },
+  "edit": { "window": "24h" },
+  "turnstile": { "enabled": true },
+  "database": { "max_conns": 20 },
+  "storage": {
+    "driver": "local",
+    "local": {
+      "root": "/data/photos",
+      "require_mount": true,
+      "min_free_bytes": 5368709120
+    },
+    "upload_url_ttl": "10m",
+    "view_url_ttl": "5m"
+  },
+  "limits": {
+    "max_upload_bytes": 2097152,
+    "max_photos_per_submission": 5,
+    "max_annotations_per_photo": 50,
+    "max_annotation_text_len": 1000,
+    "max_concurrent_uploads": 200,
+    "upload_timeout": "60s",
+    "rate_limit_per_min": { "presign": 30, "submissions": 10, "otp_request": 5, "otp_verify": 20, "admin_login": 5 }
+  },
+  "retention": {
+    "days": 90,
+    "pending_photo_ttl": "24h",
+    "cleanup_interval": "1h",
+    "cleanup_batch": 100
+  }
+}
 ```
-APP_ENV, HTTP_ADDR
-DATABASE_URL
-S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY
-PRESIGN_PUT_TTL=10m, PRESIGN_GET_TTL=5m
-MAX_UPLOAD_BYTES=2097152, MAX_PHOTOS_PER_SUBMISSION=5
-ALLOWED_ORIGINS
-TURNSTILE_SECRET
+
+Env (secret):
+```
+DATABASE_URL                # dari create-service-db.sh photo_annotated
+STORAGE_SIGNING_SECRET      # kunci HMAC URL upload & lihat foto (≥ 32 byte acak)
+TURNSTILE_SECRET            # jika turnstile.enabled
+EDIT_TOKEN_SECRET           # wajib jika auth.mode = none
+OTP_PEPPER                  # wajib jika auth.mode = otp (kunci HMAC kode OTP, ≥ 32 byte acak)
+WA_NOTIF_TOKEN              # wajib jika auth.mode = otp (bearer token wa-notif)
+ADMIN_TOKEN_SECRET          # wajib jika admin.enabled (kunci HMAC token admin, ≥ 32 byte acak)
+CONFIG_PATH
 ```
 
 ### 11.5 Backup
-- `pg_dump` harian, dikompres, di-upload ke bucket terpisah (`forms-backup`). Retensi 14 hari.
+- **Database:** backup PostgreSQL shared belum ada. Minimal: `pg_dump` harian per database (termasuk `photo_annotated`) dari `shared-postgres`, dikompres, retensi 14 hari. Data DB masih di SD card, jadi backup ini wajib sebelum go-live.
+- **Foto:** satu SSD tanpa replika adalah satu titik kegagalan. Minimal salinan berkala (`rsync` inkremental) ke disk atau lokasi lain. Tujuan backup (disk kedua, mesin lain di LAN, atau cloud) belum ditentukan (§14.2).
 - Uji restore minimal sekali sebelum go-live.
+- Catatan: data lebih tua dari retensi (90 hari) memang dihapus dari DB dan storage; backup tidak dimaksudkan untuk menyimpannya lebih lama.
 
 ## 12. Observability
 
 - Log terstruktur JSON (`log/slog`) ke stdout → Promtail → Loki.
-- Field log minimum: `request_id`, `method`, `path`, `status`, `duration_ms`, `client_ip`.
-- Dashboard Grafana: request rate, error rate, latency per endpoint, jumlah foto `pending`, hasil cleanup job, suhu CPU Raspi.
-- Alert: error rate > 2% selama 5 menit; suhu CPU > 75°C.
+- Field log minimum: `request_id`, `method`, `path`, `status`, `duration_ms`, `client_ip`, `user_id` (jika ada). **Jangan** log `edit_token`, header `Authorization`, kode OTP, isi pesan WhatsApp, atau isi teks anotasi. Nomor HP hanya dalam bentuk tersamar.
+- Dashboard Grafana: request rate, error rate, latency per endpoint, jumlah foto `pending`, hasil cleanup job (foto yatim & retensi), suhu CPU Raspi, pemakaian dan sisa ruang SSD, upload aktif vs `max_concurrent_uploads`, latency dan ukuran upload, jumlah `503 UPLOAD_BUSY`/`STORAGE_FULL`, trafik jaringan `eth0`, jumlah challenge OTP per status (`queued`/`sent`/`failed`), panjang antrean dan waktu tunggu OTP, OTP terkirim hari ini vs `daily_global_cap`.
+- Alert: error rate > 2% selama 5 menit; suhu CPU > 75°C; cleanup job gagal berturut-turut; SSD terpakai > 80% atau sisa ruang < `min_free_bytes`; root foto tidak ter-mount (`STORAGE_UNAVAILABLE`); error I/O disk di log kernel; trafik masuk `eth0` > 80% kapasitas ISP selama 5 menit; panggilan `wa-notif` gagal > 20% selama 5 menit atau `503 NOT_CONNECTED` (sesi WhatsApp terputus, perlu scan ulang QR); antrean OTP > 80% `max_queue`; OTP harian > 80% `daily_global_cap`.
+- `GET /readyz` hanya memeriksa DB. `wa-notif` yang mati tidak membuat API dianggap tidak siap (fitur lain tetap berjalan); statusnya dipantau lewat alert di atas.
 
 ## 13. Load Testing
 
@@ -338,24 +783,70 @@ Tool: k6, dijalankan dari mesin lain (bukan Raspi).
 
 Skenario utama:
 1. Ramp up ke 1000 VU dalam 2 menit, tahan 5 menit.
-2. Tiap VU: `presign` → PUT file dummy 400 KB ke storage → `submissions` dengan 3 anotasi → sleep 5–15 detik.
-3. Skenario burst: 1000 VU submit dalam 10 detik.
+2. Tiap VU: `presign` → PUT 400 KB ke URL upload (**harus gambar WebP/JPEG valid dengan dimensi sesuai deklarasi**, karena server memvalidasi isi file) → `submissions` dengan 3 anotasi (masing-masing bertext) → sekitar 10% VU melakukan `PUT /submissions/{id}` → sleep **25–40 detik**. Dengan 1000 VU ini menghasilkan ±25–40 foto/s (±80–130 Mbps), di bawah kapasitas internet rumah. Sleep 5–15 detik (±100 foto/s, ±320 Mbps) akan melampaui kapasitas ISP dan hanya mengukur internet, bukan aplikasi.
+3. Skenario burst: 1000 VU submit dalam 10 detik **memakai foto yang sudah ter-upload** (burst upload 1000 foto dalam 10 detik ≈ 320 Mbps melebihi kapasitas internet).
+   - Uji klien lambat: 200 koneksi upload bersamaan dibatasi ±200 kbps (mis. `tc` atau proxy pembatas) untuk memastikan slot `max_concurrent_uploads`, timeout 60 detik, dan `503 UPLOAD_BUSY` berperilaku benar tanpa lonjakan memori.
+4. Uji terpisah: `GET /admin/export` pada dataset besar saat beban berjalan, memastikan memori API stabil.
+5. Alur registrasi/login diuji dengan **stub `wa-notif`** (server HTTP tiruan yang meniru `POST /api/v1/messages/send` dengan jeda 1,5 detik), **jangan pernah** terhadap `wa-notif` asli: beban uji akan mengirim WhatsApp sungguhan dan bisa membuat nomor pengirim diblokir. Tujuannya memastikan antrean, `OTP_BUSY`, dan estimasi tunggu berperilaku benar. Pengujian terhadap `wa-notif` asli cukup manual ke nomor sendiri (beberapa pesan).
+6. Untuk skenario 1–3, VU memakai session yang sudah dibuat sebelumnya (seed lewat DB) agar tidak melewati OTP.
 
-Kriteria lulus: target di §10 terpenuhi, tanpa thermal throttling, koneksi DB tidak habis.
+Penguji dijalankan dari luar jaringan rumah (lewat internet dan Tunnel) agar jalur ISP ikut teruji, dan tidak ada pemakaian produksi nyata saat tes.
 
-## 14. Open Questions
+Kriteria lulus: target di §10 terpenuhi, tanpa thermal throttling, CPU (API dan `cloudflared`) tidak jenuh, SSD tidak I/O-bound (iowait rendah), koneksi DB tidak habis (termasuk dampaknya ke layanan lain di PostgreSQL yang sama).
 
-1. **Autentikasi:** form publik (anonim + Turnstile) atau user harus login? Siapa yang boleh melihat hasil submission?
-2. **Field form:** apa saja field-nya, wajib/opsional, dan apakah perlu beberapa jenis form?
-3. **Label anotasi:** daftar label tetap atau user boleh membuat label bebas?
-4. **Retensi data:** berapa lama foto & submission disimpan?
-5. **Export:** perlu export hasil anotasi (CSV / COCO / YOLO format)?
-6. **Edit setelah submit:** apakah submission boleh diedit setelah dikirim?
+## 14. Keputusan & Open Questions
+
+### 14.1 Keputusan (dari v0.1)
+
+| # | Pertanyaan | Keputusan |
+|---|---|---|
+| 1 | Autentikasi | Configurable lewat `config.json`: `none` atau `otp` (registrasi nama + email + nomor HP, OTP via WhatsApp/`wa-notif`), §4.0, §9 |
+| 2 | Field form | Tidak ada field terstruktur: foto + anotasi + teks bebas per anotasi |
+| 3 | Label anotasi | Bebas (teks bebas pada anotasi); tidak ada tabel/endpoint `labels` |
+| 4 | Retensi data | 3 bulan (90 hari), configurable, dihapus oleh cleanup job (§8.3) |
+| 5 | Export | Tidak ada export untuk user; disiapkan export admin ke JSONL yang bisa dibaca model (§5.7), format lain lewat port `Exporter` |
+| 6 | Edit setelah submit | Boleh, hanya oleh pemilik (§4.4, §9) |
+
+### 14.1b Keputusan (dari v0.3)
+
+| # | Topik | Keputusan |
+|---|---|---|
+| 7 | Registrasi | Nama + email + nomor HP; nomor diverifikasi OTP 6 digit via WhatsApp lewat `wa-notif`; tanpa password; login berikutnya juga lewat OTP (§4.0) |
+| 8 | Pengiriman OTP | Asinkron lewat antrean di DB + satu worker, karena `wa-notif` mengirim satu pesan per 1,5 detik (§4.0, §9.5) |
+| 9 | Mode auth | Hanya `none` dan `otp` di v1; `static_token`/`jwt` dihapus dari scope (bisa ditambah lewat port `Authenticator`) |
+| 10 | PostgreSQL | Versi 17, satu container shared (`shared-postgres`) di `/home/myrpi/docker/postgres`, database + role per service, network `shared-db` |
+| 11 | Nomor HP | Hanya nomor seluler Indonesia (`62 8…`); nomor internasional di luar scope v1 (§7.4) |
+| 12 | Jendela edit | 24 jam sejak `created_at`, configurable `edit.window` (§4.4) |
+| 13 | Pemulihan `edit_token` | Tidak perlu; token hilang = tidak bisa edit (mode `none`) |
+| 14 | Export | COCO/YOLO belum perlu, tetapi penyimpanan dijaga tanpa kehilangan informasi agar bisa diekspor ke format model apa pun nanti (§3.2) |
+| 15 | Admin | Satu akun statis (username + password bcrypt) di `config.json`, login `/admin/login`, independen dari `auth.mode` (§5.9, §9.1); menggantikan keputusan "admin tidak ada di mode `none`" |
+| 16 | Kegagalan WhatsApp | FE menampilkan masalah (status challenge + `channel-status`) dan menawarkan kirim ulang; tidak ada kanal cadangan (§4.0, §9.5) |
+| 17 | Retensi data user | Tanpa batas untuk sekarang (ditinjau ulang sebelum go-live karena berisi data pribadi) |
+| 18 | Storage PostgreSQL | Tetap di SD card untuk sementara |
+| 19 | Penyimpanan foto | SSD lokal di Raspi (ext4), bukan Cloudflare R2/object storage eksternal. Alasan: R2 butuh kartu kredit; internet Pi terukur ±187 Mbps down / ±179 Mbps up, cukup untuk ±30 foto/s (§8) |
+| 20 | Mekanisme upload | `POST /uploads/presign` tetap, tetapi URL menunjuk ke API sendiri (`PUT /uploads/{id}` bertanda tangan HMAC); API men-stream ke disk dan memvalidasi isi file (§5.1, §5.1b). Kontrak ke FE sama dengan presign S3 |
+| 21 | SSD | Terpasang dan ter-mount di `/mnt/ssd` (ext4, USB 3). Pengembangan di mesin dev memakai direktori biasa (`require_mount=false`); produksi wajib `require_mount=true` (§8.2) |
+| 22 | Storage eksternal | Tidak di v1; port `PhotoStore` memungkinkan adapter S3/B2 nanti tanpa mengubah FE |
+
+### 14.2 Open Questions
+
+Sisa pertanyaan yang belum diputuskan:
+
+1. **Dataset untuk model vs retensi 90 hari:** foto dan anotasi dihapus setelah 90 hari, sedangkan export v1 hanya memberi referensi/URL sementara. Jika data akan dipakai melatih model, dari mana salinan foto diambil dan di mana disimpan? Karena foto ada di SSD lokal, menyalin murah. Opsi: (a) job export berkala yang menyalin foto + JSONL ke direktori dataset terpisah di SSD (di luar jangkauan retensi) sebelum hari ke-90; (b) perpanjang retensi (SSD 256 GB muat ±650 ribu foto); (c) admin menyalin manual dengan `rsync` memakai `storage_key` dari export. Menentukan apakah export perlu menyalin foto, bukan hanya mereferensikannya.
+2. **Nomor tanpa WhatsApp:** hasil pengecekan kode `wa-notif`: tidak ada pengecekan `IsOnWhatsApp` sebelum kirim; `SendMessage` whatsmeow dipanggil langsung. Perilaku sebenarnya untuk nomor tanpa akun WhatsApp belum teruji (bisa mengembalikan error, bisa juga `SENT` tanpa pernah sampai). Perlu satu uji manual dengan nomor tanpa WhatsApp. Opsi perbaikan: menambah endpoint cek nomor di `wa-notif` (`IsOnWhatsApp`) sehingga FE bisa memberi tahu "nomor ini tidak memakai WhatsApp" sebelum OTP dikirim. Ini mengubah project `wa-notif`; belum dilakukan.
+3. **Backup (DB dan foto):** DB di SD card (keputusan #18) dan foto di satu SSD tanpa replika. Belum ditentukan tujuan backup (disk kedua, mesin lain di LAN, atau cloud), jadwal `pg_dump` harian, dan `rsync` foto (§11.5).
+4. ~~Nasib data lama di SSD dan mount~~ **Selesai (24 Okt 2026):** data lama sudah di-backup pengguna, SSD diformat ext4 dan ter-mount (§11.1). Tersisa: uji `require_mount` pada binary API (tugas T10) dan konfirmasi UID container `api` = 65532 saat image dibuat (T31).
+5. **CPU Pi di bawah beban upload:** `cloudflared` (Pi 4 tanpa instruksi crypto hardware) dan hashing SHA-256 saat upload belum terukur; ukur lewat load test §13 (target 30 foto/s). Jika CPU jenuh: turunkan `max_concurrent_uploads`, hitung SHA-256 secara asinkron, atau pindah ke storage eksternal lewat adapter baru.
+
+Dijawab di v0.4 (lihat §14.1b): batas waktu edit, pemulihan `edit_token`, export COCO/YOLO, admin di mode `none`, cadangan nomor WhatsApp, nomor internasional, retensi data user, dan lokasi storage.
 
 ## 15. Milestones
 
-1. **M1 — Backend inti:** presign, submissions, migrasi DB, cleanup job.
-2. **M2 — Frontend:** form, kamera, resize/kompresi, upload dengan progress.
-3. **M3 — Anotasi:** integrasi Annotorious, validasi koordinat, render ulang.
-4. **M4 — Hardening:** rate limit, Turnstile, admin access, backup.
-5. **M5 — Load test & go-live:** jalankan skenario §13, tuning, deploy.
+0. **M0 — Infrastruktur:** PostgreSQL 17 shared di `/home/myrpi/docker/postgres` (compose sudah dibuat dan berjalan), buat database `photo_annotated` lewat `create-service-db.sh`. Pasang SSD (ext4, mount by UUID, `noatime`) dan buat `/mnt/ssd/photo-annotated/photos` dengan pemilik UID container `api`; sampai SSD terpasang, pengembangan memakai direktori biasa (`require_mount=false`).
+1. **M1 — Backend inti:** kerangka Clean Architecture + Gin, config loader, migrasi DB, presign + upload ke disk (`PhotoStore` adapter `localfs`, validasi isi file, URL bertanda tangan, penjagaan mount/ruang), submissions (POST), cleanup job (foto yatim, file yatim di disk, retensi).
+2. **M2 — Auth OTP:** `users`/`otp_challenges`/`sessions`, normalisasi nomor, adapter `wanotif`, dispatcher antrean, `auth/*`, middleware session, pembatasan §9.5, uji manual ke `wa-notif` asli. Dikerjakan sebelum FE karena presign dan submit membutuhkan session.
+3. **M3 — Frontend:** layar registrasi/login OTP, kamera, resize/kompresi, upload dengan progress.
+4. **M4 — Anotasi:** integrasi Annotorious, teks per kotak, validasi koordinat, render ulang.
+5. **M5 — Edit:** mode `none` dengan `edit_token`, `GET`/`PUT /submissions/{id}`, `GET /photos/{id}/url` + `/content`, kontrol akses pemilik, jendela edit 24 jam.
+6. **M6 — Admin, export & hardening:** `POST /admin/login`, `GET /admin/export` (jsonl), rate limit, Turnstile, backup, alert.
+7. **M7 — Load test & go-live:** jalankan skenario §13 (dengan stub `wa-notif`), tuning, deploy.
