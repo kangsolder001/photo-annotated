@@ -532,7 +532,7 @@ Index: `(user_id)`. Validasi token = satu lookup indeks unik per request (tidak 
 - Container `api` berjalan sebagai user non-root; direktori root foto dimiliki UID yang sama.
 
 ### 8.2 Penjagaan SSD (fail fast)
-- **Wajib ter-mount:** dengan `storage.local.require_mount = true` (wajib di produksi), API menolak start jika root foto bukan mount point tersendiri (device berbeda dari direktori induknya). Tanpa ini, jika SSD lepas atau belum ter-mount, upload diam-diam menulis ke SD card dan mengisinya. Saat pengembangan sebelum SSD terpasang, `require_mount = false` dengan direktori biasa.
+- **Wajib SSD yang benar (file penanda):** dengan `storage.local.require_marker = true` (wajib di produksi), root foto harus berisi file penanda `.photo-annotated-store` (file biasa, bukan symlink/direktori) yang dibuat operator sekali saat setup di SSD (`touch`). Tanpa penanda, API menolak start. Tujuannya mencegah upload diam-diam menulis ke SD card ketika SSD lepas/belum ter-mount. Pembandingan device dengan direktori induk **tidak dipakai** karena tidak andal: diuji di Pi, bind mount Docker dari direktori SD card tetap tampak sebagai device terpisah dari induknya di dalam container (dev 45826 vs 47), sehingga cek itu lolos padahal SSD tidak ter-mount. Penanda ikut hilang saat SSD lepas, jadi cek berkala juga mendeteksi pencabutan saat runtime. Saat pengembangan, `require_marker = false` dengan direktori biasa.
 - **Cek berkala (tiap 30 detik) dan saat presign:** root masih ter-mount dan dapat ditulis, sisa ruang ≥ `storage.local.min_free_bytes` (default 5 GB). Jika tidak, presign dan upload dijawab `503 STORAGE_FULL` / `503 STORAGE_UNAVAILABLE`, dan alert menyala (§12).
 - **Penulisan aman:** file ditulis ke `tmp/`, `fsync`, `rename` atomik ke lokasi akhir, lalu `fsync` direktori. Mati listrik tidak meninggalkan file separuh di lokasi akhir; sisa `tmp/` dibersihkan §8.3.
 - **Tidak ada redundansi:** satu SSD adalah satu titik kegagalan; mitigasinya backup (§11.5).
@@ -654,7 +654,7 @@ Risiko utama: endpoint OTP publik membuat API ini bisa dipakai untuk **mengirim 
 - Raspberry Pi 4 (aarch64), RAM 4 GB (kondisi saat ini ±3,8 GB, dibagi dengan `wa-notif` dan service lain).
 - **Ethernet** (bukan WiFi) untuk produksi.
 - Heatsink + fan untuk mencegah thermal throttling.
-- **Storage:** saat ini hanya SD card (`/dev/mmcblk0p2`, ±12 GB bebas). **SSD untuk foto (§8) sudah terpasang dan siap** (24 Okt 2026): Samsung 970 EVO 250 GB (NVMe) di enclosure USB 3.0 berchip RTL9210, driver `uas`, link 5 Gbps, `throttled=0x0`. Partisi tunggal **ext4** (label `photos`, UUID `76b14e6c-3abf-448f-969d-5350020b7e76`), ter-mount di `/mnt/ssd` lewat `/etc/fstab` (`defaults,noatime,nofail,x-systemd.device-timeout=10s`). Terukur: tulis sekuensial ±211 MB/s, baca ±353 MB/s, 127 file/s untuk file 400 KB dengan `fsync`+`rename`. **Harus di port USB 3 (biru)**: pada USB 2.0 kecepatannya hanya ±35 MB/s (periksa `lsusb -t`: `Driver=uas`, 5000M). Direktori `/mnt/ssd/photo-annotated/photos` (dengan `tmp/`) dimiliki UID 65532 (mode 750). Data PostgreSQL tetap di SD card untuk sementara (keputusan #18) dan bisa dipindah ke SSD yang sama nanti dengan mengubah bind mount `./data` di compose shared.
+- **Storage:** saat ini hanya SD card (`/dev/mmcblk0p2`, ±12 GB bebas). **SSD untuk foto (§8) sudah terpasang dan siap** (24 Okt 2026): Samsung 970 EVO 250 GB (NVMe) di enclosure USB 3.0 berchip RTL9210, driver `uas`, link 5 Gbps, `throttled=0x0`. Partisi tunggal **ext4** (label `photos`, UUID `76b14e6c-3abf-448f-969d-5350020b7e76`), ter-mount di `/mnt/ssd` lewat `/etc/fstab` (`defaults,noatime,nofail,x-systemd.device-timeout=10s`). Terukur: tulis sekuensial ±211 MB/s, baca ±353 MB/s. Adapter `localfs` dengan urutan penuh (fsync file, mkdir, rename, fsync direktori) untuk file 400 KB: 38–54 file/s sekuensial, 85 file/s (4 upload paralel), **312 file/s / ±128 MB/s (16 upload paralel)**, jauh di atas target 30 foto/s. **Harus di port USB 3 (biru)**: pada USB 2.0 kecepatannya hanya ±35 MB/s (periksa `lsusb -t`: `Driver=uas`, 5000M). Direktori `/mnt/ssd/photo-annotated/photos` (dengan `tmp/`) dimiliki UID 65532 (mode 750). Data PostgreSQL tetap di SD card untuk sementara (keputusan #18) dan bisa dipindah ke SSD yang sama nanti dengan mengubah bind mount `./data` di compose shared.
 - **Internet (terukur dari Pi, Okt 2026):** Ethernet 1 Gbps; ±187 Mbps download / ±179 Mbps upload (multi-koneksi), ±117 / ±92 Mbps (satu koneksi), ping ±20 ms. Foto masuk memakai sisi download; melihat foto, export, dan backup memakai sisi upload.
 - **PostgreSQL 17 berjalan sebagai satu container shared** yang didefinisikan di `/home/myrpi/docker/postgres/docker-compose.yml` (di luar repo ini):
   - Image `postgres:17-alpine`, container `shared-postgres`, `max_connections=100`, `shared_buffers=256MB`.
@@ -672,7 +672,7 @@ Risiko utama: endpoint OTP publik membuat API ini bisa dipakai untuk **mengirim 
   - `shared-db` → PostgreSQL (`DATABASE_URL=postgres://photo_annotated:…@shared-postgres:5432/photo_annotated?sslmode=disable`).
   - `wa-notif_default` → `wa-notif` (`wa_notif.base_url = http://wa-notif-service:3030`), sehingga tidak bergantung pada port host.
 - `config.json` di-mount read-only ke container `api`.
-- Root foto di-bind-mount dari SSD: `/mnt/ssd/photo-annotated/photos:/data/photos` (baca-tulis). Jika SSD belum ter-mount, bind mount mengarah ke direktori di SD card; karena itu `storage.local.require_mount` wajib `true` di produksi (§8.2).
+- Root foto di-bind-mount dari SSD: `/mnt/ssd/photo-annotated/photos:/data/photos` (baca-tulis). Jika SSD belum ter-mount, bind mount mengarah ke direktori kosong di SD card; karena itu `storage.local.require_marker` wajib `true` di produksi dan penanda `.photo-annotated-store` harus ada di SSD (§8.2).
 - `ulimits: nofile: 65536` untuk `api` (banyak koneksi dan file terbuka bersamaan).
 
 ### 11.3 Tuning awal
@@ -728,7 +728,7 @@ Konfigurasi non-rahasia di `config.json` (path dari env `CONFIG_PATH`, default `
     "driver": "local",
     "local": {
       "root": "/data/photos",
-      "require_mount": true,
+      "require_marker": true,
       "min_free_bytes": 5368709120
     },
     "upload_url_ttl": "10m",
@@ -826,7 +826,7 @@ Kriteria lulus: target di §10 terpenuhi, tanpa thermal throttling, CPU (API dan
 | 18 | Storage PostgreSQL | Tetap di SD card untuk sementara |
 | 19 | Penyimpanan foto | SSD lokal di Raspi (ext4), bukan Cloudflare R2/object storage eksternal. Alasan: R2 butuh kartu kredit; internet Pi terukur ±187 Mbps down / ±179 Mbps up, cukup untuk ±30 foto/s (§8) |
 | 20 | Mekanisme upload | `POST /uploads/presign` tetap, tetapi URL menunjuk ke API sendiri (`PUT /uploads/{id}` bertanda tangan HMAC); API men-stream ke disk dan memvalidasi isi file (§5.1, §5.1b). Kontrak ke FE sama dengan presign S3 |
-| 21 | SSD | Terpasang dan ter-mount di `/mnt/ssd` (ext4, USB 3). Pengembangan di mesin dev memakai direktori biasa (`require_mount=false`); produksi wajib `require_mount=true` (§8.2) |
+| 21 | SSD | Terpasang dan ter-mount di `/mnt/ssd` (ext4, USB 3), dengan file penanda `.photo-annotated-store` di root foto. Pengembangan di mesin dev memakai direktori biasa (`require_marker=false`); produksi wajib `require_marker=true` (§8.2) |
 | 22 | Storage eksternal | Tidak di v1; port `PhotoStore` memungkinkan adapter S3/B2 nanti tanpa mengubah FE |
 
 ### 14.2 Open Questions
@@ -836,14 +836,14 @@ Sisa pertanyaan yang belum diputuskan:
 1. **Dataset untuk model vs retensi 90 hari:** foto dan anotasi dihapus setelah 90 hari, sedangkan export v1 hanya memberi referensi/URL sementara. Jika data akan dipakai melatih model, dari mana salinan foto diambil dan di mana disimpan? Karena foto ada di SSD lokal, menyalin murah. Opsi: (a) job export berkala yang menyalin foto + JSONL ke direktori dataset terpisah di SSD (di luar jangkauan retensi) sebelum hari ke-90; (b) perpanjang retensi (SSD 256 GB muat ±650 ribu foto); (c) admin menyalin manual dengan `rsync` memakai `storage_key` dari export. Menentukan apakah export perlu menyalin foto, bukan hanya mereferensikannya.
 2. **Nomor tanpa WhatsApp:** hasil pengecekan kode `wa-notif`: tidak ada pengecekan `IsOnWhatsApp` sebelum kirim; `SendMessage` whatsmeow dipanggil langsung. Perilaku sebenarnya untuk nomor tanpa akun WhatsApp belum teruji (bisa mengembalikan error, bisa juga `SENT` tanpa pernah sampai). Perlu satu uji manual dengan nomor tanpa WhatsApp. Opsi perbaikan: menambah endpoint cek nomor di `wa-notif` (`IsOnWhatsApp`) sehingga FE bisa memberi tahu "nomor ini tidak memakai WhatsApp" sebelum OTP dikirim. Ini mengubah project `wa-notif`; belum dilakukan.
 3. **Backup (DB dan foto):** DB di SD card (keputusan #18) dan foto di satu SSD tanpa replika. Belum ditentukan tujuan backup (disk kedua, mesin lain di LAN, atau cloud), jadwal `pg_dump` harian, dan `rsync` foto (§11.5).
-4. ~~Nasib data lama di SSD dan mount~~ **Selesai (24 Okt 2026):** data lama sudah di-backup pengguna, SSD diformat ext4 dan ter-mount (§11.1). Tersisa: uji `require_mount` pada binary API (tugas T10) dan konfirmasi UID container `api` = 65532 saat image dibuat (T31).
+4. ~~Nasib data lama di SSD dan mount~~ **Selesai (24 Okt 2026):** data lama sudah di-backup pengguna, SSD diformat ext4 dan ter-mount (§11.1). Tersisa: uji `require_marker` pada binary API (tugas T10) dan konfirmasi UID container `api` = 65532 saat image dibuat (T31).
 5. **CPU Pi di bawah beban upload:** `cloudflared` (Pi 4 tanpa instruksi crypto hardware) dan hashing SHA-256 saat upload belum terukur; ukur lewat load test §13 (target 30 foto/s). Jika CPU jenuh: turunkan `max_concurrent_uploads`, hitung SHA-256 secara asinkron, atau pindah ke storage eksternal lewat adapter baru.
 
 Dijawab di v0.4 (lihat §14.1b): batas waktu edit, pemulihan `edit_token`, export COCO/YOLO, admin di mode `none`, cadangan nomor WhatsApp, nomor internasional, retensi data user, dan lokasi storage.
 
 ## 15. Milestones
 
-0. **M0 — Infrastruktur:** PostgreSQL 17 shared di `/home/myrpi/docker/postgres` (compose sudah dibuat dan berjalan), buat database `photo_annotated` lewat `create-service-db.sh`. Pasang SSD (ext4, mount by UUID, `noatime`) dan buat `/mnt/ssd/photo-annotated/photos` dengan pemilik UID container `api`; sampai SSD terpasang, pengembangan memakai direktori biasa (`require_mount=false`).
+0. **M0 — Infrastruktur:** PostgreSQL 17 shared di `/home/myrpi/docker/postgres` (compose sudah dibuat dan berjalan), buat database `photo_annotated` lewat `create-service-db.sh`. Pasang SSD (ext4, mount by UUID, `noatime`) dan buat `/mnt/ssd/photo-annotated/photos` dengan pemilik UID container `api`; sampai SSD terpasang, pengembangan memakai direktori biasa (`require_marker=false`).
 1. **M1 — Backend inti:** kerangka Clean Architecture + Gin, config loader, migrasi DB, presign + upload ke disk (`PhotoStore` adapter `localfs`, validasi isi file, URL bertanda tangan, penjagaan mount/ruang), submissions (POST), cleanup job (foto yatim, file yatim di disk, retensi).
 2. **M2 — Auth OTP:** `users`/`otp_challenges`/`sessions`, normalisasi nomor, adapter `wanotif`, dispatcher antrean, `auth/*`, middleware session, pembatasan §9.5, uji manual ke `wa-notif` asli. Dikerjakan sebelum FE karena presign dan submit membutuhkan session.
 3. **M3 — Frontend:** layar registrasi/login OTP, kamera, resize/kompresi, upload dengan progress.

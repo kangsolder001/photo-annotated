@@ -124,9 +124,9 @@ type Storage struct {
 }
 
 type StorageLocal struct {
-	Root         string `json:"root"`
-	RequireMount bool   `json:"require_mount"`
-	MinFreeBytes int64  `json:"min_free_bytes"`
+	Root          string `json:"root"`
+	RequireMarker bool   `json:"require_marker"`
+	MinFreeBytes  int64  `json:"min_free_bytes"`
 }
 
 type Limits struct {
@@ -202,7 +202,7 @@ func Defaults() Config {
 		},
 		Database: Database{MaxConns: 20},
 		Storage: Storage{
-			Local:        StorageLocal{RequireMount: true, MinFreeBytes: 5 << 30},
+			Local:        StorageLocal{RequireMarker: true, MinFreeBytes: 5 << 30},
 			UploadURLTTL: Duration(10 * time.Minute),
 			ViewURLTTL:   Duration(5 * time.Minute),
 		},

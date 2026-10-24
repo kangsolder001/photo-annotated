@@ -38,7 +38,7 @@
     "driver": "local",
     "local": {
       "root": "/data/photos",
-      "require_mount": true,
+      "require_marker": true,
       "min_free_bytes": 5368709120
     },
     "upload_url_ttl": "10m",

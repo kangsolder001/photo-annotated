@@ -146,14 +146,16 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [x] `go test ./internal/domain/... -race`
 **Dependencies:** 5 · **Files:** `internal/domain/{photo,annotation,errors}.go` + test · **Scope:** S
 
-#### Task 10: Adapter `localfs` (PhotoStore) + penjagaan mount
-**Description:** Implementasi `Save` (tmp → fsync → rename → fsync dir), `Open`, `Stat`, `Delete` (idempotent), `FreeSpace`, memakai `os.Root`; cek `require_mount` dan `min_free_bytes` (spec §8).
+#### Task 10: Adapter `localfs` (PhotoStore) + penjagaan SSD — **SELESAI**
+**Description:** Implementasi `Save` (tmp → fsync → rename → fsync dir), `Open`, `Stat`, `Delete` (idempotent), `FreeSpace`, memakai `os.Root`; cek `require_marker` dan `min_free_bytes` (spec §8).
 **Acceptance criteria:**
-- [ ] `storage_key` dengan `..`/symlink/absolut ditolak
-- [ ] Penulisan terputus tidak meninggalkan file di lokasi akhir
-- [ ] `require_mount=true` pada direktori yang bukan mount point → gagal start
-- [ ] `Delete` file yang tidak ada → sukses
-**Verification:** [ ] `go test ./internal/adapter/localfs/... -race` (`t.TempDir()`); [ ] di Pi: start dengan `/mnt/ssd/...` lolos, dengan direktori SD card gagal
+- [x] `storage_key` dengan `..`/absolut/NUL/bentuk tak kanonik ditolak; symlink yang menunjuk keluar root ditolak oleh `os.Root`
+- [x] Penulisan terputus (error baca, konteks dibatalkan, melebihi batas, pembaca tak berujung) tidak meninggalkan file di lokasi akhir, tmp bersih, dan isi lama tetap utuh saat PUT ulang gagal; 20 penulis serentak pada kunci yang sama tidak mencampur isi
+- [x] `require_marker=true` tanpa file penanda `.photo-annotated-store` → gagal start; penanda yang hilang saat runtime terdeteksi setelah TTL cache (cek device-vs-induk dibuang: terbukti lolos palsu pada bind mount Docker dari SD card)
+- [x] `Delete` file yang tidak ada → sukses; ENOSPC → `STORAGE_FULL`, EIO/EROFS → `STORAGE_UNAVAILABLE`; sisa ruang < `min_free_bytes` → `STORAGE_FULL`
+- [x] Pada SSD di Pi (dijalankan sebagai UID 65532): seluruh test PASS, root tanpa penanda ditolak, dengan penanda lolos; 54 file/s sekuensial, 312 file/s dengan 16 upload paralel (target 30)
+**Verification:** [x] `go test ./internal/adapter/localfs/... -race` (`t.TempDir()`); [x] di Pi: root SSD + penanda lolos, direktori SD card tanpa penanda gagal (`TestRealRoot`, arm64)
+**Catatan:** penanda `/mnt/ssd/photo-annotated/photos/.photo-annotated-store` sudah dibuat di Pi (pemilik UID 65532, mode 640).
 **Dependencies:** 2, 5 · **Files:** `internal/adapter/localfs/{store,mountcheck}.go` + test, `usecase/ports.go` · **Scope:** M
 
 #### Task 11: `POST /uploads/presign`
@@ -370,7 +372,7 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 #### Task 31: Dockerfile + Compose (`api` + `cloudflared`)
 **Description:** Image arm64 multi-stage, compose dengan network `shared-db` & `wa-notif_default`, bind mount SSD `/data/photos`, `ulimits nofile 65536`, config read-only.
 **Acceptance criteria:**
-- [ ] `docker compose up -d` di Pi: API sehat; SSD dilepas → API menolak start (`require_mount`)
+- [ ] `docker compose up -d` di Pi: API sehat; SSD dilepas → API menolak start (`require_marker`)
 - [ ] Container non-root (UID 65532) dapat menulis ke `/data/photos`
 **Verification:** [ ] `docker compose ps`; [ ] `curl https://<api>/healthz` lewat Tunnel
 **Dependencies:** Checkpoint 6 · **Files:** `Dockerfile`, `docker-compose.yml`, `.dockerignore` · **Scope:** S
@@ -406,7 +408,7 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| SSD tersambung ke USB 2.0 / terlepas | High | T2 mengukur kecepatan; `require_mount` mencegah tulis ke SD card; alert mount hilang |
+| SSD tersambung ke USB 2.0 / terlepas | High | T2 mengukur kecepatan; `require_marker` mencegah tulis ke SD card; alert mount hilang |
 | Nomor WhatsApp pengirim diblokir akibat OTP spam | High | Turnstile, cooldown, limit per IP/nomor, batas harian, stub untuk load test (spec §9.5); T4 menguji lebih awal |
 | `wa-notif` mengirim satu pesan per 1,5 detik (≈40 OTP/menit) | Med | Antrean + estimasi tunggu; OTP dihitung sejak terkirim |
 | Bandwidth ISP (±187 Mbps) membatasi upload | Med | Target 30 foto/s; load test disesuaikan; adapter S3/B2 bisa ditambah di balik `PhotoStore` |

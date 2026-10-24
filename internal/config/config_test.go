@@ -42,7 +42,7 @@ func TestParseMinimalNone(t *testing.T) {
 	if cfg.App.HTTPAddr != ":8080" || cfg.Edit.Window.Std() != 24*time.Hour || cfg.Retention.Days != 90 {
 		t.Fatalf("default tidak terterapkan: %+v", cfg.App)
 	}
-	if cfg.Limits.MaxUploadBytes != 2<<20 || cfg.Storage.Local.MinFreeBytes != 5<<30 || !cfg.Storage.Local.RequireMount {
+	if cfg.Limits.MaxUploadBytes != 2<<20 || cfg.Storage.Local.MinFreeBytes != 5<<30 || !cfg.Storage.Local.RequireMarker {
 		t.Fatalf("default storage/limits salah: %+v %+v", cfg.Storage, cfg.Limits)
 	}
 	if cfg.Secrets.DatabaseURL == "" || cfg.Secrets.EditTokenSecret != secret48 {
