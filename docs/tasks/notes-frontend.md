@@ -307,3 +307,18 @@ teks status, meter SSD, tautan antrean, muat ulang 30 detik dengan timer palsu; 
 **Verification:** [x] typecheck; [x] `npm test` (495); [x] build + cek bundle. [x] Visual 360/768/1440 ×
 kedua tema (Beranda, Statistik): tanpa scroll horizontal; diperbaiki: sel nama label `display:flex`
 merusak garis baris tabel.
+
+#### E2E browser (`web/e2e/flow.mjs`) — **diperbarui, BELUM DIJALANKAN**
+Diperbarui ke kontrak label dan diperluas dengan alur admin (commit terpisah setelah T51, karena
+mencakup T41–T51). Belum bisa dijalankan: backend T37–T48 belum ada di branch ini.
+Alur: admin masuk OTP (`ADMIN_PHONE` / `ADMIN_CANON`, default `0812-0000-0001` / `6281200000001`;
+harus sama dengan `admin.superadmin.phone` di config API uji) → buat 3 label (nama unik per run) →
+user daftar → kode salah/benar → 2 foto → kotak + **pilih label** (deskripsi tampil; tidak ada isian
+teks) → kotak tanpa label menahan kirim ("Pilih label.") → kirim → nama label + "Menunggu review" →
+edit label, reload, draf pulih → simpan → admin: antrean review menampilkan annotator + nomor utuh,
+detail (foto, label, email) → tolak dengan alasan → user: "Ditolak" + alasan + "Perbaiki" → riwayat
+dengan lencana → logout/login/lupa password (seperti sebelumnya) → admin hapus submission (dialog
+menyebut "2 foto, 3 kotak anotasi milik Budi Santoso", ketik `HAPUS`) → user membuka laporan →
+"Laporan ini sudah dihapus" → admin hapus label tak terpakai, arsipkan label lain → Keluar.
+Yang perlu dicek saat dijalankan: teks/peran tombol yang diasumsikan di atas, urutan kotak setelah
+reload draf, dan bahwa `GET /submissions/{id}` user memuat `review`.
