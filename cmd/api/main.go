@@ -78,12 +78,28 @@ func run() error {
 	})
 
 	photos := postgres.NewPhotoRepo(pool)
+	// Token edit anonim hanya berlaku pada auth.mode = none; pada mode otp pemilik dikenali dari akun.
+	var editTokens usecase.EditTokenSigner
+	if cfg.Auth.Mode == config.AuthModeNone {
+		et, err := signer.NewEditTokens(cfg.Secrets.EditTokenSecret)
+		if err != nil {
+			return err
+		}
+		editTokens = et
+	}
+	submit := usecase.NewSubmit(photos, postgres.NewSubmissionRepo(pool), postgres.NewTxManager(pool), store, editTokens,
+		usecase.SystemClock{}, usecase.SubmitConfig{
+			MaxPhotos:              cfg.Limits.MaxPhotosPerSubmission,
+			MaxAnnotationsPerPhoto: cfg.Limits.MaxAnnotationsPerPhoto,
+			MaxAnnotationTextLen:   cfg.Limits.MaxAnnotationTextLen,
+		})
 	upload := usecase.NewUpload(photos, store, urlSigner, imagecheck.Inspector{}, usecase.SystemClock{},
 		usecase.UploadConfig{MaxConcurrent: cfg.Limits.MaxConcurrentUploads})
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Logger: log, TrustedProxies: trusted, DB: pool, AllowedOrigins: cfg.App.AllowedOrigins,
 		Presigner: presign, PresignPerMin: cfg.Limits.RateLimitPerMin.Presign,
+		Submitter: submit, SubmissionsPerMin: cfg.Limits.RateLimitPerMin.Submissions,
 		Uploader: upload, MaxUploadBytes: cfg.Limits.MaxUploadBytes, UploadTimeout: cfg.Limits.UploadTimeout.Std(),
 	})
 	srv := httpapi.NewServer(cfg.App.HTTPAddr, router)

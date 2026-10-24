@@ -92,3 +92,63 @@ func TestMalformedSignaturesRejected(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------- token edit
+
+func TestEditTokens(t *testing.T) {
+	et, err := signer.NewEditTokens(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := et.Token(id)
+	if len(tok) != 43 || strings.ContainsAny(tok, "+/=") {
+		t.Fatalf("token = %q", tok)
+	}
+	if et.Token(id) != tok {
+		t.Fatal("token harus deterministik (replay idempoten mengembalikan token yang sama)")
+	}
+	if !et.Verify(id, tok) {
+		t.Fatal("token sah harus lolos")
+	}
+	other := uuid.MustParse("11111111-2222-3333-4444-555555555555")
+	if et.Verify(other, tok) {
+		t.Fatal("token submission lain tidak boleh lolos")
+	}
+	if et.Token(other) == tok {
+		t.Fatal("token harus berbeda per submission")
+	}
+	for name, bad := range map[string]string{"kosong": "", "sampah": "!!!", "pendek": tok[:10], "panjang": tok + "AA", "padding": tok + "="} {
+		if et.Verify(id, bad) {
+			t.Errorf("%s: seharusnya ditolak", name)
+		}
+	}
+	changed := "A" + tok[1:]
+	if tok[0] == 'A' {
+		changed = "B" + tok[1:]
+	}
+	if et.Verify(id, changed) {
+		t.Fatal("token diubah harus ditolak")
+	}
+	et2, _ := signer.NewEditTokens(strings.Repeat("z", 48))
+	if et2.Verify(id, tok) {
+		t.Fatal("secret berbeda (rotasi) harus membatalkan token lama")
+	}
+	if _, err := signer.NewEditTokens("pendek"); err == nil {
+		t.Fatal("secret pendek harus ditolak")
+	}
+}
+
+// Token edit dan tanda tangan URL memakai pesan berawalan berbeda: satu tidak berlaku untuk lainnya,
+// bahkan bila kedua secret kebetulan sama.
+func TestEditTokenAndUploadSignatureAreSeparateDomains(t *testing.T) {
+	et, _ := signer.NewEditTokens(secret)
+	s := newSigner(t, secret)
+	tok := et.Token(id)
+	if s.VerifyUpload(id, exp.Unix(), "image/webp", 1, tok) {
+		t.Fatal("token edit tidak boleh lolos sebagai tanda tangan upload")
+	}
+	sig := s.SignUpload(id, exp, "image/webp", 1)
+	if et.Verify(id, sig) {
+		t.Fatal("tanda tangan upload tidak boleh lolos sebagai token edit")
+	}
+}

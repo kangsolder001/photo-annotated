@@ -34,7 +34,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 
 ## Phase 3: Submission (mode `none`)
 - [x] **T13** Persistensi submission + annotation + transaksi
-- [ ] **T14** `POST /submissions` (idempoten) + `edit_token`
+- [x] **T14** `POST /submissions` (idempoten) + `edit_token`
 - [ ] **T15** `GET /submissions/{id}` + URL/konten foto
 - [ ] **T16** `PUT /submissions/{id}` (edit, versi, jendela 24 jam)
 

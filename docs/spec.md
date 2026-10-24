@@ -265,18 +265,19 @@ Request:
       ]
     }
   ],
-  "client_request_id": "c1f7e0a4-..."
+  "client_request_id": "c1f7e0a4-1111-4222-8333-444444444444"
 }
 ```
+JSON dibaca secara ketat: field tak dikenal, UUID cacat, atau tipe salah → `400 INVALID_JSON`; `Content-Type` bukan `application/json` → `415`; body > 64 KB → `413`.
 
-Validasi:
-- Jumlah foto: 1–5 per submission. Urutan array = urutan tampil (`position`).
-- Setiap `photo_id` harus ada, berstatus `pending`, belum dipakai submission lain, dan (jika ada auth) dibuat oleh principal yang sama.
-- Setiap foto harus sudah ter-upload: `uploaded_at` terisi dan file ada di disk dengan ukuran sama dengan `size_bytes` (`Stat`, tanpa membaca isi). `uploaded_at` kosong → `422 PHOTO_NOT_UPLOADED` (foto tetap `pending`, bisa di-upload ulang); file hilang atau ukuran tidak cocok → `422` dan foto ditandai `rejected`.
-- Anotasi: 0–50 per foto; koordinat valid (§6.3); `text` wajib, setelah `trim` panjang 1–1000 karakter (rune), tanpa karakter kontrol selain newline.
-- `client_request_id` (UUID) dipakai sebagai **idempotency key**. Request ulang dengan ID yang sama mengembalikan response submission yang sama (termasuk `edit_token`, lihat §9.3), bukan membuat duplikat.
+Urutan pemeriksaan dan hasilnya:
+1. **Bentuk** (tanpa I/O), semuanya `422`: `client_request_id` wajib dan bukan UUID nol (`INVALID_CLIENT_REQUEST_ID`); 1–5 foto (`INVALID_PHOTO_COUNT`); `photo_id` tidak boleh kembar (`DUPLICATE_PHOTO`); 0–50 anotasi per foto (`TOO_MANY_ANNOTATIONS`); tiap anotasi lolos §6.3 (`INVALID_BBOX`, `INVALID_ANNOTATION_TEXT`). Pesan error memuat lokasi field, mis. `photos[0].annotations[1]: …`. Urutan array foto = urutan tampil (`position`).
+2. **Idempotensi.** `client_request_id` yang sudah pernah dipakai mengembalikan submission yang sama dengan `200` (bukan `201`), berisi `edit_token` yang sama dan `version` **terkini** (dibutuhkan untuk `PUT` berikutnya), tanpa membuat baris baru dan tanpa memeriksa ulang foto. Jika id itu dipakai pemilik lain → `409 DUPLICATE_CLIENT_REQUEST` (tidak membocorkan submission orang lain). Dua request identik yang datang bersamaan menghasilkan tepat satu submission; yang kalah dijawab sebagai replay.
+3. **Foto** (dimuat dan diperiksa sebelum transaksi dimulai, sehingga I/O disk tidak menahan transaksi): foto tidak ada **atau milik orang lain** → `422 PHOTO_NOT_FOUND` (jawaban sama, agar keberadaan foto orang lain tidak bisa ditebak); belum ter-upload → `422 PHOTO_NOT_UPLOADED` (tetap `pending`, bisa di-upload); bukan `pending` (sudah dipakai, `rejected`, `deleted`) → `409 PHOTO_NOT_AVAILABLE`.
+4. **File di SSD** untuk setiap foto: harus ada dan berukuran sama dengan `size_bytes` (`Stat`, tanpa membaca isi). Hilang/ukuran beda → `422 PHOTO_FILE_INVALID` dan foto itu ditandai `rejected` (foto lain pada request yang sama tidak disentuh). Kegagalan penyimpanan itu sendiri (SSD lepas) → `503 STORAGE_UNAVAILABLE` tanpa menandai foto.
+5. **Satu transaksi**: buat submission, lampirkan tiap foto (`UPDATE … WHERE status='pending' AND uploaded_at IS NOT NULL AND` pemilik sama, sehingga dua submission tidak bisa memakai satu foto walau berbarengan), lalu simpan anotasi. Kegagalan di langkah mana pun membatalkan semuanya (submission, status foto, dan anotasi kembali seperti semula). Foto yang direbut submission lain di tengah jalan → `409 PHOTO_NOT_AVAILABLE`.
 
-Response `201`:
+Response `201` (submission baru) atau `200` (replay):
 ```json
 {
   "submission_id": "7d2a...",
@@ -285,7 +286,9 @@ Response `201`:
   "edit_token": "..."
 }
 ```
-`edit_token` hanya ada jika `auth.mode = none`.
+`edit_token` hanya ada jika `auth.mode = none`. `created_at` berpresisi mikrodetik dan identik pada respons pertama maupun replay. Alamat IP klien (`CF-Connecting-IP` dari proxy tepercaya) dicatat pada submission.
+
+Rate limit: 10 request per menit per IP (`limits.rate_limit_per_min.submissions`).
 
 ### 5.3 `GET /submissions/{id}`
 Mengembalikan metadata foto dan anotasi (termasuk `version` dan `editable_until` = `created_at + edit.window`). Akses: pemilik atau admin (§9.2).

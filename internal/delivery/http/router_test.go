@@ -27,15 +27,17 @@ func newTestRouter(t *testing.T) (http.Handler, *bytes.Buffer) {
 // baseDeps mengisi semua dependensi router dengan fake; test mengubah yang perlu.
 func baseDeps(buf *bytes.Buffer) httpapi.Deps {
 	return httpapi.Deps{
-		Logger:         slog.New(slog.NewJSONHandler(buf, nil)),
-		TrustedProxies: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")},
-		DB:             fakeDB{},
-		AllowedOrigins: []string{"https://app.example.com"},
-		Presigner:      &fakePresigner{},
-		PresignPerMin:  1000,
-		Uploader:       &fakeUploader{},
-		MaxUploadBytes: 2 << 20,
-		UploadTimeout:  60 * time.Second,
+		Logger:            slog.New(slog.NewJSONHandler(buf, nil)),
+		TrustedProxies:    []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")},
+		DB:                fakeDB{},
+		AllowedOrigins:    []string{"https://app.example.com"},
+		Presigner:         &fakePresigner{},
+		PresignPerMin:     1000,
+		Uploader:          &fakeUploader{},
+		Submitter:         &fakeSubmitter{},
+		SubmissionsPerMin: 1000,
+		MaxUploadBytes:    2 << 20,
+		UploadTimeout:     60 * time.Second,
 	}
 }
 

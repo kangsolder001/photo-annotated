@@ -30,6 +30,9 @@ type Deps struct {
 	Presigner     handler.Presigner // usecase presign (spec §5.1)
 	PresignPerMin int               // batas rate limit presign per IP
 
+	Submitter         handler.Submitter // usecase submit (spec §5.2)
+	SubmissionsPerMin int               // batas rate limit POST /submissions per IP
+
 	Uploader       handler.Uploader // usecase upload (spec §5.1b)
 	MaxUploadBytes int64            // batas ukuran file (config limits.max_upload_bytes)
 	UploadTimeout  time.Duration    // deadline baca total upload (config limits.upload_timeout)
@@ -38,8 +41,9 @@ type Deps struct {
 // NewRouter membuat engine dengan middleware dasar dan route operasional.
 func NewRouter(d Deps) *gin.Engine {
 	if d.Logger == nil || d.DB == nil || d.Presigner == nil || d.PresignPerMin < 1 ||
-		d.Uploader == nil || d.MaxUploadBytes < 1 || d.UploadTimeout <= 0 {
-		panic("httpapi: Deps.Logger, DB, Presigner, PresignPerMin, Uploader, MaxUploadBytes, dan UploadTimeout wajib diisi")
+		d.Uploader == nil || d.MaxUploadBytes < 1 || d.UploadTimeout <= 0 ||
+		d.Submitter == nil || d.SubmissionsPerMin < 1 {
+		panic("httpapi: Deps.Logger, DB, Presigner, PresignPerMin, Uploader, MaxUploadBytes, UploadTimeout, Submitter, dan SubmissionsPerMin wajib diisi")
 	}
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -69,6 +73,9 @@ func NewRouter(d Deps) *gin.Engine {
 	api := ops.Group("/api/v1")
 	uploads := handler.NewUploadHandler(d.Presigner, d.Uploader, d.MaxUploadBytes)
 	api.POST("/uploads/presign", middleware.RateLimit(middleware.NewRateLimiter(d.PresignPerMin)), uploads.Presign)
+
+	submissions := handler.NewSubmissionHandler(d.Submitter)
+	api.POST("/submissions", middleware.RateLimit(middleware.NewRateLimiter(d.SubmissionsPerMin)), submissions.Create)
 
 	// Upload foto: di luar grup JSON (tanpa batas body 64 KB dan tanpa deadline baca 10 detik).
 	// Batas ukuran ditegakkan usecase (tepat sebesar yang dideklarasikan); deadline baca total

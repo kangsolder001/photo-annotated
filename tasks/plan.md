@@ -203,13 +203,16 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [x] `TEST_DATABASE_URL=… go test ./internal/adapter/postgres/... -race` (test balapan diulang 5×); [x] `migrate up/down/up` pada DB dev
 **Dependencies:** 7, 11 · **Files:** `migrations/0003_submissions.sql`, `adapter/postgres/{submission_repo,tx}.go` + test · **Scope:** M
 
-#### Task 14: `POST /submissions` (idempotent) + `edit_token`
+#### Task 14: `POST /submissions` (idempotent) + `edit_token` — **SELESAI**
 **Description:** Usecase submit: validasi §5.2, verifikasi foto ter-upload (`uploaded_at`, `Stat` ukuran), simpan dalam satu transaksi, foto → `attached`, `edit_token` HMAC stateless (spec §9.3), idempotensi `client_request_id`.
 **Acceptance criteria:**
-- [ ] Foto belum ter-upload → `422 PHOTO_NOT_UPLOADED`, foto tetap `pending`
-- [ ] Request ulang dengan `client_request_id` sama → respons sama (termasuk `edit_token`), tanpa duplikat
-- [ ] Foto yang sudah dipakai submission lain ditolak; 1–5 foto, ≤ 50 anotasi/foto
-**Verification:** [ ] unit test usecase (fake port); [ ] integrasi + `curl`
+- [x] Foto belum ter-upload → `422 PHOTO_NOT_UPLOADED`, foto tetap `pending`; foto tak ada atau milik orang lain → `422 PHOTO_NOT_FOUND` (jawaban sama); sudah dipakai/rejected/deleted → `409 PHOTO_NOT_AVAILABLE`; file hilang atau ukuran berubah → `422 PHOTO_FILE_INVALID` dan hanya foto itu yang `rejected`; SSD bermasalah → 503 tanpa menandai foto
+- [x] Request ulang dengan `client_request_id` sama → `200`, submission dan `edit_token` sama, `version` terkini, `created_at` identik (mikrodetik), tanpa baris baru; id milik pemilik lain → `409 DUPLICATE_CLIENT_REQUEST`
+- [x] 1–5 foto, ≤ 50 anotasi/foto (batas 0, 1, 50, 51 diuji), foto kembar, bbox/teks salah dengan lokasi `photos[i].annotations[j]`; teks dinormalisasi
+- [x] Atomik: kegagalan Attach kedua membatalkan submission, anotasi, dan status foto pertama; dari 8 request berebut satu foto tepat satu menang tanpa baris sisa; dari 10 request identik berbarengan tepat satu submission
+- [x] **Bug balapan ditemukan test dan diperbaiki:** yang kalah pada request identik bisa gagal `PHOTO_NOT_AVAILABLE` sebelum cek ulang; kini kegagalan jenis konflik memicu pembacaan ulang idempotensi (`replayOnConflict`); stabil di 12 putaran `-race`
+- [x] `edit_token` stateless (HMAC `EDIT_TOKEN_SECRET`, domain pesan terpisah dari tanda tangan URL); handler, rate limit 10/menit per IP, IP klien dicatat
+**Verification:** [x] test usecase terhadap Postgres + localfs sungguhan, handler (fake), e2e HTTP asli (presign→PUT→submit, replay, balapan); [x] di Pi dengan `curl` (SSD & DB asli): 201 → replay 200 → 409 → 422; 1 submission, 2 anotasi, file 42 byte di SSD; log tanpa `edit_token`/`sig`
 **Dependencies:** 12, 13 · **Files:** `usecase/submit.go`, `adapter/signer/edittoken.go`, `handler/submission.go` + test · **Scope:** M
 
 #### Task 15: Baca submission + lihat foto

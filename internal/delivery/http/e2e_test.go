@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"photo-annotated/internal/adapter/imagecheck"
 	"photo-annotated/internal/adapter/localfs"
@@ -32,7 +33,10 @@ import (
 	"photo-annotated/internal/usecase"
 )
 
-const e2eSecret = "0123456789abcdef0123456789abcdef0123456789abcdef"
+const (
+	e2eSecret     = "0123456789abcdef0123456789abcdef0123456789abcdef"
+	e2eEditSecret = "fedcba9876543210fedcba9876543210fedcba9876543210"
+)
 
 type stackOpts struct {
 	minFree   int64
@@ -42,7 +46,9 @@ type stackOpts struct {
 }
 
 type stack struct {
+	pool   *pgxpool.Pool
 	srv    *httptest.Server
+	subs   *postgres.SubmissionRepo
 	repo   *postgres.PhotoRepo
 	signer *signer.Signer
 	dir    string
@@ -75,6 +81,15 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		t.Fatal(err)
 	}
 
+	txm := postgres.NewTxManager(pool)
+	subs := postgres.NewSubmissionRepo(pool)
+	et, err := signer.NewEditTokens(e2eEditSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	submit := usecase.NewSubmit(repo, subs, txm, store, et, usecase.SystemClock{},
+		usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50, MaxAnnotationTextLen: 1000})
+
 	var inner atomic.Pointer[http.Handler]
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		(*inner.Load()).ServeHTTP(w, r)
@@ -93,9 +108,10 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		AllowedOrigins: []string{"https://app.example.com"},
 		Presigner:      presign, PresignPerMin: 1_000_000,
 		Uploader: upload, MaxUploadBytes: o.maxBytes, UploadTimeout: time.Minute,
+		Submitter: submit, SubmissionsPerMin: 1_000_000,
 	})
 	inner.Store(&h)
-	return &stack{srv: srv, repo: repo, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}
+	return &stack{pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}
 }
 
 type presigned struct {
@@ -460,4 +476,8 @@ func runConcurrentUploads(t *testing.T, st *stack, n, size int) (peakGrowth uint
 func TestE2EConcurrentUploadsAllSucceed(t *testing.T) {
 	st := newStack(t, stackOpts{maxConc: 100})
 	runConcurrentUploads(t, st, 100, 100*1024)
+}
+
+func removeFile(s *stack, p *domain.Photo) error {
+	return os.Remove(filepath.Join(s.dir, p.StorageKey))
 }

@@ -86,6 +86,12 @@ type PhotoRepo interface {
 	ListBySubmission(ctx context.Context, submissionID uuid.UUID) ([]*domain.Photo, error)
 }
 
+// EditTokenSigner menurunkan dan memverifikasi token edit anonim (hanya auth.mode = none).
+type EditTokenSigner interface {
+	Token(submissionID uuid.UUID) string
+	Verify(submissionID uuid.UUID, token string) bool
+}
+
 // TxManager menjalankan fn dalam satu transaksi database. Repository yang dipanggil dengan
 // ctx dari fn ikut dalam transaksi itu. fn error atau panic → rollback.
 type TxManager interface {
