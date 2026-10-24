@@ -50,25 +50,6 @@ func authenticate(c *gin.Context, a SessionAuthenticator, token string) bool {
 	return true
 }
 
-// OptionalSession mengautentikasi bila header Authorization ada (token salah → 401, agar FE
-// tahu harus login ulang) dan meneruskan request anonim apa adanya.
-func OptionalSession(a SessionAuthenticator) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		token, present, ok := bearerToken(c)
-		if !present {
-			c.Next()
-			return
-		}
-		if !ok {
-			unauthorized(c)
-			return
-		}
-		if authenticate(c, a, token) {
-			c.Next()
-		}
-	}
-}
-
 // RequireSession mewajibkan sesi yang sah.
 func RequireSession(a SessionAuthenticator) gin.HandlerFunc {
 	return func(c *gin.Context) {

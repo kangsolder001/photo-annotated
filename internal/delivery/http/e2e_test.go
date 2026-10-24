@@ -50,6 +50,8 @@ type stackOpts struct {
 	channel   handler.ChannelStatus
 	turnstile usecase.TurnstileVerifier
 	otpPerMin int
+	// Turnstile presign/submit pada mode none (nil = tanpa)
+	uploadTurnstile usecase.TurnstileVerifier
 }
 
 // otpParts adalah usecase auth OTP yang dirakit test di atas pool milik stack.
@@ -103,9 +105,14 @@ func newStack(t *testing.T, o stackOpts) *stack {
 
 	txm := postgres.NewTxManager(pool)
 	subs := postgres.NewSubmissionRepo(pool)
-	et, err := signer.NewEditTokens(e2eEditSecret)
+	signerET, err := signer.NewEditTokens(e2eEditSecret)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// seperti cmd/api: token edit anonim hanya pada mode none
+	var et usecase.EditTokenSigner = signerET
+	if o.otp != nil {
+		et = nil
 	}
 	submit := usecase.NewSubmit(repo, subs, txm, store, et, usecase.SystemClock{},
 		usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50, MaxAnnotationTextLen: 1000})
@@ -141,7 +148,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		Uploader: upload, MaxUploadBytes: o.maxBytes, UploadTimeout: time.Minute,
 		Submitter: submit, SubmissionsPerMin: 1_000_000,
 		Reader: reader, Editor: editor,
-		OTPRequester: otp.req, OTPVerifier: otp.verify, Sessions: otp.sessions, OTPVerifyPerMin: 1_000_000, OTPChannel: o.channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin,
+		OTPRequester: otp.req, OTPVerifier: otp.verify, Sessions: otp.sessions, OTPVerifyPerMin: 1_000_000, OTPChannel: o.channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin, UploadTurnstile: o.uploadTurnstile,
 	})
 	inner.Store(&h)
 	return &stack{pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}

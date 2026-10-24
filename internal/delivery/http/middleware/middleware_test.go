@@ -317,7 +317,7 @@ func TestCORSPreflightAllowed(t *testing.T) {
 	h := w.Header()
 	if h.Get("Access-Control-Allow-Origin") != "https://app.example.com" ||
 		h.Get("Access-Control-Allow-Methods") != "GET, POST, PUT, OPTIONS" ||
-		h.Get("Access-Control-Allow-Headers") != "Content-Type, Authorization, X-Edit-Token" ||
+		h.Get("Access-Control-Allow-Headers") != "Content-Type, Authorization, X-Edit-Token, X-Turnstile-Token" ||
 		h.Get("Access-Control-Max-Age") != "3600" {
 		t.Fatalf("header preflight salah: %v", h)
 	}

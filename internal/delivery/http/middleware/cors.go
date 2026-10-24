@@ -13,7 +13,7 @@ const (
 	corsAllowMethods = "GET, POST, PUT, OPTIONS"
 	corsMaxAge       = "3600"
 	// Header yang boleh dikirim browser (spec §9.4).
-	corsAllowHeaders = "Content-Type, Authorization, X-Edit-Token"
+	corsAllowHeaders = "Content-Type, Authorization, X-Edit-Token, X-Turnstile-Token"
 	// Header respons yang boleh dibaca FE (Retry-After dipakai untuk backoff upload).
 	corsExposeHeaders = "X-Request-ID, Retry-After"
 )

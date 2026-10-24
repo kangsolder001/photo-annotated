@@ -55,7 +55,7 @@ func (h *SubmissionHandler) Create(c *gin.Context) {
 	if !httpx.DecodeJSON(c, &req) {
 		return
 	}
-	in := usecase.SubmitInput{ClientRequestID: req.ClientRequestID, Photos: make([]usecase.SubmitPhoto, len(req.Photos))}
+	in := usecase.SubmitInput{ClientRequestID: req.ClientRequestID, OwnerID: sessionUser(c), Photos: make([]usecase.SubmitPhoto, len(req.Photos))}
 	for i, p := range req.Photos {
 		sp := usecase.SubmitPhoto{PhotoID: p.PhotoID, Annotations: make([]domain.Annotation, len(p.Annotations))}
 		for j, a := range p.Annotations {

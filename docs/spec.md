@@ -614,7 +614,7 @@ Peran: `user` (mode `otp`), pemilik anonim (mode `none`, dibuktikan `edit_token`
 | `GET /admin/export` | `admin` | `admin` |
 | `/healthz`, `/readyz` | Publik | Publik |
 
-Akses ke resource milik orang lain mengembalikan `404` (bukan `403`) agar ID tidak bisa di-probe.
+Akses ke resource milik orang lain mengembalikan `404` (bukan `403`) agar ID tidak bisa di-probe; memakai foto orang lain di submission dijawab `422 PHOTO_NOT_FOUND`, sama persis dengan foto yang tidak ada. Pada mode `otp`, rute pemilik tanpa sesi yang sah → `401` (FE kembali ke login), `owner_id` foto dan submission diisi dari sesi, `edit_token` tidak diterbitkan dan header `X-Edit-Token` diabaikan. `PUT /uploads/{id}` dan `GET /photos/{id}/content` tetap diotorisasi tanda tangan URL saja.
 
 ### 9.3 `edit_token` (hanya `auth.mode = none`)
 - Dihitung **stateless**: `edit_token = base64url(HMAC-SHA256(EDIT_TOKEN_SECRET, submission_id))`. Tidak ada kolom token di DB, dan retry idempotent (§5.2) mengembalikan token yang sama.
@@ -622,7 +622,7 @@ Akses ke resource milik orang lain mengembalikan `404` (bukan `403`) agar ID tid
 - Merotasi `EDIT_TOKEN_SECRET` membatalkan semua token yang sudah beredar.
 
 ### 9.4 Kontrol lain
-- **Turnstile** (`turnstile.enabled`): pada mode `none` diverifikasi saat presign dan submit; pada mode `otp` diverifikasi saat `register` dan `otp/request` (§9.5).
+- **Turnstile** (`turnstile.enabled`): pada mode `none` diverifikasi saat presign dan submit lewat header `X-Turnstile-Token`; pada mode `otp` diverifikasi saat `register` dan `otp/request` (field `turnstile_token`, §9.5). Cloudflare menolak token yang diverifikasi dua kali, padahal satu submission butuh hingga 5 presign (paralel) + 1 submit. Karena itu pada mode `none` **satu token yang sudah lolos boleh dipakai `max_photos_per_submission + 1` kali selama 5 menit dari IP yang sama**: siteverify dipanggil sekali (request paralel menunggu hasil yang sama), kegagalan tidak disimpan, dan cache dibatasi 10.000 token. Edit dan baca pada mode `none` dibuktikan `edit_token`, tanpa Turnstile.
 - **Rate limit** (per IP dari `CF-Connecting-IP`; nilai bisa diubah di config):
   - presign: 30 / menit
   - submissions (POST & PUT): 10 / menit

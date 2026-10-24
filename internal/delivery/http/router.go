@@ -52,6 +52,10 @@ type Deps struct {
 	Sessions         SessionManager
 	OTPVerifyPerMin  int // batas otp/verify per IP
 
+	// Turnstile untuk presign dan submit pada auth.mode = none (token boleh dipakai ulang beberapa
+	// kali untuk satu submission); nil = tanpa Turnstile.
+	UploadTurnstile usecase.TurnstileVerifier
+
 	Uploader       handler.Uploader // usecase upload (spec §5.1b)
 	MaxUploadBytes int64            // batas ukuran file (config limits.max_upload_bytes)
 	UploadTimeout  time.Duration    // deadline baca total upload (config limits.upload_timeout)
@@ -90,15 +94,37 @@ func NewRouter(d Deps) *gin.Engine {
 	ops.GET("/readyz", handler.Readyz(d.DB))
 
 	api := ops.Group("/api/v1")
+	// Penjaga rute pemilik (spec §9.2). Mode otp (Sessions terisi): sesi wajib. Mode none: anonim,
+	// dengan Turnstile pada presign dan submit bila diaktifkan; edit/baca dibuktikan edit_token.
+	var owner, human []gin.HandlerFunc
+	if d.Sessions != nil {
+		owner = []gin.HandlerFunc{middleware.RequireSession(d.Sessions)}
+		human = owner
+	} else if d.UploadTurnstile != nil {
+		human = []gin.HandlerFunc{middleware.Turnstile(d.UploadTurnstile)}
+	}
+	chain := func(hs ...[]gin.HandlerFunc) []gin.HandlerFunc {
+		var out []gin.HandlerFunc
+		for _, h := range hs {
+			out = append(out, h...)
+		}
+		return out
+	}
+
 	uploads := handler.NewUploadHandler(d.Presigner, d.Uploader, d.MaxUploadBytes)
-	api.POST("/uploads/presign", middleware.RateLimit(middleware.NewRateLimiter(d.PresignPerMin)), uploads.Presign)
+	presignLimit := []gin.HandlerFunc{middleware.RateLimit(middleware.NewRateLimiter(d.PresignPerMin))}
+	api.POST("/uploads/presign", chain(presignLimit, human, []gin.HandlerFunc{uploads.Presign})...)
 
 	submissions := handler.NewSubmissionHandler(d.Submitter)
 	edits := handler.NewEditHandler(d.Editor)
 	// POST dan PUT berbagi satu limiter per IP ("submissions (POST & PUT): 10 / menit", spec §9.4).
-	submissionsLimit := middleware.RateLimit(middleware.NewRateLimiter(d.SubmissionsPerMin))
-	api.POST("/submissions", submissionsLimit, submissions.Create)
-	api.PUT("/submissions/:id", submissionsLimit, edits.Put)
+	submissionsLimit := []gin.HandlerFunc{middleware.RateLimit(middleware.NewRateLimiter(d.SubmissionsPerMin))}
+	api.POST("/submissions", chain(submissionsLimit, human, []gin.HandlerFunc{submissions.Create})...)
+	api.PUT("/submissions/:id", chain(submissionsLimit, owner, []gin.HandlerFunc{edits.Put})...)
+
+	reads := handler.NewReadHandler(d.Reader)
+	api.GET("/submissions/:id", chain(owner, []gin.HandlerFunc{reads.GetSubmission})...)
+	api.GET("/photos/:id/url", chain(owner, []gin.HandlerFunc{reads.PhotoURL})...)
 
 	if d.OTPRequester != nil {
 		if d.OTPRequestPerMin < 1 || d.OTPChannel == nil || d.OTPVerifier == nil || d.Sessions == nil || d.OTPVerifyPerMin < 1 {
@@ -120,10 +146,6 @@ func NewRouter(d Deps) *gin.Engine {
 		api.GET("/auth/me", session, auth.Me)
 		api.POST("/auth/logout", session, auth.Logout)
 	}
-
-	reads := handler.NewReadHandler(d.Reader)
-	api.GET("/submissions/:id", reads.GetSubmission)
-	api.GET("/photos/:id/url", reads.PhotoURL)
 
 	// Konten foto: di luar grup JSON karena deadline tulisnya harus lebih panjang (klien lambat).
 	r.GET("/api/v1/photos/:id/content", middleware.Deadlines(0, d.UploadTimeout), reads.PhotoContent)

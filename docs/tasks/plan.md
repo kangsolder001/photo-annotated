@@ -322,15 +322,17 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 - [x] Rute auth publik mengabaikan header `Authorization` (token basi tidak menghalangi login ulang); mode `none` → semua rute auth 404
 **Temuan & perbaikan:** test konkuren menunjukkan percobaan ke-6+ yang memanggil `Expire` dapat mendahului `Consume` milik verifikasi benar sehingga tidak ada yang login; kini percobaan berlebih hanya ditolak.
 **Verification:** [x] `go test ./... -race` (usecase dengan Postgres + stub `wa-notif`, diulang 5×; e2e HTTP register → kirim → verify → me → logout)
-**Dependencies:** 21 · **Files:** `usecase/{otp_verify,session}.go`, `middleware/auth.go` (`RequireSession`, `OptionalSession` untuk T23), `handler/auth.go`, `httpx` (detail error, sesi) + test · **Scope:** M
+**Dependencies:** 21 · **Files:** `usecase/{otp_verify,session}.go`, `middleware/auth.go` (`RequireSession`), `handler/auth.go`, `httpx` (detail error, sesi) + test · **Scope:** M
 
-#### Task 23: Integrasi `otp` ke upload/submission + admin-ready authz
+#### Task 23: Integrasi `otp` ke upload/submission + admin-ready authz — **SELESAI**
 **Description:** `owner_id` terisi dari principal; aturan akses spec §9.2 (pemilik/admin, edit pemilik saja, 404 untuk milik orang lain); Turnstile pada mode `none`.
 **Acceptance criteria:**
-- [ ] User A tidak bisa membaca/edit/memakai foto user B (diuji)
-- [ ] Mode `none` tetap berjalan seperti Checkpoint 3 (regresi diuji)
-**Verification:** [ ] `go test ./… -race`
-**Dependencies:** 22 · **Files:** `usecase/authz.go`, perubahan usecase presign/submit/edit/get + test · **Scope:** M
+- [x] User A tidak bisa membaca/edit/memakai foto user B (diuji end-to-end lewat HTTP dengan dua akun yang login sungguhan): baca/URL foto/edit → 404, memakai foto (terpakai maupun belum) → `422 PHOTO_NOT_FOUND` seperti foto yang tidak ada; tanpa sesi → 401; mode otp tidak menerbitkan/menerima `edit_token`
+- [x] Mode `none` tetap berjalan seperti Checkpoint 3 (seluruh test e2e lama hijau)
+- [x] Turnstile mode `none`: presign & submit tanpa/ salah token → 403; satu token cukup untuk 5 presign + 1 submit (siteverify dipanggil sekali), pemakaian ke-7 ditolak; terikat IP dan TTL; presign paralel memverifikasi sekali; kegagalan tidak disimpan
+**Keputusan:** token Turnstile boleh dipakai ulang (lihat spec §9.4), karena token Cloudflare sekali pakai sedangkan satu submission butuh hingga 6 request. Header `X-Turnstile-Token` ditambahkan ke CORS. Bagian admin dari aturan akses dikerjakan di T24.
+**Verification:** [x] `go test ./... -race`
+**Dependencies:** 22 · **Files:** `router.go`, handler (owner dari sesi), `adapter/turnstile/reusable.go`, `middleware/turnstile.go` + test · **Scope:** M
 
 ### Checkpoint 5: Auth OTP
 - [ ] **OTP nyata terkirim ke nomor Anda lewat `wa-notif`**; register → verify → upload → submit berhasil

@@ -31,6 +31,8 @@ import (
 const (
 	shutdownTimeout  = 15 * time.Second
 	turnstileTimeout = 5 * time.Second
+	// token Turnstile berlaku 300 detik di Cloudflare; pemakaian ulang tidak boleh lebih lama
+	turnstileReuseTTL = 5 * time.Minute
 	// ambang kegagalan kirim berturut-turut sebelum kanal OTP dianggap tidak tersedia (spec §9.5)
 	channelFailureThreshold = 3
 	// dispatcher memeriksa antrean paling lambat tiap detik (juga dibangunkan saat ada challenge baru)
@@ -135,6 +137,10 @@ func run() error {
 			return err
 		}
 		deps.Turnstile = ts
+		if cfg.Auth.Mode == config.AuthModeNone {
+			// satu token untuk semua presign satu submission ditambah submit-nya
+			deps.UploadTurnstile = turnstile.NewReusable(ts, cfg.Limits.MaxPhotosPerSubmission+1, turnstileReuseTTL)
+		}
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

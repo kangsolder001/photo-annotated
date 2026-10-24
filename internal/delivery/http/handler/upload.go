@@ -96,6 +96,7 @@ func (h *UploadHandler) Presign(c *gin.Context) {
 	}
 	out, err := h.presign.Presign(c.Request.Context(), usecase.PresignInput{
 		ContentType: req.ContentType, SizeBytes: req.SizeBytes, Width: req.Width, Height: req.Height,
+		OwnerID: sessionUser(c),
 	})
 	if err != nil {
 		httpx.WriteError(c, err)

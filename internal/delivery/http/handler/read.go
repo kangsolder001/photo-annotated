@@ -27,7 +27,15 @@ func NewReadHandler(r Reader) *ReadHandler { return &ReadHandler{reader: r} }
 // callerFrom mengumpulkan kredensial request. Saat ini hanya token edit; identitas user dan
 // admin ditambahkan oleh middleware autentikasi (T22–T24).
 func callerFrom(c *gin.Context) usecase.Caller {
-	return usecase.Caller{EditToken: c.GetHeader("X-Edit-Token")}
+	return usecase.Caller{EditToken: c.GetHeader("X-Edit-Token"), UserID: sessionUser(c)}
+}
+
+// sessionUser mengembalikan pengguna sesi (auth.mode = otp), atau nil untuk request anonim.
+func sessionUser(c *gin.Context) *uuid.UUID {
+	if id, _, ok := httpx.Session(c); ok {
+		return &id
+	}
+	return nil
 }
 
 type photoViewDTO struct {

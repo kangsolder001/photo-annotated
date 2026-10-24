@@ -56,7 +56,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T20** `POST /auth/register` & `/auth/otp/request` (antrean, batas)
 - [x] **T21** Dispatcher OTP + `GET /auth/otp/{id}` + `channel-status`
 - [x] **T22** `POST /auth/otp/verify` + session + `me`/`logout` + middleware
-- [ ] **T23** Integrasi `otp` ke upload/submission (owner authz) + Turnstile
+- [x] **T23** Integrasi `otp` ke upload/submission (owner authz) + Turnstile
 
 ### Checkpoint 5: Auth OTP
 - [ ] OTP nyata terkirim ke nomor Anda; register → verify → upload → submit berhasil
