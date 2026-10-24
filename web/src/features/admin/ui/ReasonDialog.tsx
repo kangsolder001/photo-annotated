@@ -3,7 +3,7 @@ import { Banner } from "../../../components/ui";
 import { limits } from "../../../config";
 import { normalizeText, textProblem, textProblemMessage } from "../../../lib/text";
 import { adminErrorMessage } from "../errors";
-import { Dialog } from "./Dialog";
+import { Dialog } from "../../../components/Dialog";
 
 /** Isian alasan wajib (tolak review, blokir annotator): 1–500 karakter, aturan teks sama dengan backend. */
 export function ReasonDialog(props: {

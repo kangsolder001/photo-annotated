@@ -18,7 +18,7 @@ import { usePageTitle } from "./context";
 import { adminErrorMessage } from "./errors";
 import type { AdminUser } from "./types";
 import { ConfirmDelete } from "./ui/ConfirmDelete";
-import { Dialog } from "./ui/Dialog";
+import { Dialog } from "../../components/Dialog";
 import { ReasonDialog } from "./ui/ReasonDialog";
 import { useToast } from "./ui/Toasts";
 

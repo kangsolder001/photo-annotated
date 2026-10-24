@@ -187,6 +187,7 @@ await page.getByText("Ditolak").first().waitFor();
 await shot("10-riwayat");
 step("riwayat menampilkan laporan + lencana review");
 await page.getByRole("button", { name: "Keluar" }).click();
+await page.getByRole("dialog").getByRole("button", { name: "Keluar" }).click();
 await page.waitForURL(/\/masuk/);
 await page.goto(BASE + "/riwayat");
 await page.waitForURL(/\/masuk\?next=%2Friwayat/);
@@ -205,6 +206,7 @@ step("password salah ditolak; password benar → kembali ke /riwayat tanpa OTP")
 
 // 6. lupa password → kode → password baru → masuk
 await page.getByRole("button", { name: "Keluar" }).click();
+await page.getByRole("dialog").getByRole("button", { name: "Keluar" }).click();
 await page.waitForURL(/\/masuk/);
 await page.getByRole("link", { name: "Lupa password?" }).click();
 await page.getByLabel(/Nomor WhatsApp terdaftar/).fill(PHONE);
@@ -221,6 +223,7 @@ const inApp = (u) => !u.pathname.startsWith("/masuk");
 await page.waitForURL(inApp); // kembali ke halaman terakhir (?next=)
 step("lupa password: kode + password baru → langsung masuk");
 await page.getByRole("button", { name: "Keluar" }).click();
+await page.getByRole("dialog").getByRole("button", { name: "Keluar" }).click();
 await page.waitForURL(/\/masuk/);
 await page.getByLabel(/Nomor WhatsApp/).fill(PHONE);
 await page.getByLabel("Password", { exact: true }).fill("passwordbaru1");

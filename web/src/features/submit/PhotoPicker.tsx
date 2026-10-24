@@ -3,7 +3,7 @@ import { faImages } from "@fortawesome/free-solid-svg-icons/faImages";
 import { useRef } from "react";
 import { Icon } from "../../components/Icon";
 
-/** Dua tombol: kamera belakang langsung, atau pilih dari galeri (boleh beberapa sekaligus). */
+/** Dua tombol besar selebar layar: kamera belakang langsung, atau pilih dari galeri (boleh beberapa sekaligus). */
 export function PhotoPicker({ remaining, onFiles }: { remaining: number; onFiles(files: FileList): void }) {
   const camera = useRef<HTMLInputElement>(null);
   const gallery = useRef<HTMLInputElement>(null);
@@ -14,12 +14,12 @@ export function PhotoPicker({ remaining, onFiles }: { remaining: number; onFiles
   const full = remaining <= 0;
   return (
     <div className="stack">
-      <div className="row">
+      <div className="photo-pick">
         <button type="button" className="btn btn-primary" disabled={full} onClick={() => camera.current?.click()}>
-          <Icon icon={faCamera} /> Ambil foto
+          <Icon icon={faCamera} /> <span>Ambil foto</span>
         </button>
         <button type="button" className="btn" disabled={full} onClick={() => gallery.current?.click()}>
-          <Icon icon={faImages} /> Pilih dari galeri
+          <Icon icon={faImages} /> <span>Pilih dari galeri</span>
         </button>
       </div>
       <p className="muted">{full ? "Maksimal 5 foto per laporan." : `Bisa menambah ${remaining} foto lagi.`}</p>

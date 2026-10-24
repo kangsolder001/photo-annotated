@@ -3,7 +3,7 @@ import { useId, useState, type ReactNode } from "react";
 import { Icon } from "../../../components/Icon";
 import { Banner } from "../../../components/ui";
 import { adminErrorMessage } from "../errors";
-import { Dialog } from "./Dialog";
+import { Dialog } from "../../../components/Dialog";
 
 export const CONFIRM_WORD = "HAPUS";
 

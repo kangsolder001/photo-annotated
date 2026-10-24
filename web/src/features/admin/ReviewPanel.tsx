@@ -15,7 +15,7 @@ import { adminErrorMessage } from "./errors";
 import { listContext } from "./listContext";
 import { typingTarget, unacceptWouldDelete } from "./review";
 import type { AdminSubmission, ReviewStatus } from "./types";
-import { Dialog } from "./ui/Dialog";
+import { Dialog } from "../../components/Dialog";
 import { ReasonDialog } from "./ui/ReasonDialog";
 import { useToast } from "./ui/Toasts";
 import { useIsPhone } from "./ui/useMediaQuery";

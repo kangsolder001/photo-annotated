@@ -23,7 +23,7 @@ import { listContext } from "./listContext";
 import type { AdminLabel, ReviewStatus, SubmissionListItem } from "./types";
 import { AnnotatedPhoto } from "./ui/AnnotatedPhoto";
 import { ConfirmDelete } from "./ui/ConfirmDelete";
-import { Dialog } from "./ui/Dialog";
+import { Dialog } from "../../components/Dialog";
 import { ReasonDialog } from "./ui/ReasonDialog";
 import { useToast } from "./ui/Toasts";
 import { useIsPhone } from "./ui/useMediaQuery";

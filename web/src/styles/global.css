@@ -96,6 +96,12 @@ main { max-width: 760px; margin: 0 auto; padding: 1rem 1rem 7rem; }
 .btn-block { width: 100%; }
 .btn-small { min-height: 36px; padding: 0.3rem 0.7rem; font-size: 0.9rem; }
 
+/* tombol ambil foto / galeri: dua ubin besar memenuhi lebar layar, ikon di atas teks */
+.photo-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.photo-pick .btn { flex-direction: column; gap: 0.6rem; min-height: 8.5rem; padding: 1rem 0.5rem; border-radius: 14px; font-size: 1.1rem; text-align: center; }
+.photo-pick .btn svg { font-size: 2.25rem; }
+@media (max-width: 319px) { .photo-pick { grid-template-columns: 1fr; } }
+
 label.field { display: flex; flex-direction: column; gap: 0.3rem; font-weight: 600; }
 label.field span.hint { font-weight: 400; color: var(--muted); font-size: 0.88rem; }
 input, textarea, select {
@@ -222,3 +228,20 @@ select {
 
 .review-reason { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .history-item .row { margin-top: 0.3rem; }
+
+/* ---- dialog (aplikasi user + dashboard): modal di tengah; sheet dari bawah di HP */
+.dialog-backdrop { position: fixed; inset: 0; z-index: 50; background: rgb(0 0 0 / 50%); display: grid; place-items: center; padding: 1rem; }
+.dialog {
+  width: min(520px, 100%); max-height: calc(100dvh - 2rem); display: flex; flex-direction: column;
+  background: var(--surface); color: var(--text); border-radius: var(--radius); box-shadow: 0 10px 40px rgb(0 0 0 / 35%); outline: none;
+}
+.dialog-wide { width: min(760px, 100%); }
+.dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.5rem 0.5rem 0.25rem 1rem; }
+.dialog-head h2 { margin: 0; }
+.dialog-body { padding: 0.5rem 1rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem; }
+.dialog-foot { display: flex; gap: 0.5rem; justify-content: flex-end; flex-wrap: wrap; padding: 0.75rem 1rem; padding-bottom: max(0.75rem, env(safe-area-inset-bottom)); border-top: 1px solid var(--border); }
+@media (max-width: 767px) {
+  .dialog-backdrop { padding: 0; place-items: end stretch; }
+  .dialog, .dialog-wide { width: 100%; max-height: 100dvh; min-height: 60dvh; border-radius: var(--radius) var(--radius) 0 0; }
+  .dialog-foot > .btn { flex: 1; }
+}

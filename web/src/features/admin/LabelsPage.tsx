@@ -17,7 +17,7 @@ import { adminApi } from "./api";
 import { usePageTitle } from "./context";
 import { adminErrorMessage } from "./errors";
 import type { AdminLabel, LabelReplace } from "./types";
-import { Dialog } from "./ui/Dialog";
+import { Dialog } from "../../components/Dialog";
 import { RowMenu } from "./ui/RowMenu";
 import { useToast } from "./ui/Toasts";
 import { useIsPhone } from "./ui/useMediaQuery";

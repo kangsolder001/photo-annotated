@@ -1,6 +1,6 @@
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { useEffect, useId, useRef, type ReactNode } from "react";
-import { IconButton } from "../../../components/Icon";
+import { IconButton } from "./Icon";
 
 /**
  * Dialog modal: di tengah layar pada desktop/tablet, sheet layar penuh dari bawah di HP (CSS).
