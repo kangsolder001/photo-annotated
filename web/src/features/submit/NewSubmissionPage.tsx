@@ -4,18 +4,20 @@ import { api } from "../../api/endpoints";
 import { Turnstile, type TurnstileHandle } from "../../components/Turnstile";
 import { Banner } from "../../components/ui";
 import { config } from "../../config";
-import { toDTO, type Box } from "../../lib/annotation";
+import { clearUnavailable, toDTO, type Box } from "../../lib/annotation";
 import { errorMessage, isCode } from "../../lib/errors";
 import { history } from "../../lib/history";
 import { readiness } from "../../lib/readiness";
 import { PhotoAnnotator } from "../annotate/PhotoAnnotator";
+import { LabelsNotice } from "../annotate/LabelsNotice";
+import { useLabels } from "../annotate/useLabels";
 import { currentOwner } from "../auth/owner";
 import { PhotoPicker } from "./PhotoPicker";
 import { PhotoStrip } from "./PhotoStrip";
 import { usePhotoUploads } from "./usePhotoUploads";
 import { uuid } from "../../lib/id";
 
-/** Laporan baru: pilih/ambil foto → upload otomatis → tandai kotak + catatan → kirim. */
+/** Laporan baru: pilih/ambil foto → upload otomatis → tandai kotak + pilih label → kirim. */
 export function NewSubmissionPage() {
   const navigate = useNavigate();
   const turnstile = useRef<TurnstileHandle>(null);
@@ -26,6 +28,8 @@ export function NewSubmissionPage() {
     reset: () => turnstile.current?.reset(),
   }), [useTurnstile]);
   const uploads = usePhotoUploads(tokens);
+  const { labels, error: labelsError, reload: reloadLabels } = useLabels();
+  const noLabels = labels?.length === 0;
 
   const [boxes, setBoxes] = useState<Record<string, Box[]>>({});
   const [selected, setSelected] = useState<string>();
@@ -58,7 +62,7 @@ export function NewSubmissionPage() {
     if (submitting) return;
     setShowErrors(true);
     setError(undefined);
-    if (!ready.ok) return;
+    if (!ready.ok || !labels?.length) return;
     setSubmitting(true);
     try {
       const body = {
@@ -81,13 +85,22 @@ export function NewSubmissionPage() {
     } catch (e) {
       setError(errorMessage(e));
       setSubmitting(false);
+      if (isCode(e, "INVALID_LABEL", "LABEL_ARCHIVED")) {
+        // admin mengubah daftar label di tengah jalan: muat ulang dan minta pilih ulang
+        const fresh = await reloadLabels();
+        if (fresh) {
+          const ok = new Set(fresh.map((l) => l.id));
+          setBoxes((m) => Object.fromEntries(Object.entries(m).map(([k, b]) => [k, clearUnavailable(b, (id) => ok.has(id))])));
+        }
+      }
     }
   };
 
   return (
     <>
       <h1>Laporan baru</h1>
-      <p className="muted">Ambil atau pilih hingga 5 foto, lalu tandai bagian penting dengan kotak dan tulis catatannya. Foto diperkecil otomatis dan data lokasi (GPS) di foto dihapus.</p>
+      <p className="muted">Ambil atau pilih hingga 5 foto, lalu tandai bagian penting dengan kotak dan pilih labelnya. Foto diperkecil otomatis dan data lokasi (GPS) di foto dihapus.</p>
+      <LabelsNotice labels={labels} error={labelsError} onRetry={() => void reloadLabels()} />
 
       <div className="card">
         <PhotoPicker remaining={uploads.maxPhotos - items.length} onFiles={(f) => uploads.add(f, uploads.maxPhotos - items.length)} />
@@ -112,6 +125,7 @@ export function NewSubmissionPage() {
           height={current.height}
           label={`Foto ${items.indexOf(current) + 1}`}
           boxes={boxes[current.key] ?? []}
+          labels={labels ?? []}
           showErrors={showErrors}
           onChange={(b) => setBoxes((m) => ({ ...m, [current.key]: b }))}
         />
@@ -126,7 +140,7 @@ export function NewSubmissionPage() {
             <span className="summary" aria-live="polite">
               {items.length} foto · {totalBoxes} kotak{!ready.ok && ready.reason ? ` — ${ready.reason}` : ""}
             </span>
-            <button type="button" className="btn btn-primary" onClick={submit} disabled={submitting || (showErrors && !ready.ok) || !items.every((i) => i.status === "uploaded")}>
+            <button type="button" className="btn btn-primary" onClick={submit} disabled={submitting || noLabels || !labels || (showErrors && !ready.ok) || !items.every((i) => i.status === "uploaded")}>
               {submitting ? <><span className="spinner" aria-hidden="true" /> Mengirim…</> : "Kirim"}
             </button>
           </div>

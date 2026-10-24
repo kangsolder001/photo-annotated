@@ -3,16 +3,19 @@ import { useState } from "react";
 import { Icon } from "../../components/Icon";
 import { limits } from "../../config";
 import type { Box } from "../../lib/annotation";
+import type { LabelOption } from "../../lib/labels";
 import { AnnotationList } from "./AnnotationList";
 import { BoxEditor } from "./BoxEditor";
 
-/** Satu foto: editor kotak + daftar catatan. Dipakai saat membuat dan mengedit laporan. */
+/** Satu foto: editor kotak + daftar kotak berlabel. Dipakai saat membuat, mengedit, dan membaca laporan. */
 export function PhotoAnnotator(props: {
   src: string;
   width: number;
   height: number;
   label: string;
   boxes: Box[];
+  /** Pilihan label untuk foto ini (edit) atau label yang dipakai (baca); juga sumber warna kotak. */
+  labels: LabelOption[];
   readOnly?: boolean;
   showErrors?: boolean;
   onChange?(boxes: Box[]): void;
@@ -22,6 +25,7 @@ export function PhotoAnnotator(props: {
   const [focusId, setFocusId] = useState<string>();
   const [drawMode, setDrawMode] = useState(true);
   const full = props.boxes.length >= limits.maxBoxesPerPhoto;
+  const colors = new Map(props.labels.map((l) => [l.id, l.color]));
 
   return (
     <section className="card annotator" aria-label={props.label}>
@@ -41,6 +45,7 @@ export function PhotoAnnotator(props: {
         width={props.width}
         height={props.height}
         boxes={props.boxes}
+        colorOf={(b) => (b.labelId != null ? colors.get(b.labelId) : null)}
         selectedId={selectedId}
         drawMode={drawMode && !full}
         readOnly={props.readOnly}
@@ -51,6 +56,7 @@ export function PhotoAnnotator(props: {
       />
       <AnnotationList
         boxes={props.boxes}
+        labels={props.labels}
         selectedId={selectedId}
         focusId={focusId}
         readOnly={props.readOnly}

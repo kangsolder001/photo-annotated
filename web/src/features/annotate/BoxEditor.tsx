@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type PointerEvent as RPointerEvent, type KeyboardEvent } from "react";
 import { isBigEnough, moveBox, rectFromPoints, resizeBox, type Box, type Corner } from "../../lib/annotation";
+import { textOn } from "../../lib/color";
 import { uuid } from "../../lib/id";
+import { UNLABELED_COLOR } from "../../lib/labels";
 
 // Editor kotak di atas foto. Satu jalur input untuk mouse, sentuh, dan pena (Pointer Events).
 //  - Mode gambar aktif: seret di area kosong = kotak baru; seret kotak terpilih = pindah;
@@ -14,6 +16,8 @@ interface Props {
   width: number;
   height: number;
   boxes: Box[];
+  /** Warna label kotak (#rrggbb); null/undefined = belum berlabel (abu-abu putus-putus). */
+  colorOf?(b: Box): string | null | undefined;
   selectedId?: string;
   drawMode: boolean;
   readOnly?: boolean;
@@ -116,7 +120,7 @@ export function BoxEditor(p: Props) {
     if (g?.kind !== "draw") return;
     const r = rectFromPoints(g.x0, g.y0, g.x1, g.y1);
     if (!isBigEnough(r)) return; // ketukan biasa, bukan seret
-    const box: Box = { id: uuid(), ...r, text: "" };
+    const box: Box = { id: uuid(), ...r, labelId: null };
     p.onChange?.([...p.boxes, box]);
     p.onSelect?.(box.id);
     p.onCreate?.(box.id);
@@ -161,25 +165,27 @@ export function BoxEditor(p: Props) {
       >
         {p.boxes.map((b, i) => {
           const sel = b.id === p.selectedId;
-          const color = sel ? "var(--box-selected)" : "var(--box)";
+          const labelColor = p.colorOf?.(b);
+          const color = labelColor ?? UNLABELED_COLOR;
           const label = String(i + 1);
           const fs = 14 * unit;
           // terpilih dibedakan dengan garis lebih tebal (+ pegangan saat bisa diedit), bukan hanya warna
           const sw = sel ? stroke * 1.7 : stroke;
           const r = { x: b.x * W, y: b.y * H, width: b.w * W, height: b.h * H };
           return (
-            <g key={b.id}>
+            <g key={b.id} data-color={color}>
               {/* halo gelap tipis di bawah garis warna: tetap terlihat di foto terang maupun gelap */}
               <rect
                 {...r}
-                fill={sel ? "rgb(14 165 233 / 18%)" : "rgb(245 158 11 / 10%)"}
+                fill={color} fillOpacity={sel ? 0.2 : 0.1}
                 stroke={HALO} strokeWidth={sw + 2.5 * unit}
                 style={{ cursor: editable && sel ? "move" : "pointer" }}
                 onPointerDown={(e) => onBoxDown(e, b)}
               />
-              <rect {...r} fill="none" stroke={color} strokeWidth={sw} pointerEvents="none" />
+              <rect {...r} fill="none" stroke={color} strokeWidth={sw} pointerEvents="none"
+                strokeDasharray={labelColor ? undefined : `${8 * unit} ${5 * unit}`} />
               <rect x={r.x} y={r.y} width={(label.length * 0.62 + 0.9) * fs} height={1.45 * fs} fill={color} stroke={HALO} strokeWidth={unit} pointerEvents="none" />
-              <text x={r.x + 0.45 * fs} y={r.y + 1.1 * fs} fontSize={fs} fontWeight={700} fill="#111" pointerEvents="none">{label}</text>
+              <text x={r.x + 0.45 * fs} y={r.y + 1.1 * fs} fontSize={fs} fontWeight={700} fill={textOn(color)} pointerEvents="none">{label}</text>
               {sel && editable && CORNERS.map((c) => {
                 const cx = (c === "nw" || c === "sw" ? b.x : b.x + b.w) * W;
                 const cy = (c === "nw" || c === "ne" ? b.y : b.y + b.h) * H;

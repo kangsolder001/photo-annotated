@@ -4,10 +4,11 @@ import { api } from "../../api/endpoints";
 import type { SubmissionView } from "../../api/types";
 import { Banner, Spinner } from "../../components/ui";
 import { config } from "../../config";
-import { fromDTO } from "../../lib/annotation";
+import { fromView } from "../../lib/annotation";
 import { drafts } from "../../lib/draft";
 import { errorMessage, isCode } from "../../lib/errors";
 import { history } from "../../lib/history";
+import { optionsFromView } from "../../lib/labels";
 import { formatDateTime, formatRemaining } from "../../lib/time";
 import { PhotoAnnotator } from "../annotate/PhotoAnnotator";
 import { currentOwner } from "../auth/owner";
@@ -110,7 +111,7 @@ export function SubmissionPage() {
         const url = urls[p.photo_id];
         return url ? (
           <PhotoAnnotator key={p.photo_id} src={url} width={p.width} height={p.height} label={`Foto ${i + 1}`}
-            boxes={p.annotations.map(fromDTO)} readOnly onImageError={() => void refresh(p.photo_id)} />
+            boxes={p.annotations.map(fromView)} labels={optionsFromView(p.annotations)} readOnly onImageError={() => void refresh(p.photo_id)} />
         ) : (
           <div key={p.photo_id} className="card"><Spinner label={`Memuat foto ${i + 1}`} /></div>
         );

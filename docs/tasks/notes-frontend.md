@@ -58,3 +58,42 @@ kotak, bukan hanya warna. Foto tidak diberi filter.
 setelan perangkat, storage melempar error) + hash CSP; `ThemeSwitcher.test.tsx`.
 **Verification:** [x] typecheck; [x] `npm test` (248); [x] build (`_headers` memuat hash yang sama).
 Cek visual di browser: lihat T41 (layar anotasi kedua tema).
+
+#### Task 41: FE user — pemilih label, warna kotak, migrasi draf, `LABEL_ARCHIVED` — **SELESAI**
+**Hasil:** isian catatan per kotak diganti dropdown `<select>` native: opsi pertama "Pilih label…"
+(kosong, tidak bisa dikirim), lalu label aktif dari `GET /labels` (urutan server). Titik warna label
+terpilih di samping dropdown, `description` tampil di bawahnya sebagai petunjuk. Kotak di foto
+memakai warna label (isi transparan + halo dari T52), nomor kotak dengan teks hitam/putih yang
+terbaca di atas warna itu (`textOn`); kotak tanpa label abu-abu (`#8a8f98`) putus-putus. Kirim/Simpan
+nonaktif sampai daftar label termuat dan tidak kosong; kotak tanpa label menahan kirim ("Pilih
+label."). Daftar kosong → "Belum ada label. Hubungi admin."; gagal muat → pesan + "Coba lagi".
+Tampilan baca: chip nama + warna label; baris lama (`label: null`) menampilkan teksnya dengan tanda
+"catatan lama" (teks dirender sebagai teks).
+**Kontrak (spec §5.1):** kirim `{ label_id, x, y, w, h }` (tanpa `text`); baca `{ label: { id, name,
+color, archived } | null, text, x, y, w, h }`; `GET /labels` → `{ labels: [{ id, name, description?,
+color }] }`. Tipe di `api/types.ts` (`Label`, `LabelRef`, `AnnotationDTO`, `AnnotationView`).
+**Edit & label arsip (§4.2):** pilihan label per foto = label aktif + label arsip yang sudah dipakai
+kotak di versi tersimpan foto itu (opsi "Nama (diarsipkan)", `lib/labels.optionsForPhoto`), sama
+dengan pengecualian backend; foto baru hanya label aktif. Setelah daftar label termuat, label kotak
+yang tidak ada di pilihan foto itu dikosongkan dan kotaknya ditandai ("Label sebelumnya sudah tidak
+tersedia. Pilih label lain.", `clearUnavailable`).
+**Draf:** menyimpan `label_id` (boleh `null`) + `legacy_text`. Draf lama `{ text, … }` dimigrasi saat
+dibaca (`migrateAnnotation`): kotak dipertahankan, label kosong, teks ikut sebagai "catatan lama"
+(petunjuk saat memilih label); kotak rusak dibuang. Submission lama (teks bebas) yang masih bisa
+diedit: teks lama tampil sebagai petunjuk, user wajib memilih label untuk tiap kotak sebelum simpan.
+**`422 INVALID_LABEL` / `LABEL_ARCHIVED`:** pesan "Ada label yang sudah … Pilih ulang label pada kotak
+yang ditandai.", `GET /labels` dimuat ulang, kotak yang labelnya hilang dikosongkan + ditandai.
+**Keputusan:** validasi teks bebas dipindah ke `lib/text.ts` (`textProblem`, aturan sama dengan backend:
+trim, panjang per karakter, tanpa kontrol/bidi) untuk nama/deskripsi label dan alasan review/blokir;
+test validasi teks lama ikut pindah ke `text.test.ts` dengan batas nama label 50. `limits.maxTextLength`
+diganti `maxLabelName` (50), `maxLabelDescription` (200), `maxReason` (500). Alat test `src/test/fakeApi.ts`
+(fetch palsu berbasis rute) untuk test komponen.
+**Test:** `PhotoAnnotator.test.tsx` (kotak baru abu-abu putus-putus + fokus ke dropdown, pilih label →
+warna kotak + deskripsi, tanpa isian teks, kotak ditandai, label arsip "(diarsipkan)", tampilan baca
++ catatan lama), `annotation.test.ts` (toDTO tanpa teks, fromView baris lama, draf, clearUnavailable),
+`draft.test.ts` (migrasi draf lama, sameAsSaved berlabel), `readiness.test.ts`, `NewSubmissionPage.test.tsx`
+(memuat label, kosong, gagal).
+**Verification:** [x] typecheck; [x] `npm test` (278); [x] build. [x] Visual (Chrome headless, `vite
+preview` mode none, API di-mock lewat route interception): unggah 2 foto, 3 kotak (2 berlabel, 1
+kosong) di 360/768/1440 px × terang/gelap — tanpa scroll horizontal, kotak terlihat jelas di kedua
+tema, dropdown dan deskripsi terbaca.

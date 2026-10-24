@@ -195,3 +195,20 @@ div.field span.hint { font-weight: 400; color: var(--muted); font-size: 0.88rem;
 .theme-menu-list button[aria-checked="true"], .theme-inline button[aria-checked="true"] { background: var(--primary-soft); color: var(--primary); font-weight: 600; }
 .theme-inline { display: flex; gap: 0.15rem; padding: 0.2rem; border: 1px solid var(--border); border-radius: 10px; }
 .theme-inline button { flex: 1; justify-content: center; padding: 0 0.4rem; font-size: 0.88rem; }
+
+/* ---- label pada kotak */
+select {
+  appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 2.2rem;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 1.1rem) 50%, calc(100% - 0.75rem) 50%;
+  background-size: 0.35rem 0.35rem; background-repeat: no-repeat;
+}
+.label-row { display: flex; align-items: center; gap: 0.5rem; }
+.label-row select { flex: 1; min-width: 0; }
+.label-dot { flex: none; display: inline-block; width: 0.9rem; height: 0.9rem; border-radius: 50%; box-shadow: 0 0 0 1px rgb(0 0 0 / 35%); }
+.label-dot-empty { background: none; border: 2px dashed var(--muted); box-shadow: none; }
+.label-chip { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; overflow-wrap: anywhere; margin-top: 0.3rem; }
+.ann-body .hint { color: var(--muted); font-size: 0.88rem; }
+.ann-legacy { margin: 0.2rem 0 0; font-size: 0.92rem; }
+.ann-legacy .ann-text { margin: 0; }
+.legacy-tag { display: inline-block; padding: 0 0.4rem; border-radius: 6px; background: var(--warn-soft); color: var(--warn); font-size: 0.8rem; font-weight: 600; }

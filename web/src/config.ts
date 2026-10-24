@@ -19,7 +19,10 @@ export const config = {
 export const limits = {
   maxPhotos: 5,
   maxBoxesPerPhoto: 50,
-  maxTextLength: 1000,
+  maxLabelName: 50,
+  maxLabelDescription: 200,
+  /** Alasan review dan alasan blokir. */
+  maxReason: 500,
   maxUploadBytes: 2 * 1024 * 1024,
   maxSide: 1920,
   minBoxSize: 0.005,

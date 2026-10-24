@@ -1,9 +1,10 @@
-import type { AnnotationDTO } from "../api/types";
+import type { AnnotationDTO, AnnotationView } from "../api/types";
 import { limits } from "../config";
 import { uuid } from "./id";
 
 // Model kotak anotasi. Koordinat ternormalisasi 0..1 terhadap foto hasil proses (spec §6.3), sama
 // dengan yang disimpan API. Aturan validasi di sini harus sama dengan backend (domain/annotation.go).
+// Tiap kotak wajib memakai satu label dari daftar label aktif (spec-labels-admin §4.2).
 
 export interface Box {
   /** Id lokal untuk React; tidak dikirim ke API. */
@@ -12,11 +13,26 @@ export interface Box {
   y: number;
   w: number;
   h: number;
-  text: string;
+  /** Label terpilih; null = belum dipilih (opsi "Pilih label…"). */
+  labelId: number | null;
+  /** Catatan teks bebas dari data lama (sebelum label); hanya petunjuk, tidak dikirim. */
+  legacyText?: string | null;
+  /** Labelnya dikosongkan karena sudah tidak tersedia (diarsipkan admin); user diminta memilih ulang. */
+  flagged?: boolean;
+}
+
+/** Kotak di draf lokal (localStorage). Draf lama berbentuk `{ text, … }` tanpa `label_id`. */
+export interface DraftAnnotation {
+  label_id: number | null;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  legacy_text?: string | null;
 }
 
 export type Corner = "nw" | "ne" | "sw" | "se";
-export type BoxProblem = "too-small" | "empty-text" | "text-too-long" | "bad-char";
+export type BoxProblem = "too-small" | "no-label" | "label-unavailable";
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
@@ -49,41 +65,57 @@ export function resizeBox(b: Box, corner: Corner, px: number, py: number): Box {
   return { ...b, ...rectFromPoints(fx, fy, clamp01(nx), clamp01(ny)) };
 }
 
-/** Teks seperti yang akan disimpan: baris baru dinormalkan, tab menjadi spasi, spasi tepi dibuang. */
-export function normalizeText(t: string): string {
-  return t.replace(/\r\n?/g, "\n").replace(/\t/g, " ").trim();
-}
-
-// Sama dengan backend (domain.NormalizeAnnotationText): karakter kontrol (Cc) selain baris baru dan
-// karakter kontrol arah teks U+202A–202E, U+2066–2069 ditolak.
-const BAD_CHARS = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f‪-‮⁦-⁩]/;
-
 export function boxProblems(b: Box): BoxProblem[] {
   const out: BoxProblem[] = [];
   if (!isBigEnough(b)) out.push("too-small");
-  const t = normalizeText(b.text);
-  if (t === "") out.push("empty-text");
-  if ([...t].length > limits.maxTextLength) out.push("text-too-long");
-  if (BAD_CHARS.test(t)) out.push("bad-char");
+  if (b.labelId == null) out.push(b.flagged ? "label-unavailable" : "no-label");
   return out;
 }
 
 export const PROBLEM_TEXT: Record<BoxProblem, string> = {
   "too-small": "Kotak terlalu kecil.",
-  "empty-text": "Catatan wajib diisi.",
-  "text-too-long": `Catatan maksimal ${limits.maxTextLength} karakter.`,
-  "bad-char": "Catatan mengandung karakter yang tidak diizinkan.",
+  "no-label": "Pilih label.",
+  "label-unavailable": "Label sebelumnya sudah tidak tersedia. Pilih label lain.",
 };
 
 // pembulatan 6 desimal: cukup presisi (±0,002 px pada 1920 px) dan payload tetap kecil
 const r6 = (v: number) => Math.round(v * 1e6) / 1e6;
 
-export function toDTO(b: Box): AnnotationDTO {
+function rounded(b: Pick<Box, "x" | "y" | "w" | "h">) {
   // pastikan x+w ≤ 1 setelah pembulatan (backend menolak kotak yang keluar foto)
   const x = r6(b.x), y = r6(b.y);
-  return { text: normalizeText(b.text), x, y, w: Math.min(r6(b.w), r6(1 - x)), h: Math.min(r6(b.h), r6(1 - y)) };
+  return { x, y, w: Math.min(r6(b.w), r6(1 - x)), h: Math.min(r6(b.h), r6(1 - y)) };
 }
 
-export function fromDTO(a: AnnotationDTO): Box {
-  return { id: uuid(), x: a.x, y: a.y, w: a.w, h: a.h, text: a.text };
+/** Bentuk kirim (POST/PUT). Hanya dipanggil bila semua kotak sudah berlabel (readiness). */
+export function toDTO(b: Box): AnnotationDTO {
+  if (b.labelId == null) throw new Error("kotak tanpa label");
+  return { label_id: b.labelId, ...rounded(b) };
+}
+
+/** Bentuk draf: label boleh kosong, catatan lama ikut agar tetap tampil sebagai petunjuk. */
+export function toDraft(b: Box): DraftAnnotation {
+  return { label_id: b.labelId, ...rounded(b), ...(b.legacyText ? { legacy_text: b.legacyText } : {}) };
+}
+
+export function fromView(a: AnnotationView): Box {
+  return { id: uuid(), x: a.x, y: a.y, w: a.w, h: a.h, labelId: a.label?.id ?? null, legacyText: a.label ? null : a.text };
+}
+
+export function fromDraft(a: DraftAnnotation): Box {
+  return { id: uuid(), x: a.x, y: a.y, w: a.w, h: a.h, labelId: a.label_id, legacyText: a.legacy_text ?? null };
+}
+
+/**
+ * Kosongkan label yang tidak boleh dipakai lagi (diarsipkan/dihapus admin) dan tandai kotaknya,
+ * agar user memilih ulang. Mengembalikan array yang sama bila tidak ada perubahan.
+ */
+export function clearUnavailable(boxes: Box[], allowed: (labelId: number) => boolean): Box[] {
+  let changed = false;
+  const out = boxes.map((b) => {
+    if (b.labelId == null || allowed(b.labelId)) return b;
+    changed = true;
+    return { ...b, labelId: null, flagged: true };
+  });
+  return changed ? out : boxes;
 }

@@ -2,6 +2,7 @@
 import { request } from "./client";
 import type {
   EditResponse,
+  Label,
   LoginResponse,
   OTPStatusView,
   OTPTicket,
@@ -24,6 +25,9 @@ function turnstileHeader(token?: string): Record<string, string> {
 }
 
 export const api = {
+  /** Label aktif untuk pemilih label (publik pada mode none, butuh sesi pada mode otp). */
+  labels: () => request<{ labels: Label[] }>("GET", "/api/v1/labels").then((r) => r.labels ?? []),
+
   presign: (p: { content_type: string; size_bytes: number; width: number; height: number }, turnstileToken?: string) =>
     request<PresignResponse>("POST", "/api/v1/uploads/presign", { body: p, headers: turnstileHeader(turnstileToken) }),
 
