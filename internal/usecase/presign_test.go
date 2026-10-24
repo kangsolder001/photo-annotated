@@ -74,6 +74,31 @@ func (r *memPhotoRepo) MarkRejected(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (r *memPhotoRepo) Attach(_ context.Context, photoID, submissionID uuid.UUID, position int, ownerID *uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	p, ok := r.photos[photoID]
+	sameOwner := ok && ((p.OwnerID == nil && ownerID == nil) || (p.OwnerID != nil && ownerID != nil && *p.OwnerID == *ownerID))
+	if !ok || p.Status != domain.PhotoPending || p.UploadedAt == nil || !sameOwner {
+		return domain.Conflict("PHOTO_NOT_AVAILABLE", "photo cannot be attached")
+	}
+	p.SubmissionID, p.Position, p.Status = &submissionID, position, domain.PhotoAttached
+	return nil
+}
+
+func (r *memPhotoRepo) ListBySubmission(_ context.Context, submissionID uuid.UUID) ([]*domain.Photo, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []*domain.Photo
+	for _, p := range r.photos {
+		if p.SubmissionID != nil && *p.SubmissionID == submissionID && p.Status == domain.PhotoAttached {
+			cp := *p
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
+}
+
 func (r *memPhotoRepo) count() int { r.mu.Lock(); defer r.mu.Unlock(); return len(r.photos) }
 
 // fakeStore hanya mengimplementasikan Ready; metode lain akan panic bila terpanggil (nil embed).

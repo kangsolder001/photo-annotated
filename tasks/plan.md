@@ -190,13 +190,17 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 
 ### Phase 3: Submission (mode `none`, `edit_token`)
 
-#### Task 13: Persistensi submission + transaksi
+#### Task 13: Persistensi submission + transaksi — **SELESAI**
 **Description:** Migrasi `submissions` + `annotations` (CHECK constraint bbox & teks), `SubmissionRepo`, `AnnotationRepo`, `TxManager.WithTx`.
 **Acceptance criteria:**
-- [ ] CHECK constraint menolak bbox/teks tidak valid walau lolos aplikasi
-- [ ] Rollback transaksi tidak meninggalkan baris setengah jadi
-- [ ] `client_request_id` UNIQUE
-**Verification:** [ ] `TEST_DATABASE_URL=… go test ./internal/adapter/postgres/... -race`
+- [x] CHECK constraint menolak bbox/teks tidak valid walau lolos aplikasi (14 kasus batas, termasuk toleransi 1e-6); aturan domain dan CHECK diuji selaras
+- [x] Rollback transaksi (error maupun panic) tidak meninggalkan baris setengah jadi; transaksi bersarang bergabung ke luar; data transaksi yang belum commit tak terlihat dari luar
+- [x] `client_request_id` UNIQUE → `DUPLICATE_CLIENT_REQUEST`; pola idempotensi (rollback lalu baca ulang di luar transaksi) teruji
+- [x] `Attach` atomik dan bersyarat (pending + ter-upload + pemilik sama): dari 12 transaksi yang berebut satu foto tepat satu menang; `BumpVersion`: dari 10 edit dengan versi sama tepat satu menang (dasar `409 VERSION_CONFLICT`)
+- [x] `GetDetail` satu statement JOIN (snapshot konsisten): urutan foto menurut `position`, anotasi menurut urutan pembuatan, foto tanpa anotasi → slice kosong, foto `deleted` tak ikut; `double precision` kembali persis sama
+- [x] FK `photos.submission_id → submissions` ON DELETE CASCADE (anotasi ikut), FK anotasi → foto; `ReplaceAnnotations` atomik (gagal tidak menghapus yang lama)
+- [x] Config menolak `max_annotation_text_len` > 1000 (batas CHECK DB); test lama T11 diperbaiki karena FK baru kini menolak `submission_id` fiktif
+**Verification:** [x] `TEST_DATABASE_URL=… go test ./internal/adapter/postgres/... -race` (test balapan diulang 5×); [x] `migrate up/down/up` pada DB dev
 **Dependencies:** 7, 11 · **Files:** `migrations/0003_submissions.sql`, `adapter/postgres/{submission_repo,tx}.go` + test · **Scope:** M
 
 #### Task 14: `POST /submissions` (idempotent) + `edit_token`

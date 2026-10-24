@@ -77,6 +77,37 @@ type PhotoRepo interface {
 	MarkUploaded(ctx context.Context, id uuid.UUID, at time.Time, sha256 []byte) error
 	// MarkRejected menandai foto pending sebagai rejected. Foto yang sudah bukan pending diabaikan.
 	MarkRejected(ctx context.Context, id uuid.UUID) error
+	// Attach memakai foto untuk sebuah submission secara atomik: hanya berhasil bila foto masih
+	// pending, sudah ter-upload, dan pemiliknya sama (ownerID, nil = anonim). Selain itu
+	// mengembalikan domain.Conflict PHOTO_NOT_AVAILABLE; ini yang mencegah satu foto dipakai
+	// dua submission walau dua request datang bersamaan.
+	Attach(ctx context.Context, photoID, submissionID uuid.UUID, position int, ownerID *uuid.UUID) error
+	// ListBySubmission mengembalikan foto attached milik submission, berurutan menurut position.
+	ListBySubmission(ctx context.Context, submissionID uuid.UUID) ([]*domain.Photo, error)
+}
+
+// TxManager menjalankan fn dalam satu transaksi database. Repository yang dipanggil dengan
+// ctx dari fn ikut dalam transaksi itu. fn error atau panic → rollback.
+type TxManager interface {
+	WithTx(ctx context.Context, fn func(ctx context.Context) error) error
+}
+
+// SubmissionRepo menyimpan submission dan anotasinya.
+type SubmissionRepo interface {
+	// Create menyimpan submission baru. client_request_id yang sudah ada →
+	// domain.Conflict DUPLICATE_CLIENT_REQUEST.
+	Create(ctx context.Context, s *domain.Submission) error
+	Get(ctx context.Context, id uuid.UUID) (*domain.Submission, error)
+	GetByClientRequestID(ctx context.Context, id uuid.UUID) (*domain.Submission, error)
+	// GetDetail mengembalikan submission + foto attached + anotasi sebagai satu snapshot konsisten.
+	GetDetail(ctx context.Context, id uuid.UUID) (*domain.SubmissionDetail, error)
+	// AddAnnotations menambahkan anotasi ke foto, mempertahankan urutan.
+	AddAnnotations(ctx context.Context, photoID uuid.UUID, anns []domain.Annotation) error
+	// ReplaceAnnotations mengganti seluruh anotasi sebuah foto (hapus lalu tambah).
+	ReplaceAnnotations(ctx context.Context, photoID uuid.UUID, anns []domain.Annotation) error
+	// BumpVersion menaikkan version dan updated_at bila version saat ini == expected.
+	// Tidak cocok → domain.Conflict VERSION_CONFLICT; id tak ada → domain.ErrNotFound.
+	BumpVersion(ctx context.Context, id uuid.UUID, expected int, now time.Time) (newVersion int, err error)
 }
 
 // ImageInfo adalah hasil pemeriksaan header gambar.

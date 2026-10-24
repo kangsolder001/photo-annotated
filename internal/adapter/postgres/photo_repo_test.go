@@ -26,7 +26,8 @@ func validPhoto() *domain.Photo {
 }
 
 func TestPhotoRepoRoundTrip(t *testing.T) {
-	repo := postgres.NewPhotoRepo(pgtest.Pool(t))
+	pool := pgtest.Pool(t)
+	repo := postgres.NewPhotoRepo(pool)
 	ctx := context.Background()
 
 	// foto baru (pending): kolom opsional NULL
@@ -49,7 +50,12 @@ func TestPhotoRepoRoundTrip(t *testing.T) {
 
 	// foto lengkap: semua kolom terisi
 	full := validPhoto()
-	owner, sub := uuid.New(), uuid.New()
+	owner := uuid.New()
+	subRow := newSub(nil)
+	if err := postgres.NewSubmissionRepo(pool).Create(ctx, subRow); err != nil {
+		t.Fatal(err)
+	}
+	sub := subRow.ID
 	up := time.Now().UTC().Truncate(time.Microsecond)
 	sum := bytes.Repeat([]byte{0xAB}, 32)
 	full.OwnerID, full.SubmissionID, full.UploadedAt, full.SHA256 = &owner, &sub, &up, sum
@@ -93,10 +99,15 @@ func TestPhotoRepoStorageKeyIsUnique(t *testing.T) {
 
 // Constraint di DB adalah pagar kedua: tetap menolak walau aplikasi (bug) meloloskan nilai buruk.
 func TestPhotoTableConstraints(t *testing.T) {
-	repo := postgres.NewPhotoRepo(pgtest.Pool(t))
+	pool := pgtest.Pool(t)
+	repo := postgres.NewPhotoRepo(pool)
 	now := time.Now().UTC()
 	sha := bytes.Repeat([]byte{1}, 32)
-	sub := uuid.New()
+	subRow := newSub(nil)
+	if err := postgres.NewSubmissionRepo(pool).Create(context.Background(), subRow); err != nil {
+		t.Fatal(err)
+	}
+	sub := subRow.ID
 	cases := map[string]func(*domain.Photo){
 		"content-type tak diizinkan": func(p *domain.Photo) { p.ContentType = "image/png" },
 		"ukuran 0":                   func(p *domain.Photo) { p.SizeBytes = 0 },

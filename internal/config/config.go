@@ -26,6 +26,9 @@ const (
 	StorageDriverLocal = "local"
 
 	minSecretLen = 32
+
+	// maxAnnotationTextLenDB adalah batas CHECK kolom annotations.text di database (migrasi 0003).
+	maxAnnotationTextLenDB = 1000
 )
 
 // Duration adalah time.Duration yang di-JSON sebagai string ("10m", "720h").
@@ -393,6 +396,9 @@ func (c *Config) Validate() error {
 	}
 	if l.MaxPhotosPerSubmission < 1 || l.MaxAnnotationsPerPhoto < 1 || l.MaxAnnotationTextLen < 1 || l.MaxConcurrentUploads < 1 {
 		bad("limits", "max_photos_per_submission, max_annotations_per_photo, max_annotation_text_len, max_concurrent_uploads harus >= 1")
+	}
+	if l.MaxAnnotationTextLen > maxAnnotationTextLenDB {
+		bad("limits.max_annotation_text_len", "tidak boleh > %d (batas CHECK di database)", maxAnnotationTextLenDB)
 	}
 	if l.UploadTimeout <= 0 {
 		bad("limits.upload_timeout", "harus > 0")
