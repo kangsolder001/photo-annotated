@@ -91,8 +91,12 @@ func (r *UserRepo) Activate(ctx context.Context, id uuid.UUID, now time.Time) er
 func (r *UserRepo) DeletePendingBefore(ctx context.Context, cutoff time.Time, limit int) (int, error) {
 	tag, err := r.db(ctx).Exec(ctx, `
 		DELETE FROM users WHERE id IN (
-			SELECT id FROM users WHERE status = 'pending' AND created_at < $1
-			 ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED
+			SELECT u.id FROM users u
+			 WHERE u.status = 'pending' AND u.created_at < $1
+			   -- usia dihitung dari aktivitas terakhir: pengguna pending yang baru saja meminta kode
+			   -- tidak dihapus (CASCADE akan ikut menghapus challenge yang sedang dipakai)
+			   AND NOT EXISTS (SELECT 1 FROM otp_challenges c WHERE c.user_id = u.id AND c.created_at >= $1)
+			 ORDER BY u.created_at LIMIT $2 FOR UPDATE OF u SKIP LOCKED
 		)`, cutoff, limit)
 	if err != nil {
 		return 0, fmt.Errorf("postgres: delete pending users: %w", err)

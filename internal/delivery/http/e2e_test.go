@@ -314,14 +314,17 @@ func TestE2EFullUploadFlow(t *testing.T) {
 		t.Fatal("tmp harus bersih")
 	}
 
-	// retry (PUT ulang) pada foto pending: aman, menimpa
+	// retry isi sama (respons pertama hilang): 204 idempoten; isi berbeda: 409, file tidak berubah
+	if r := st.putBytes(t, pr.URL, "image/webp", body); r.Status != 204 {
+		t.Fatalf("retry isi sama: %d (%s)", r.Status, r.Code)
+	}
 	body2 := imgfix.WebP(1920, 1440, len(body), 0x44)
-	if r := st.putBytes(t, pr.URL, "image/webp", body2); r.Status != 204 {
-		t.Fatalf("PUT ulang status %d (%s)", r.Status, r.Code)
+	if r := st.putBytes(t, pr.URL, "image/webp", body2); r.Status != 409 || r.Code != "PHOTO_ALREADY_UPLOADED" {
+		t.Fatalf("PUT ulang isi beda: %d (%s)", r.Status, r.Code)
 	}
 	got, _ = os.ReadFile(filepath.Join(st.dir, p.StorageKey))
-	if !bytes.Equal(got, body2) {
-		t.Fatal("PUT ulang harus menimpa file")
+	if !bytes.Equal(got, body) {
+		t.Fatal("file tidak boleh ditimpa setelah ter-upload")
 	}
 }
 

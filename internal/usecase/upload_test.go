@@ -154,27 +154,39 @@ func TestUploadJPEG(t *testing.T) {
 	}
 }
 
-func TestUploadRetryOverwritesAndUpdatesHash(t *testing.T) {
+// Sekali ter-upload, file tidak pernah berubah (regresi review: PUT ulang yang dimulai sebelum
+// Attach bisa menimpa file foto yang sudah dipakai submission dan membuat sha256 tidak cocok).
+func TestUploadIsImmutableOnceUploaded(t *testing.T) {
 	r := newUpRig(t, 4)
 	first := imgfix.WebP(100, 80, 2000, 0x01)
 	second := imgfix.WebP(100, 80, 2000, 0x02) // ukuran sama, isi beda
+	broken := bytes.Repeat([]byte{0}, 2000)    // bukan gambar
 	tp := r.newPhoto(t, "image/webp", 2000, 100, 80)
 
 	if err := r.uc.Upload(bg, tp.input(first)); err != nil {
 		t.Fatal(err)
 	}
+	firstAt := r.status(t, tp.p).UploadedAt
 	r.clock.t = r.clock.t.Add(time.Minute)
-	if err := r.uc.Upload(bg, tp.input(second)); err != nil {
-		t.Fatalf("PUT ulang pada foto pending harus berhasil: %v", err)
+
+	// retry dengan isi sama: sukses tanpa mengubah apa pun
+	if err := r.uc.Upload(bg, tp.input(first)); err != nil {
+		t.Fatalf("retry isi sama harus sukses: %v", err)
+	}
+	// isi berbeda atau rusak: ditolak, file dan status tetap
+	for _, body := range [][]byte{second, broken} {
+		if err := r.uc.Upload(bg, tp.input(body)); codeOf(err) != "PHOTO_ALREADY_UPLOADED" {
+			t.Fatalf("isi berbeda: %v", err)
+		}
 	}
 	got, _ := os.ReadFile(r.finalPath(tp.p))
-	if !bytes.Equal(got, second) {
-		t.Fatal("file harus berisi upload terakhir")
-	}
 	p := r.status(t, tp.p)
-	sum := sha256.Sum256(second)
-	if !bytes.Equal(p.SHA256, sum[:]) || !p.UploadedAt.Equal(r.clock.t) {
-		t.Fatalf("hash/waktu harus mengikuti upload terakhir: %+v", p)
+	sum := sha256.Sum256(first)
+	if !bytes.Equal(got, first) || !bytes.Equal(p.SHA256, sum[:]) || !p.UploadedAt.Equal(*firstAt) || p.Status != domain.PhotoPending {
+		t.Fatalf("upload pertama harus utuh: %+v", p)
+	}
+	if ents, _ := os.ReadDir(filepath.Join(r.dir, "tmp")); len(ents) != 0 {
+		t.Fatalf("tmp harus bersih, ada %d entri", len(ents))
 	}
 }
 

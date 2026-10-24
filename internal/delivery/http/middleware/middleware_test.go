@@ -326,6 +326,17 @@ func TestCORSPreflightAllowed(t *testing.T) {
 	}
 }
 
+// Setiap header yang diumumkan di Access-Control-Allow-Headers harus benar-benar lolos preflight
+// (regresi: X-Turnstile-Token diumumkan tetapi ditolak 403, sehingga presign/submit mode none gagal).
+func TestCORSPreflightAcceptsEveryAdvertisedHeader(t *testing.T) {
+	r := corsEngine()
+	for _, h := range []string{"content-type", "authorization", "x-edit-token", "x-turnstile-token", "Content-Type, X-Turnstile-Token"} {
+		if w := preflight(r, "https://app.example.com", "POST", h, "/api/v1/uploads/presign"); w.Code != 204 {
+			t.Errorf("%q: status = %d (%s)", h, w.Code, w.Body.String())
+		}
+	}
+}
+
 func TestCORSPreflightRejections(t *testing.T) {
 	r := corsEngine()
 	for name, w := range map[string]*httptest.ResponseRecorder{

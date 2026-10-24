@@ -234,9 +234,10 @@ func repeat(s string, n int) string {
 func TestDeletePendingUsersBeforeCascades(t *testing.T) {
 	r := newAuthRig(t)
 	cutoff := now()
-	oldPending, youngPending, oldActive := r.user(t), r.user(t), r.user(t)
+	oldPending, youngPending, oldActive, oldButRecentlyActive := r.user(t), r.user(t), r.user(t), r.user(t)
 	for id, at := range map[uuid.UUID]time.Time{
 		oldPending.ID: cutoff.Add(-time.Hour), youngPending.ID: cutoff.Add(time.Hour), oldActive.ID: cutoff.Add(-time.Hour),
+		oldButRecentlyActive.ID: cutoff.Add(-48 * time.Hour),
 	} {
 		if _, err := r.pool.Exec(ctx, `UPDATE users SET created_at=$2 WHERE id=$1`, id, at); err != nil {
 			t.Fatal(err)
@@ -249,6 +250,13 @@ func TestDeletePendingUsersBeforeCascades(t *testing.T) {
 	if err := r.otps.Replace(ctx, ch); err != nil {
 		t.Fatal(err)
 	}
+	r.setOTPCreated(t, ch.ID, cutoff.Add(-2*time.Hour))
+	// regresi review: pengguna pending lama yang baru saja meminta kode tidak boleh dihapus (CASCADE
+	// akan menghapus challenge yang sedang dipakai, sehingga kode yang sudah terkirim tidak bisa dipakai)
+	live := newOTP(oldButRecentlyActive)
+	if err := r.otps.Replace(ctx, live); err != nil {
+		t.Fatal(err)
+	}
 	n, err := r.users.DeletePendingBefore(ctx, cutoff, 10)
 	if err != nil || n != 1 {
 		t.Fatalf("n=%d err=%v", n, err)
@@ -256,13 +264,16 @@ func TestDeletePendingUsersBeforeCascades(t *testing.T) {
 	if _, err := r.users.Get(ctx, oldPending.ID); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatal("pengguna pending lama harus terhapus")
 	}
-	for _, u := range []*domain.User{youngPending, oldActive} {
+	for _, u := range []*domain.User{youngPending, oldActive, oldButRecentlyActive} {
 		if _, err := r.users.Get(ctx, u.ID); err != nil {
 			t.Fatalf("pengguna %s tidak boleh terhapus: %v", u.ID, err)
 		}
 	}
 	if _, err := r.otps.Get(ctx, ch.ID); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatal("challenge pengguna yang dihapus harus ikut terhapus (CASCADE)")
+	}
+	if _, err := r.otps.Get(ctx, live.ID); err != nil {
+		t.Fatalf("challenge aktif harus tetap ada: %v", err)
 	}
 }
 

@@ -30,16 +30,21 @@ type decoys struct {
 	ttl   time.Duration // masa berlaku kode tiruan sejak "terkirim"
 	items map[uuid.UUID]decoy
 	order []uuid.UUID // urutan masuk, untuk membuang yang tertua
+	// latest: id palsu terbaru per nomor. Permintaan baru untuk nomor yang sama membatalkan yang
+	// lama, persis seperti OTPRepo.Replace membuat challenge asli sebelumnya expired; tanpa ini,
+	// meminta kode dua kali lalu memeriksa id pertama membedakan nomor terdaftar dari yang tidak.
+	latest map[string]uuid.UUID
 }
 
 type decoy struct {
+	phone             string
 	createdAt, sentAt time.Time
 	attempts          int  // tebakan kode yang dicoba (ditiru seperti verify_attempts)
-	burned            bool // batas percobaan tercapai: terlihat expired seperti challenge asli
+	burned            bool // dibatalkan (batas percobaan atau diganti permintaan baru): terlihat expired
 }
 
 func newDecoys(max int, ttl time.Duration) *decoys {
-	return &decoys{max: max, ttl: ttl, items: make(map[uuid.UUID]decoy)}
+	return &decoys{max: max, ttl: ttl, items: make(map[uuid.UUID]decoy), latest: make(map[string]uuid.UUID)}
 }
 
 // attempt mencatat satu tebakan untuk id palsu dan mengembalikan jumlahnya; setelah max tebakan
@@ -47,21 +52,35 @@ func newDecoys(max int, ttl time.Duration) *decoys {
 func (d *decoys) attempt(id uuid.UUID, max int) int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	v := d.items[id]
+	v, ok := d.items[id]
+	if !ok {
+		return max + 1 // sudah terbuang: perlakukan sebagai kedaluwarsa
+	}
 	v.attempts++
 	v.burned = v.attempts >= max
 	d.items[id] = v
 	return v.attempts
 }
 
-func (d *decoys) add(id uuid.UUID, createdAt, sentAt time.Time) {
+func (d *decoys) add(id uuid.UUID, phone string, createdAt, sentAt time.Time) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for len(d.order) >= d.max {
-		delete(d.items, d.order[0])
+		old := d.order[0]
+		if v, ok := d.items[old]; ok && d.latest[v.phone] == old {
+			delete(d.latest, v.phone)
+		}
+		delete(d.items, old)
 		d.order = d.order[1:]
 	}
-	d.items[id] = decoy{createdAt: createdAt, sentAt: sentAt}
+	if prev, ok := d.latest[phone]; ok {
+		if v, ok := d.items[prev]; ok {
+			v.burned = true
+			d.items[prev] = v
+		}
+	}
+	d.items[id] = decoy{phone: phone, createdAt: createdAt, sentAt: sentAt}
+	d.latest[phone] = id
 	d.order = append(d.order, id)
 }
 
@@ -104,6 +123,10 @@ func (o *OTPRequest) Status(ctx context.Context, id uuid.UUID) (*OTPStatusView, 
 
 func (o *OTPRequest) decoyView(d decoy, now time.Time) *OTPStatusView {
 	v := &OTPStatusView{Status: domain.OTPQueued, ResendAfter: o.resendAfter(d.createdAt, now)}
+	if d.burned && now.Before(d.sentAt) {
+		v.Status = domain.OTPExpired // diganti sebelum "terkirim", seperti challenge asli yang diganti saat antre
+		return v
+	}
 	if !now.Before(d.sentAt) {
 		exp := d.sentAt.Add(o.decoys.ttl)
 		v.Status, v.ExpiresAt = domain.OTPSent, &exp

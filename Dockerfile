@@ -3,7 +3,7 @@
 #   docker buildx build --platform linux/arm64 -t photo-annotated:<tag> --load .
 # Tahap build berjalan di arsitektur mesin build; hanya biner statis yang disalin ke image akhir.
 
-FROM --platform=$BUILDPLATFORM golang:1.26.6-bookworm AS build
+FROM --platform=$BUILDPLATFORM golang:1.26.10-bookworm AS build
 ARG TARGETOS=linux
 ARG TARGETARCH=arm64
 WORKDIR /src

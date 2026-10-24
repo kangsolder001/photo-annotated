@@ -12,15 +12,18 @@ import (
 const (
 	corsAllowMethods = "GET, POST, PUT, OPTIONS"
 	corsMaxAge       = "3600"
-	// Header yang boleh dikirim browser (spec §9.4).
-	corsAllowHeaders = "Content-Type, Authorization, X-Edit-Token, X-Turnstile-Token"
 	// Header respons yang boleh dibaca FE (Retry-After dipakai untuk backoff upload).
 	corsExposeHeaders = "X-Request-ID, Retry-After"
 )
 
+// corsHeaders adalah header yang boleh dikirim browser (spec §9.4). Satu daftar ini menjadi sumber
+// header respons preflight sekaligus himpunan yang diperiksa, agar keduanya tidak bisa berbeda.
+var corsHeaders = []string{"Content-Type", "Authorization", "X-Edit-Token", HeaderTurnstileToken}
+
 var (
-	corsMethodSet = toSet("GET", "POST", "PUT", "OPTIONS")
-	corsHeaderSet = toSet("content-type", "authorization", "x-edit-token")
+	corsMethodSet    = toSet("GET", "POST", "PUT", "OPTIONS")
+	corsAllowHeaders = strings.Join(corsHeaders, ", ")
+	corsHeaderSet    = lowerSet(corsHeaders)
 )
 
 // CORS menangani preflight dan menambahkan header CORS untuk origin yang diizinkan.
@@ -82,6 +85,15 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 		// otorisasi); browser menolak membaca respons karena tidak ada header izin.
 		c.Next()
 	}
+}
+
+// lowerSet membuat himpunan huruf kecil (nama header tidak peka huruf besar).
+func lowerSet(items []string) map[string]struct{} {
+	m := make(map[string]struct{}, len(items))
+	for _, i := range items {
+		m[strings.ToLower(i)] = struct{}{}
+	}
+	return m
 }
 
 func toSet(items ...string) map[string]struct{} {

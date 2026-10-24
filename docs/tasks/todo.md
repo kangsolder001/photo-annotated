@@ -68,10 +68,12 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T25** `GET /admin/export` JSONL
 
 ### Checkpoint 6: Backend lengkap
-- [ ] `go test ./... -race` hijau; review dengan Anda
+- [x] `go test ./... -race` hijau; review backend di komputer lokal (agent reviewer independen + govulncheck), 24 Okt
+  - Diperbaiki: CORS menolak `X-Turnstile-Token` (kritis), PUT ulang bisa menimpa foto yang sudah dipakai, enumerasi nomor lewat permintaan kode dua kali, cleanup pending user menghapus challenge yang sedang dipakai, Go 1.26.6 → 1.26.10 + quic-go v0.59.1 (govulncheck: 0 terjangkau), `/content` memeriksa tanda tangan sebelum DB
+  - Dicatat (opsional, belum diubah): `client_request_id` di mode none berfungsi seperti kredensial (FE wajib `crypto.randomUUID()`), nomor bisa "diduduki" dengan nama/email penyerang sebelum pemilik mendaftar, validasi silang config (`pending_photo_ttl`, `edit.window`)
 
 ## Phase 7: Frontend (`web/`) — paralel setelah Checkpoint 3
-- [ ] 🔒 Putuskan framework FE (rekomendasi: React + Vite + TypeScript)
+- [x] Framework FE: React + Vite + TypeScript (keputusan Anda, 24 Okt)
 - [ ] **T26** FE: skeleton + proses foto + upload dengan progres
 - [ ] **T27** FE: anotasi (Annotorious) + submit
 - [ ] **T28** FE: edit + draft + sisa waktu edit

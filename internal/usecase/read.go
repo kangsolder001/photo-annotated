@@ -111,18 +111,20 @@ var (
 // PhotoContent memverifikasi URL lihat foto lalu membuka filenya. Id yang tak dikenal dijawab
 // sama dengan tanda tangan salah (tidak bisa dipakai untuk menebak keberadaan foto).
 func (u *Reader) PhotoContent(ctx context.Context, photoID uuid.UUID, exp int64, sig string) (*PhotoContentResult, error) {
-	photo, err := u.photos.Get(ctx, photoID)
-	if errors.Is(err, domain.ErrNotFound) {
-		return nil, errViewSignature
-	}
-	if err != nil {
-		return nil, err
-	}
-	if !u.signer.VerifyView(photo.ID, exp, sig) {
+	// Tanda tangan view hanya bergantung pada id dan exp: periksa sebelum menyentuh DB, sehingga
+	// request acak ke rute publik ini tidak membebani database.
+	if !u.signer.VerifyView(photoID, exp, sig) {
 		return nil, errViewSignature
 	}
 	if u.clock.Now().Unix() > exp {
 		return nil, errViewExpired
+	}
+	photo, err := u.photos.Get(ctx, photoID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return nil, notFound() // tanda tangan sah, tetapi foto sudah dihapus
+	}
+	if err != nil {
+		return nil, err
 	}
 	if photo.Status != domain.PhotoAttached {
 		return nil, notFound() // dihapus (edit/retensi) setelah URL diterbitkan

@@ -108,7 +108,7 @@ func (o *OTPRequest) Request(ctx context.Context, rawPhone string, clientIP *net
 	if errors.Is(err, domain.ErrNotFound) {
 		t := o.ticket(uuid.New(), ahead)
 		now := o.clock.Now()
-		o.decoys.add(t.ChallengeID, now, now.Add(t.EstimatedWait))
+		o.decoys.add(t.ChallengeID, phone, now, now.Add(t.EstimatedWait))
 		return t, nil
 	}
 	if err != nil {

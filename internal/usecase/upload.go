@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -113,6 +114,19 @@ func (u *Upload) Upload(ctx context.Context, in UploadInput) error {
 	}
 	defer u.locks.unlock(photo.ID)
 
+	// 7b. Baca ulang di bawah kunci. Hanya upload (yang berjalan di bawah kunci ini) yang mengisi
+	//     uploaded_at, dan Attach mensyaratkan uploaded_at terisi, jadi foto yang terlihat belum
+	//     ter-upload di sini belum mungkin dipakai submission. Foto yang sudah ter-upload tidak
+	//     pernah ditimpa: isinya mungkin sudah dipakai submission (dan dianotasi) sejak pembacaan
+	//     pertama di atas.
+	photo, err = u.photos.Get(ctx, photo.ID)
+	if err != nil {
+		return err
+	}
+	if photo.Status != domain.PhotoPending {
+		return domain.Conflict("PHOTO_NOT_AVAILABLE", "photo is %s and no longer accepts uploads", photo.Status)
+	}
+
 	// 8. Penyimpanan siap (SSD ada, sisa ruang cukup)
 	if err := u.store.Ready(ctx); err != nil {
 		return err
@@ -127,6 +141,15 @@ func (u *Upload) Upload(ctx context.Context, in UploadInput) error {
 
 	if staged.Size() != photo.SizeBytes {
 		return domain.Invalid("SIZE_MISMATCH", "received %d bytes but %d were declared", staged.Size(), photo.SizeBytes)
+	}
+
+	// 9b. Sudah ter-upload: isi yang sama = retry idempoten (mis. respons pertama hilang di jaringan);
+	//     isi berbeda ditolak tanpa menyentuh file maupun status foto.
+	if photo.UploadedAt != nil {
+		if bytes.Equal(staged.SHA256(), photo.SHA256) {
+			return nil
+		}
+		return domain.Conflict("PHOTO_ALREADY_UPLOADED", "this photo was already uploaded with different content; request a new upload URL")
 	}
 
 	// 10. Periksa isi: magic bytes + header, dimensi harus sama dengan deklarasi

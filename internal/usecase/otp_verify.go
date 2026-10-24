@@ -154,7 +154,7 @@ func (v *OTPVerify) login(ctx context.Context, c *domain.OTPChallenge, clientIP 
 func (v *OTPVerify) verifyDecoy(id uuid.UUID, now time.Time) error {
 	d, ok := v.decoys.get(id)
 	switch {
-	case !ok:
+	case !ok, d.burned:
 		return errOTPExpired
 	case now.Before(d.sentAt):
 		return errOTPNotSent

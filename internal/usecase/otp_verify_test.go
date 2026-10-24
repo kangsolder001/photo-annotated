@@ -255,3 +255,37 @@ func TestSessionsRejectBadExpiredAndRevoked(t *testing.T) {
 		t.Fatalf("setelah logout: %v", err)
 	}
 }
+
+// Regresi review: meminta kode dua kali lalu memeriksa id pertama tidak boleh membedakan nomor
+// terdaftar (challenge lama expired karena Replace) dari yang tidak terdaftar.
+func TestRepeatedRequestLooksTheSameForKnownAndUnknown(t *testing.T) {
+	r, _ := newDispatchRig(t, stubToken)
+	r.register(t, "081234567890")
+	r.once(t, usecase.DispatchSent)
+
+	type probe struct {
+		status domain.OTPStatus
+		verify string
+	}
+	check := func(phone string, dispatch bool) probe {
+		r.clock.t = r.clock.t.Add(2 * time.Minute) // lewat cooldown
+		first, err := r.req.Request(bg, phone, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dispatch {
+			r.once(t, usecase.DispatchSent)
+		}
+		r.clock.t = r.clock.t.Add(2 * time.Minute)
+		if _, err := r.req.Request(bg, phone, nil); err != nil {
+			t.Fatal(err)
+		}
+		_, verr := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: first.ChallengeID, Code: "123456"})
+		return probe{r.status(t, first.ChallengeID).Status, errCode(verr)}
+	}
+	known := check("081234567890", true)
+	unknown := check("081299998888", false)
+	if known != unknown || known.status != domain.OTPExpired || known.verify != "OTP_EXPIRED" {
+		t.Fatalf("terdaftar %+v, tidak terdaftar %+v; ingin sama-sama expired/OTP_EXPIRED", known, unknown)
+	}
+}
