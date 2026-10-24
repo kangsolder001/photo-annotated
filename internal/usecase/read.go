@@ -87,11 +87,13 @@ func (u *Reader) PhotoURL(ctx context.Context, c Caller, photoID uuid.UUID) (*Ph
 		return nil, notFound()
 	}
 	exp := u.clock.Now().Add(u.cfg.ViewURLTTL)
-	q := url.Values{"exp": {strconv.FormatInt(exp.Unix(), 10)}, "sig": {u.signer.SignView(photo.ID, exp)}}
-	return &PhotoURL{
-		URL:       fmt.Sprintf("%s/api/v1/photos/%s/content?%s", u.cfg.PublicBaseURL, photo.ID, q.Encode()),
-		ExpiresAt: exp,
-	}, nil
+	return &PhotoURL{URL: viewURL(u.cfg.PublicBaseURL, u.signer, photo.ID, exp), ExpiresAt: exp}, nil
+}
+
+// viewURL membangun URL /content bertanda tangan untuk foto (dipakai Reader dan Export).
+func viewURL(base string, signer URLSigner, photoID uuid.UUID, exp time.Time) string {
+	q := url.Values{"exp": {strconv.FormatInt(exp.Unix(), 10)}, "sig": {signer.SignView(photoID, exp)}}
+	return fmt.Sprintf("%s/api/v1/photos/%s/content?%s", base, photoID, q.Encode())
 }
 
 // PhotoContentResult adalah file foto siap disajikan. Pemanggil wajib menutup File.

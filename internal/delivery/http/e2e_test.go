@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"photo-annotated/internal/adapter/export"
 	"photo-annotated/internal/adapter/imagecheck"
 	"photo-annotated/internal/adapter/localfs"
 	"photo-annotated/internal/adapter/postgres"
@@ -151,6 +152,8 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		Submitter: submit, SubmissionsPerMin: 1_000_000,
 		Reader: reader, Editor: editor,
 		OTPRequester: otp.req, OTPVerifier: otp.verify, Sessions: otp.sessions, OTPVerifyPerMin: 1_000_000, OTPChannel: o.channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin, UploadTurnstile: o.uploadTurnstile, Admin: o.admin, AdminLoginPerMin: o.adminPerMin,
+		Exporter: usecase.NewExport(postgres.NewExportRepo(pool), sg, usecase.SystemClock{}, usecase.ExportConfig{PublicBaseURL: srv.URL, URLTTL: time.Hour, PageSize: 2}),
+		NewJSONL: func(w io.Writer) handler.ExportStream { return export.NewJSONL(w) },
 	})
 	inner.Store(&h)
 	return &stack{pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}

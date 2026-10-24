@@ -220,6 +220,36 @@ type TurnstileVerifier interface {
 	Verify(ctx context.Context, token, remoteIP string) error
 }
 
+// ExportCursor adalah posisi keyset export: (submissions.created_at, submissions.id,
+// photos.position, photos.id); photos.id hanya pemecah seri.
+type ExportCursor struct {
+	CreatedAt    time.Time
+	SubmissionID uuid.UUID
+	Position     int
+	PhotoID      uuid.UUID
+}
+
+// ExportPhoto adalah satu foto attached beserta anotasinya, tanpa data pribadi apa pun.
+type ExportPhoto struct {
+	SubmissionID uuid.UUID
+	CreatedAt    time.Time // waktu submission dibuat
+	Photo        domain.Photo
+	Annotations  []domain.Annotation
+}
+
+// ExportRepo membaca data export per halaman, berurutan menurut ExportCursor.
+type ExportRepo interface {
+	// ExportPage mengembalikan paling banyak limit foto attached setelah after (nil = dari awal),
+	// dengan submission dibuat dalam [from, to) (nil = tanpa batas).
+	ExportPage(ctx context.Context, after *ExportCursor, from, to *time.Time, limit int) ([]ExportPhoto, error)
+}
+
+// ExportEncoder menulis satu item export dalam format tertentu (mis. JSONL). Format lain (COCO, YOLO)
+// dapat ditambahkan sebagai implementasi baru tanpa mengubah usecase (spec §3.2).
+type ExportEncoder interface {
+	Encode(item *ExportItem) error
+}
+
 // AdminTokenSigner menerbitkan dan memverifikasi token admin stateless.
 type AdminTokenSigner interface {
 	Issue(expiresAt time.Time) string

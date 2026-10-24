@@ -351,13 +351,16 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [x] `go test ./... -race`
 **Dependencies:** 15, 8 · **Files:** `usecase/admin.go`, `adapter/signer/admintoken.go`, `middleware/auth.go`, `handler/admin.go` + test · **Scope:** S
 
-#### Task 25: Export JSONL
+#### Task 25: Export JSONL — **SELESAI**
 **Description:** Port `Exporter` + implementasi `jsonl` (keyset pagination `(created_at,id)`, `bbox_norm` + `bbox_px`, `storage_key`, `sha256`, tanpa data pribadi, `include_urls`), deadline tulis diperpanjang.
 **Acceptance criteria:**
-- [ ] Satu baris JSON per foto; tidak ada nama/email/nomor/owner_id
-- [ ] 10 ribu foto diekspor dengan memori stabil
-**Verification:** [ ] `go test ./… -race`; [ ] `curl -H "Authorization: Bearer …" /admin/export | head`
-**Dependencies:** 24 · **Files:** `usecase/export.go`, `adapter/export/jsonl.go`, handler + test · **Scope:** M
+- [x] Satu baris JSON per foto (5 kunci tetap); tidak ada nama/email/nomor/owner_id/IP (diuji dengan data yang memuat semuanya); `bbox_px` sama dengan contoh spec `[230,432,480,259]`; teks apa adanya (`<`, `&` tidak di-escape); urutan benar dengan halaman 1, 2, dan 500; pending/deleted tidak ikut; filter `[from,to)`
+- [x] 10 ribu foto (+30 ribu anotasi, 17 MB output) diekspor dalam 21 halaman, tidak pernah lebih dari 500 baris sekaligus; heap hidup antar halaman selisih ±1 MB
+- [x] `include_urls`: URL bertanda tangan 1 jam yang benar-benar mengunduh foto asli (e2e)
+- [x] Hanya admin (tanpa token / `edit_token` → 401); query salah → 422; trailer `X-Export-Complete`/`X-Export-Rows`
+**Verification:** [x] `go test ./... -race`; [x] e2e lewat server HTTP sungguhan (setara `curl`), termasuk membaca trailer
+**Catatan:** ikut diperbaiki test `TestDispatchShutdownRequeues` yang flaky di bawah beban (timeout 50 ms bisa habis sebelum klaim; kini pembatalan dipicu setelah pengiriman dimulai, diulang 10× dengan -race).
+**Dependencies:** 24 · **Files:** `usecase/export.go`, `adapter/postgres/export_repo.go`, `adapter/export/jsonl.go`, `handler/export.go` + test · **Scope:** M
 
 ### Checkpoint 6: Backend lengkap
 - [ ] Setara milestone M1–M2 + M6 spec; `go test ./... -race` hijau

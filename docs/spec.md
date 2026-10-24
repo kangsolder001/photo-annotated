@@ -346,7 +346,10 @@ Response: `Content-Type: application/x-ndjson`, **satu baris JSON per foto**, di
 
 - `bbox_norm` = `[x, y, w, h]` ternormalisasi (nilai asli di DB); `bbox_px` = `[x, y, w, h]` dalam piksel foto hasil proses, dihitung saat export. Konsumen tidak perlu mengetahui aturan normalisasi.
 - Teks anotasi disertakan apa adanya sehingga cocok untuk dataset grounding (gambar + teks + kotak). Pemetaan teks bebas ke kelas (untuk COCO/YOLO) sengaja ditunda (§14).
-- Karena `WriteTimeout` server 15 detik, handler ini memperpanjang deadline per-request lewat `http.ResponseController.SetWriteDeadline`.
+- Karena `WriteTimeout` server 15 detik, handler ini memperpanjang deadline per-request lewat `http.ResponseController.SetWriteDeadline`: 60 detik per halaman (500 foto), digeser setiap halaman, sehingga export panjang tetap berjalan tetapi klien yang berhenti membaca diputus.
+- Urutan: `created_at` submission, lalu `submission_id`, lalu `position` foto (keyset `(created_at, submission_id, position, photo_id)`). `from` inklusif, `to` eksklusif, keduanya RFC 3339 atas `created_at` submission. Hanya foto `attached`. `bbox_px` dibulatkan ke piksel terdekat dan dijaga tetap di dalam foto. `sha256` dalam hex; `url` bernilai `null` bila `include_urls=false`.
+- Query salah (`format` selain `jsonl`, waktu bukan RFC 3339, `from ≥ to`, `include_urls` bukan boolean) → `422`. Rentang tanpa data → `200` dengan badan kosong.
+- Status `200` terkirim sebelum data, jadi kegagalan di tengah jalan tidak bisa mengubah status. Hasilnya dilaporkan lewat **HTTP trailer** `X-Export-Complete: true|false` dan `X-Export-Rows: <n>` (mis. `curl --raw` atau klien HTTP yang membaca trailer); konsumen wajib memeriksa `X-Export-Complete`.
 - Export **tidak memuat data pribadi** (nama, email, nomor HP, `owner_id`); hanya foto, anotasi, dan teks.
 - `storage_key` adalah path relatif di bawah root foto (§8.1): admin dengan akses ke Pi dapat menyalin dataset langsung dengan `rsync --files-from`. `sha256` memungkinkan verifikasi salinan dan deteksi duplikat.
 

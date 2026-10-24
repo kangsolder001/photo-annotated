@@ -65,7 +65,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 
 ## Phase 6: Admin & export
 - [x] **T24** Admin login (bcrypt + token HMAC)
-- [ ] **T25** `GET /admin/export` JSONL
+- [x] **T25** `GET /admin/export` JSONL
 
 ### Checkpoint 6: Backend lengkap
 - [ ] `go test ./... -race` hijau; review dengan Anda

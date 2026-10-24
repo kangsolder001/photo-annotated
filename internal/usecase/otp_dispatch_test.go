@@ -292,11 +292,13 @@ func TestDispatchStuckOnLastAttemptFailsWithoutSending(t *testing.T) {
 }
 
 func TestDispatchShutdownRequeues(t *testing.T) {
-	r, _ := newDispatchRig(t, stubToken)
+	r, hs := newDispatchRig(t, stubToken)
 	id := r.register(t, "081234567890")
 	r.stub.SetHang(true)
-	ctx, cancel := context.WithTimeout(bg, 50*time.Millisecond)
+	ctx, cancel := context.WithCancel(bg)
 	defer cancel()
+	// batalkan hanya setelah pengiriman dimulai (klaim sudah selesai), seperti SIGTERM di tengah kirim
+	hs.before = func() { time.AfterFunc(30*time.Millisecond, cancel) }
 	res, err := r.disp.DispatchOnce(ctx)
 	if err != nil || res.Outcome != usecase.DispatchAborted {
 		t.Fatalf("hasil = %+v err %v", res, err)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"photo-annotated/internal/adapter/export"
 	"photo-annotated/internal/adapter/imagecheck"
 	"photo-annotated/internal/adapter/localfs"
 	"photo-annotated/internal/adapter/postgres"
@@ -24,6 +26,7 @@ import (
 	"photo-annotated/internal/adapter/wanotif"
 	"photo-annotated/internal/config"
 	httpapi "photo-annotated/internal/delivery/http"
+	"photo-annotated/internal/delivery/http/handler"
 	"photo-annotated/internal/scheduler"
 	"photo-annotated/internal/usecase"
 )
@@ -31,6 +34,9 @@ import (
 const (
 	shutdownTimeout  = 15 * time.Second
 	turnstileTimeout = 5 * time.Second
+	// export dataset: URL foto berumur 1 jam (spec §5.7), 500 foto per halaman keyset
+	exportURLTTL   = time.Hour
+	exportPageSize = 500
 	// token Turnstile berlaku 300 detik di Cloudflare; pemakaian ulang tidak boleh lebih lama
 	turnstileReuseTTL = 5 * time.Minute
 	// ambang kegagalan kirim berturut-turut sebelum kanal OTP dianggap tidak tersedia (spec §9.5)
@@ -140,6 +146,10 @@ func run() error {
 			Username: cfg.Admin.Username, PasswordBcrypt: cfg.Admin.PasswordBcrypt, TokenTTL: cfg.Admin.TokenTTL.Std(),
 		})
 		deps.AdminLoginPerMin = cfg.Limits.RateLimitPerMin.AdminLogin
+		deps.Exporter = usecase.NewExport(postgres.NewExportRepo(pool), urlSigner, usecase.SystemClock{}, usecase.ExportConfig{
+			PublicBaseURL: cfg.App.PublicBaseURL, URLTTL: exportURLTTL, PageSize: exportPageSize,
+		})
+		deps.NewJSONL = func(w io.Writer) handler.ExportStream { return export.NewJSONL(w) }
 	}
 	if cfg.Turnstile.Enabled {
 		ts, err := turnstile.New(cfg.Secrets.TurnstileSecret, "", turnstileTimeout)

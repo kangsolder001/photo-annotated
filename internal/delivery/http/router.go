@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"io"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -19,6 +20,8 @@ const (
 	// Deadline default rute JSON (spec §11.3).
 	jsonReadDeadline  = 10 * time.Second
 	jsonWriteDeadline = 15 * time.Second
+	// export: batas waktu menulis satu halaman ke klien (deadline digeser tiap halaman)
+	exportPageGrace = 60 * time.Second
 )
 
 // AdminAuth dipenuhi oleh *usecase.AdminAuth: login admin dan verifikasi token admin.
@@ -65,6 +68,10 @@ type Deps struct {
 	// Admin statis (spec §5.9); nil bila admin.enabled = false sehingga /admin/* menjadi 404.
 	Admin            AdminAuth
 	AdminLoginPerMin int
+
+	// Export dataset (spec §5.7); hanya aktif bila Admin juga diisi.
+	Exporter handler.Exporter
+	NewJSONL func(io.Writer) handler.ExportStream
 
 	Uploader       handler.Uploader // usecase upload (spec §5.1b)
 	MaxUploadBytes int64            // batas ukuran file (config limits.max_upload_bytes)
@@ -173,6 +180,13 @@ func NewRouter(d Deps) *gin.Engine {
 		}
 		admin := handler.NewAdminHandler(d.Admin)
 		api.POST("/admin/login", middleware.RateLimit(middleware.NewRateLimiter(d.AdminLoginPerMin)), admin.Login)
+	}
+
+	if d.Admin != nil && d.Exporter != nil {
+		// Di luar grup JSON: deadline tulis awal 60 detik, diperpanjang setiap halaman oleh handler.
+		exports := handler.NewExportHandler(d.Exporter, d.NewJSONL, exportPageGrace)
+		r.GET("/api/v1/admin/export", middleware.Deadlines(jsonReadDeadline, exportPageGrace),
+			authn.Require(middleware.Access{Admin: true}), exports.Export)
 	}
 
 	// Konten foto: di luar grup JSON karena deadline tulisnya harus lebih panjang (klien lambat).

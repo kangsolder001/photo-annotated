@@ -1,7 +1,11 @@
 package httpapi_test
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,5 +125,68 @@ func TestE2EAdminModeOTP(t *testing.T) {
 	bob := s.login(t, "081200000002", "6281200000002")
 	if code, _, _ := bob.get(t, "/api/v1/submissions/"+sub.ID.String(), nil); code != 404 {
 		t.Fatalf("bob: %d", code)
+	}
+}
+
+func TestE2EAdminExport(t *testing.T) {
+	st := newStack(t, stackOpts{admin: testAdmin(t), adminPerMin: 1_000_000})
+	a := st.submitted(t, 3)
+	b := st.submitted(t, 2)
+	admin := st.adminLogin(t)
+
+	resp, err := admin.client.Get(st.srv.URL + "/api/v1/admin/export?include_urls=true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "application/x-ndjson" ||
+		!strings.Contains(resp.Header.Get("Content-Disposition"), ".jsonl") {
+		t.Fatalf("export: %d %v", resp.StatusCode, resp.Header)
+	}
+	if resp.Trailer.Get("X-Export-Complete") != "true" || resp.Trailer.Get("X-Export-Rows") != "5" {
+		t.Fatalf("trailer = %v", resp.Trailer)
+	}
+	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+	if len(lines) != 5 {
+		t.Fatalf("%d baris", len(lines))
+	}
+	// URL di export benar-benar bisa dipakai untuk mengunduh foto aslinya
+	var row struct {
+		PhotoID string `json:"photo_id"`
+		Image   struct {
+			URL string `json:"url"`
+		} `json:"image"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &row); err != nil {
+		t.Fatal(err)
+	}
+	code, _, img := st.get(t, row.Image.URL, nil)
+	want := map[string][]byte{}
+	for _, s := range []e2eSubmission{a, b} {
+		for i, id := range s.Photo {
+			want[id.String()] = s.Body[i]
+		}
+	}
+	if code != 200 || !bytes.Equal(img, want[row.PhotoID]) {
+		t.Fatalf("unduh dari URL export: %d (%d byte)", code, len(img))
+	}
+
+	// akses & validasi
+	if code, _, _ := st.get(t, "/api/v1/admin/export", nil); code != 401 {
+		t.Fatalf("tanpa token: %d", code)
+	}
+	if code, _, _ := st.get(t, "/api/v1/admin/export", map[string]string{"X-Edit-Token": a.Token}); code != 401 {
+		t.Fatalf("edit token: %d", code)
+	}
+	for _, q := range []string{"format=csv", "from=kemarin", "include_urls=mungkin", "from=2026-10-25T00:00:00Z&to=2026-10-24T00:00:00Z"} {
+		code, _, body := admin.get(t, "/api/v1/admin/export?"+q, nil)
+		if code != 422 {
+			t.Fatalf("%s: %d %s", q, code, body)
+		}
+	}
+	code, _, body = admin.get(t, "/api/v1/admin/export?from=2099-01-01T00:00:00Z", nil)
+	if code != 200 || len(body) != 0 {
+		t.Fatalf("rentang kosong: %d %q", code, body)
 	}
 }
