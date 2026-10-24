@@ -18,13 +18,19 @@ import (
 	"photo-annotated/internal/adapter/localfs"
 	"photo-annotated/internal/adapter/postgres"
 	"photo-annotated/internal/adapter/signer"
+	"photo-annotated/internal/adapter/turnstile"
 	"photo-annotated/internal/config"
 	httpapi "photo-annotated/internal/delivery/http"
 	"photo-annotated/internal/scheduler"
 	"photo-annotated/internal/usecase"
 )
 
-const shutdownTimeout = 15 * time.Second
+const (
+	shutdownTimeout  = 15 * time.Second
+	turnstileTimeout = 5 * time.Second
+	// ambang kegagalan kirim berturut-turut sebelum kanal OTP dianggap tidak tersedia (spec §9.5)
+	channelFailureThreshold = 3
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -107,14 +113,37 @@ func run() error {
 	upload := usecase.NewUpload(photos, store, urlSigner, imagecheck.Inspector{}, usecase.SystemClock{},
 		usecase.UploadConfig{MaxConcurrent: cfg.Limits.MaxConcurrentUploads})
 
-	router := httpapi.NewRouter(httpapi.Deps{
+	deps := httpapi.Deps{
 		Logger: log, TrustedProxies: trusted, DB: pool, AllowedOrigins: cfg.App.AllowedOrigins,
 		Presigner: presign, PresignPerMin: cfg.Limits.RateLimitPerMin.Presign,
 		Reader:    reader,
 		Editor:    editor,
 		Submitter: submit, SubmissionsPerMin: cfg.Limits.RateLimitPerMin.Submissions,
 		Uploader: upload, MaxUploadBytes: cfg.Limits.MaxUploadBytes, UploadTimeout: cfg.Limits.UploadTimeout.Std(),
-	})
+	}
+	if cfg.Turnstile.Enabled {
+		ts, err := turnstile.New(cfg.Secrets.TurnstileSecret, "", turnstileTimeout)
+		if err != nil {
+			return err
+		}
+		deps.Turnstile = ts
+	}
+	if cfg.Auth.Mode == config.AuthModeOTP {
+		codes, err := signer.NewOTPCodes(cfg.Secrets.OTPPepper, cfg.Auth.OTP.Length)
+		if err != nil {
+			return err
+		}
+		o := cfg.Auth.OTP
+		channel := usecase.NewChannel(channelFailureThreshold)
+		deps.OTPRequester = usecase.NewOTPRequest(postgres.NewUserRepo(pool), postgres.NewOTPRepo(pool), codes, channel,
+			usecase.NewPhoneLimiter(o.ResendCooldown.Std(), o.MaxPerPhonePerHour), usecase.SystemClock{},
+			usecase.OTPRequestConfig{
+				ResendCooldown: o.ResendCooldown.Std(), MaxQueue: o.MaxQueue, DailyGlobalCap: o.DailyGlobalCap,
+				SendInterval: cfg.WANotif.SendInterval.Std(),
+			})
+		deps.OTPRequestPerMin = cfg.Limits.RateLimitPerMin.OTPRequest
+	}
+	router := httpapi.NewRouter(deps)
 	srv := httpapi.NewServer(cfg.App.HTTPAddr, router)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

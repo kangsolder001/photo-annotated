@@ -23,7 +23,8 @@
   "wa_notif": {
     "base_url": "http://wa-notif-service:3030",
     "timeout": "10s",
-    "health_probe_interval": "30s"
+    "health_probe_interval": "30s",
+    "send_interval": "1.5s"
   },
   "admin": {
     "enabled": true,

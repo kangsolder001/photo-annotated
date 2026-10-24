@@ -98,6 +98,9 @@ type WANotif struct {
 	BaseURL             string   `json:"base_url"`
 	Timeout             Duration `json:"timeout"`
 	HealthProbeInterval Duration `json:"health_probe_interval"`
+	// SendInterval: jeda minimum antar pesan di wa-notif (rate_limit_seconds miliknya, 1,5 dtk);
+	// dipakai untuk memperkirakan lama tunggu OTP yang ditampilkan ke pengguna.
+	SendInterval Duration `json:"send_interval"`
 }
 
 type Admin struct {
@@ -204,9 +207,13 @@ func Defaults() Config {
 				MessageTemplate:    "*{code}* adalah kode verifikasi Photo Annotated Anda. Berlaku {ttl_minutes} menit. Jangan bagikan kode ini ke siapa pun.",
 			},
 		},
-		WANotif: WANotif{Timeout: Duration(10 * time.Second), HealthProbeInterval: Duration(30 * time.Second)},
-		Admin:   Admin{TokenTTL: Duration(8 * time.Hour)},
-		Edit:    Edit{Window: Duration(24 * time.Hour)},
+		WANotif: WANotif{
+			Timeout:             Duration(10 * time.Second),
+			HealthProbeInterval: Duration(30 * time.Second),
+			SendInterval:        Duration(1500 * time.Millisecond),
+		},
+		Admin: Admin{TokenTTL: Duration(8 * time.Hour)},
+		Edit:  Edit{Window: Duration(24 * time.Hour)},
 		Turnstile: Turnstile{
 			Enabled: false,
 		},
@@ -326,6 +333,9 @@ func (c *Config) Validate() error {
 		}
 		if c.WANotif.HealthProbeInterval <= 0 {
 			bad("wa_notif.health_probe_interval", "harus > 0")
+		}
+		if c.WANotif.SendInterval <= 0 {
+			bad("wa_notif.send_interval", "harus > 0")
 		}
 		o := c.Auth.OTP
 		if o.Length < 4 || o.Length > 8 {

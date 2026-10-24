@@ -27,6 +27,7 @@ import (
 	"photo-annotated/internal/adapter/postgres"
 	"photo-annotated/internal/adapter/signer"
 	httpapi "photo-annotated/internal/delivery/http"
+	"photo-annotated/internal/delivery/http/handler"
 	"photo-annotated/internal/domain"
 	"photo-annotated/internal/testutil/imgfix"
 	"photo-annotated/internal/testutil/pgtest"
@@ -44,6 +45,10 @@ type stackOpts struct {
 	uploadTTL time.Duration
 	maxConc   int
 	maxBytes  int64
+	// Auth OTP opsional (nil = mode none: rute /auth/* 404).
+	otp       func(*pgxpool.Pool) handler.OTPRequester
+	turnstile usecase.TurnstileVerifier
+	otpPerMin int
 }
 
 type stack struct {
@@ -71,6 +76,9 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	}
 	if o.maxBytes == 0 {
 		o.maxBytes = 2 << 20
+	}
+	if o.otpPerMin == 0 {
+		o.otpPerMin = 1_000_000
 	}
 	pool := pgtest.Pool(t)
 	repo := postgres.NewPhotoRepo(pool)
@@ -112,6 +120,10 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	})
 	upload := usecase.NewUpload(repo, store, sg, imagecheck.Inspector{}, usecase.SystemClock{},
 		usecase.UploadConfig{MaxConcurrent: o.maxConc})
+	var otp handler.OTPRequester
+	if o.otp != nil {
+		otp = o.otp(pool)
+	}
 	var h http.Handler = httpapi.NewRouter(httpapi.Deps{
 		Logger:         slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		TrustedProxies: []netip.Prefix{},
@@ -121,6 +133,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		Uploader: upload, MaxUploadBytes: o.maxBytes, UploadTimeout: time.Minute,
 		Submitter: submit, SubmissionsPerMin: 1_000_000,
 		Reader: reader, Editor: editor,
+		OTPRequester: otp, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin,
 	})
 	inner.Store(&h)
 	return &stack{pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}

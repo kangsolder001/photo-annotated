@@ -1,4 +1,4 @@
-package middleware
+package ratelimit
 
 import (
 	"fmt"
@@ -29,7 +29,7 @@ func newClock() *fakeClock { return &fakeClock{t: time.Date(2026, 10, 24, 12, 0,
 
 func TestRateLimiterSlidingWindow(t *testing.T) {
 	clk := newClock()
-	l := newRateLimiter(3, time.Minute, 1000, clk.Now)
+	l := NewWithOptions(3, time.Minute, 1000, clk.Now)
 
 	for i := 0; i < 3; i++ {
 		if ok, _ := l.Allow("a"); !ok {
@@ -59,7 +59,7 @@ func TestRateLimiterSlidingWindow(t *testing.T) {
 
 func TestRateLimiterKeysAreIndependent(t *testing.T) {
 	clk := newClock()
-	l := newRateLimiter(1, time.Minute, 1000, clk.Now)
+	l := NewWithOptions(1, time.Minute, 1000, clk.Now)
 	if ok, _ := l.Allow("a"); !ok {
 		t.Fatal()
 	}
@@ -73,7 +73,7 @@ func TestRateLimiterKeysAreIndependent(t *testing.T) {
 
 func TestRateLimiterSweepFreesMemory(t *testing.T) {
 	clk := newClock()
-	l := newRateLimiter(5, time.Minute, 1000, clk.Now)
+	l := NewWithOptions(5, time.Minute, 1000, clk.Now)
 	for i := 0; i < 200; i++ {
 		l.Allow(fmt.Sprintf("ip-%d", i))
 	}
@@ -89,7 +89,7 @@ func TestRateLimiterSweepFreesMemory(t *testing.T) {
 
 func TestRateLimiterBoundsKeyCount(t *testing.T) {
 	clk := newClock()
-	l := newRateLimiter(5, time.Minute, 50, clk.Now)
+	l := NewWithOptions(5, time.Minute, 50, clk.Now)
 	for i := 0; i < 5000; i++ {
 		l.Allow(fmt.Sprintf("ip-%d", i))
 	}
@@ -99,7 +99,7 @@ func TestRateLimiterBoundsKeyCount(t *testing.T) {
 }
 
 func TestRateLimiterConcurrentExactlyLimit(t *testing.T) {
-	l := NewRateLimiter(30)
+	l := New(30, time.Minute)
 	var allowed atomic.Int64
 	var wg sync.WaitGroup
 	for i := 0; i < 200; i++ {
@@ -123,20 +123,37 @@ func TestRateLimiterPanicsOnInvalidLimit(t *testing.T) {
 			t.Fatal("limit 0 harus panic")
 		}
 	}()
-	NewRateLimiter(0)
+	New(0, time.Minute)
 }
 
-func TestRateKeyGroupsIPv6By64(t *testing.T) {
-	a := rateKey("2001:db8:1:2:aaaa:bbbb:cccc:dddd")
-	b := rateKey("2001:db8:1:2:1111:2222:3333:4444")
-	c := rateKey("2001:db8:1:3::1")
-	if a != b || a == c {
-		t.Fatalf("pengelompokan /64 salah: %s %s %s", a, b, c)
+func TestLimiterUndoReturnsOneSlot(t *testing.T) {
+	clk := newClock()
+	l := NewWithOptions(2, time.Minute, 100, clk.Now)
+	l.Allow("a")
+	clk.Advance(10 * time.Second)
+	l.Allow("a")
+	if ok, _ := l.Allow("a"); ok {
+		t.Fatal("jatah habis")
 	}
-	if rateKey("203.0.113.9") != "203.0.113.9" || rateKey("::ffff:203.0.113.9") != "203.0.113.9" {
-		t.Fatal("IPv4 (termasuk mapped) harus apa adanya")
+	l.Undo("a") // membuang kejadian TERBARU (t=10s), bukan yang tertua
+	if ok, _ := l.Allow("a"); !ok {
+		t.Fatal("setelah Undo satu jatah harus kembali")
 	}
-	if rateKey("") != unknownKey || rateKey("bukan-ip") != unknownKey {
-		t.Fatal("IP tak valid harus ke kunci 'unknown'")
+	// kejadian tertua (t=0) tetap ada: jendela tetap bergeser dari t=0
+	clk.Advance(50 * time.Second) // t=60s: t=0 keluar dari jendela
+	if ok, _ := l.Allow("a"); !ok {
+		t.Fatal("kejadian tertua harus sudah keluar dari jendela")
+	}
+	// Undo pada kunci tanpa catatan aman dan tidak membuat kunci
+	l.Undo("tidak-ada")
+	if l.Len() != 1 {
+		t.Fatalf("Len = %d", l.Len())
+	}
+	// Undo kejadian terakhir menghapus kunci
+	l2 := NewWithOptions(1, time.Minute, 100, clk.Now)
+	l2.Allow("x")
+	l2.Undo("x")
+	if l2.Len() != 0 {
+		t.Fatalf("kunci harus dihapus: Len = %d", l2.Len())
 	}
 }

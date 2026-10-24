@@ -205,6 +205,21 @@ type ChannelProbe interface {
 	Check(ctx context.Context) error
 }
 
+// OTPCodes menurunkan kode OTP dari challenge ID secara deterministik dengan secret server
+// (OTP_PEPPER), sehingga kode asli tidak perlu disimpan namun tetap dapat dikirim oleh dispatcher.
+// Hash dipakai untuk kolom code_hash dan verifikasi.
+type OTPCodes interface {
+	Code(challengeID uuid.UUID) string
+	Hash(challengeID uuid.UUID, code string) []byte
+}
+
+// TurnstileVerifier memverifikasi token Cloudflare Turnstile. Token tidak valid → *domain.Error
+// Forbidden TURNSTILE_FAILED; layanan Turnstile tidak terjangkau → Unavailable TURNSTILE_UNAVAILABLE
+// (gagal tertutup: tanpa verifikasi, permintaan tidak diteruskan).
+type TurnstileVerifier interface {
+	Verify(ctx context.Context, token, remoteIP string) error
+}
+
 // EditTokenSigner menurunkan dan memverifikasi token edit anonim (hanya auth.mode = none).
 type EditTokenSigner interface {
 	Token(submissionID uuid.UUID) string

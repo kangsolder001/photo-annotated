@@ -12,6 +12,7 @@ import (
 	"photo-annotated/internal/delivery/http/handler"
 	"photo-annotated/internal/delivery/http/httpx"
 	"photo-annotated/internal/delivery/http/middleware"
+	"photo-annotated/internal/usecase"
 )
 
 const (
@@ -35,6 +36,11 @@ type Deps struct {
 
 	Reader handler.Reader // usecase baca submission & foto (spec §5.3–5.5)
 	Editor handler.Editor // usecase edit submission (spec §5.4)
+
+	// Auth OTP (spec §5.8); nil bila auth.mode = none sehingga rute /auth/* menjadi 404.
+	OTPRequester     handler.OTPRequester
+	Turnstile        usecase.TurnstileVerifier // nil bila turnstile.enabled = false
+	OTPRequestPerMin int                       // batas register + otp/request per IP
 
 	Uploader       handler.Uploader // usecase upload (spec §5.1b)
 	MaxUploadBytes int64            // batas ukuran file (config limits.max_upload_bytes)
@@ -83,6 +89,17 @@ func NewRouter(d Deps) *gin.Engine {
 	submissionsLimit := middleware.RateLimit(middleware.NewRateLimiter(d.SubmissionsPerMin))
 	api.POST("/submissions", submissionsLimit, submissions.Create)
 	api.PUT("/submissions/:id", submissionsLimit, edits.Put)
+
+	if d.OTPRequester != nil {
+		if d.OTPRequestPerMin < 1 {
+			panic("httpapi: Deps.OTPRequestPerMin wajib diisi bila OTPRequester diisi")
+		}
+		auth := handler.NewAuthHandler(d.OTPRequester, d.Turnstile)
+		// register dan otp/request sama-sama memicu pesan WhatsApp: satu limiter per IP.
+		otpLimit := middleware.RateLimit(middleware.NewRateLimiter(d.OTPRequestPerMin))
+		api.POST("/auth/register", otpLimit, auth.Register)
+		api.POST("/auth/otp/request", otpLimit, auth.RequestOTP)
+	}
 
 	reads := handler.NewReadHandler(d.Reader)
 	api.GET("/submissions/:id", reads.GetSubmission)

@@ -369,7 +369,8 @@ Response `202` (selalu berbentuk sama, baik nomor baru maupun yang sudah terdaft
 ```json
 { "challenge_id": "5e1c...", "status": "queued", "resend_after_seconds": 60, "estimated_wait_seconds": 8 }
 ```
-- `estimated_wait_seconds` = (jumlah challenge `queued` di depan) × jeda kirim; FE menampilkannya sebagai perkiraan.
+- `estimated_wait_seconds` = (jumlah challenge `queued` di depan + 1) × `wa_notif.send_interval` (default 1,5 detik); FE menampilkannya sebagai perkiraan.
+- Turnstile gagal tertutup: token salah/kosong → `403 TURNSTILE_FAILED`; Cloudflare tidak terjangkau → `503 TURNSTILE_UNAVAILABLE` (permintaan tidak diteruskan).
 - Jika nomor sudah terdaftar dan aktif, `name`/`email` dari request **tidak menimpa** data yang ada; hasilnya diperlakukan sebagai login.
 - Error: `422 INVALID_*`, `429 RATE_LIMITED` (dengan `Retry-After`), `503 OTP_BUSY` (antrean penuh), `503 OTP_UNAVAILABLE` (kanal WhatsApp sedang bermasalah, lihat `GET /auth/channel-status`).
 
@@ -637,9 +638,9 @@ Akses ke resource milik orang lain mengembalikan `404` (bukan `403`) agar ID tid
 
 Risiko utama: endpoint OTP publik membuat API ini bisa dipakai untuk **mengirim WhatsApp ke nomor sembarang dari satu nomor pengirim**. Penyalahgunaan bisa membuat nomor pengirim ditandai spam atau diblokir WhatsApp, dan itu juga mematikan notifikasi lain yang memakai `wa-notif`. Karena itu:
 
-- **Kode OTP:** 6 digit dari `crypto/rand`, berlaku 5 menit sejak terkirim, sekali pakai. Disimpan sebagai HMAC dengan `OTP_PEPPER` (6 digit tanpa pepper mudah di-brute-force dari hash). Perbandingan memakai `hmac.Equal`. Maksimal 5 percobaan verifikasi per challenge, setelah itu challenge dibatalkan.
+- **Kode OTP:** 6 digit, diturunkan dari `challenge_id` (UUID acak dari `crypto/rand`) dengan PRF: `HMAC-SHA256(OTP_PEPPER, "otp-code"‖id) mod 10^6`. Dengan begitu kode asli tidak perlu disimpan (juga tidak terenkripsi) tetapi dispatcher tetap dapat membuatnya saat mengirim; tanpa `OTP_PEPPER` kode tidak dapat ditebak dari `challenge_id`. Berlaku 5 menit sejak terkirim, sekali pakai. Disimpan sebagai HMAC dengan `OTP_PEPPER` (6 digit tanpa pepper mudah di-brute-force dari hash). Perbandingan memakai `hmac.Equal`. Maksimal 5 percobaan verifikasi per challenge, setelah itu challenge dibatalkan.
 - **Pembatasan kirim:**
-  - cooldown 60 detik per nomor, maksimal 5 OTP per nomor per jam;
+  - cooldown 60 detik per nomor, maksimal 5 OTP per nomor per jam. Dihitung di memori per nomor kanonik dan berlaku **sama untuk nomor terdaftar maupun tidak** (menghitung dari tabel OTP hanya mungkin untuk nomor terdaftar, sehingga `429` akan membocorkan pendaftaran). Ditolak karena validasi atau kapasitas tidak memakai jatah; gagal kirim permanen mengembalikan jatah (sehingga cooldown tidak berlaku setelah `failed`). State hilang saat restart (satu instance);
   - rate limit per IP (§9.4) + Turnstile wajib pada `register` dan `otp/request`;
   - panjang antrean `queued` dibatasi (`max_queue`, default 200); penuh → `503 OTP_BUSY`;
   - **batas harian global** (`daily_global_cap`, default 500) sebagai rem darurat; terlampaui → `503 OTP_BUSY` dan alert.
@@ -747,7 +748,8 @@ Konfigurasi non-rahasia di `config.json` (path dari env `CONFIG_PATH`, default `
   "wa_notif": {
     "base_url": "http://wa-notif-service:3030",
     "timeout": "10s",
-    "health_probe_interval": "30s"
+    "health_probe_interval": "30s",
+    "send_interval": "1.5s"
   },
   "admin": {
     "enabled": true,

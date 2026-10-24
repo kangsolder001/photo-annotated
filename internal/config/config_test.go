@@ -108,6 +108,7 @@ func TestParseFailures(t *testing.T) {
 		{"orphan_min_age lebih pendek dari masa berlaku URL upload", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "retention": {"orphan_min_age": "1m"}`, 1), nil, []string{"retention.orphan_min_age"}},
 		{"orphan_sweep_interval nol", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "retention": {"orphan_sweep_interval": "0s"}`, 1), nil, []string{"orphan_sweep_interval"}},
 		{"tmp_max_age nol", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "retention": {"tmp_max_age": "0s"}`, 1), nil, []string{"tmp_max_age"}},
+		{"wa_notif.send_interval nol", strings.Replace(strings.Replace(minimalNone, `"none"`, `"otp"`, 1), `"storage"`, `"wa_notif": {"base_url": "http://wa:3030", "send_interval": "0s"}, "storage"`, 1), nil, []string{"wa_notif.send_interval"}},
 		{"limit nol", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "limits": {"max_concurrent_uploads": 0}`, 1), nil, []string{"limits"}},
 		{"max_conns di luar rentang", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "database": {"max_conns": 500}`, 1), nil, []string{"database.max_conns"}},
 		{"JSON rusak", `{`, nil, []string{"config:"}},

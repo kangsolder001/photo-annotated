@@ -288,14 +288,18 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [x] `go test ./... -race` (stub, adapter, channel); [x] probe terhadap `wa-notif` asli di 192.168.1.222:3030 (hanya baca): `TIDAK TERSEDIA … DISCONNECTED`; terhadap stub: `TERSAMBUNG`; URL salah: ditolak
 **Dependencies:** 4, 5 · **Files:** `adapter/wanotif/{client,probe}.go`, `cmd/wanotif-stub/main.go` + test · **Scope:** M
 
-#### Task 20: `POST /auth/register` & `/auth/otp/request` (antrean)
+#### Task 20: `POST /auth/register` & `/auth/otp/request` (antrean) — **SELESAI**
 **Description:** Buat user `pending`/pakai yang ada, challenge `queued` (kode HMAC dengan `OTP_PEPPER`), respons 202 seragam (anti-enumerasi), cooldown 60 detik (kecuali `failed`), 5/jam per nomor, `max_queue`, `daily_global_cap`, Turnstile, `503 OTP_UNAVAILABLE`.
 **Acceptance criteria:**
-- [ ] Nomor terdaftar dan tidak terdaftar menghasilkan respons berbentuk sama
-- [ ] Batas per nomor/antrean/harian ditegakkan; request baru membatalkan challenge lama
-- [ ] `name`/`email` tidak menimpa user aktif
-**Verification:** [ ] `go test ./internal/usecase/... -race`
-**Dependencies:** 8, 18, 19 · **Files:** `usecase/{register,otp_request}.go`, `adapter/turnstile/verify.go`, handler + test · **Scope:** M
+- [x] Nomor terdaftar dan tidak terdaftar menghasilkan respons berbentuk sama (4 field, status 202), termasuk batas cooldown/per jam yang **sama persis** (limiter per nomor di memori, bukan hitungan tabel OTP yang hanya ada untuk nomor terdaftar); nomor tak terdaftar tidak membuat user maupun challenge
+- [x] Batas per nomor/antrean/harian ditegakkan (`OTP_BUSY` + `Retry-After`); penolakan karena kapasitas atau validasi tidak memakai jatah nomor; request baru membatalkan challenge lama; 12 register berbarengan untuk nomor sama → tepat 1 user dan 1 challenge aktif (sisanya `409 OTP_REQUEST_IN_PROGRESS`); gagal menyimpan challenge mengembalikan jatah (`PhoneLimiter.Refund`, juga dipakai dispatcher T21 saat kirim gagal → cooldown tidak berlaku setelah `failed`)
+- [x] `name`/`email` tidak menimpa user yang sudah ada
+- [x] Turnstile gagal tertutup: token salah/kosong → `403 TURNSTILE_FAILED` (token kosong tanpa memanggil Cloudflare), Cloudflare tak terjangkau/500/bukan JSON/redirect/timeout → `503 TURNSTILE_UNAVAILABLE`; tanpa verifikasi tidak ada user dibuat
+- [x] Rute `/auth/*` hanya ada pada `auth.mode = otp` (mode `none` → 404); `register` dan `otp/request` berbagi satu limiter per IP
+**Keputusan:** kode OTP **diturunkan** dari challenge ID: `HMAC(OTP_PEPPER, "otp-code"‖id) mod 10^n` (`adapter/signer/otpcodes.go`). Kode asli tetap tidak disimpan (hanya `code_hash`), tetapi dispatcher bisa membuatnya ulang saat mengirim, tanpa kolom terenkripsi. Ditambah config `wa_notif.send_interval` (1,5 s) untuk `estimated_wait_seconds = (antrean di depan + 1) × send_interval`.
+**Verification:** [x] `go test ./... -race` (usecase dengan Postgres asli, adapter Turnstile dengan siteverify palsu, e2e HTTP); [x] test konkuren diulang 3× dengan `-race`
+**Catatan:** probe kanal dan dispatcher belum dijalankan di `cmd/api` (T21): sampai itu, challenge yang dibuat tetap `queued`.
+**Dependencies:** 8, 18, 19 · **Files:** `usecase/{otp_request,phone_limiter}.go`, `internal/ratelimit/` (diekstrak dari middleware, + `Undo`), `adapter/turnstile/verify.go`, `adapter/signer/otpcodes.go`, `handler/auth.go` + test · **Scope:** M
 
 #### Task 21: Dispatcher OTP + status
 **Description:** Worker tunggal (`FOR UPDATE SKIP LOCKED`), max 3 percobaan (3s, 10s), isi `sent_at`/`expires_at`, `GET /auth/otp/{id}`, `GET /auth/channel-status`.
