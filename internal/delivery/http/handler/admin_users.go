@@ -23,6 +23,7 @@ type AdminUserService interface {
 	Block(ctx context.Context, id uuid.UUID, reason string) (*usecase.BlockResult, error)
 	Unblock(ctx context.Context, id uuid.UUID) (*usecase.BlockResult, error)
 	DeleteData(ctx context.Context, id uuid.UUID, includeAccepted bool) (*usecase.UserDataMark, error)
+	DeleteAccount(ctx context.Context, id uuid.UUID) (*usecase.UserDataMark, error)
 }
 
 // AdminUserHandler menangani kelola annotator (spec-labels-admin §5.8). Respons memuat data pribadi:
@@ -212,4 +213,26 @@ func (h *AdminUserHandler) DeleteData(c *gin.Context) {
 		"submissions", m.Submissions, "photos", m.Photos, "annotations", m.Annotations)
 	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusAccepted, gin.H{"submissions": m.Submissions, "photos": m.Photos, "annotations": m.Annotations, "status": usecase.DeleteStatusCleanupPending})
+}
+
+// DeleteAccount menangani DELETE /api/v1/admin/users/{id}: akun + semua data. 202 bila ada file yang
+// menunggu cleanup, 200 bila tidak ada foto sama sekali.
+func (h *AdminUserHandler) DeleteAccount(c *gin.Context) {
+	id, ok := userID(c)
+	if !ok {
+		return
+	}
+	m, err := h.users.DeleteAccount(c.Request.Context(), id)
+	if err != nil {
+		httpx.WriteError(c, err)
+		return
+	}
+	logAdminAction(h.log, c, "user.delete_account", "user_id", id,
+		"submissions", m.Submissions, "photos", m.Photos, "annotations", m.Annotations)
+	code, status := http.StatusAccepted, usecase.DeleteStatusCleanupPending
+	if m.Photos == 0 {
+		code, status = http.StatusOK, usecase.DeleteStatusDeleted
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(code, gin.H{"account_deleted": true, "submissions": m.Submissions, "photos": m.Photos, "annotations": m.Annotations, "status": status})
 }

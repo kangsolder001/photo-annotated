@@ -153,6 +153,29 @@ func (r *AdminUserRepo) Block(ctx context.Context, id uuid.UUID, reason string, 
 	return false, r.activeExists(ctx, id)
 }
 
+func (r *AdminUserRepo) LockForDelete(ctx context.Context, id uuid.UUID) error {
+	var one int
+	err := r.db(ctx).QueryRow(ctx, `SELECT 1 FROM users WHERE id = $1 AND status = 'active' FOR UPDATE`, id).Scan(&one)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("user %s: %w", id, domain.ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("postgres: lock user: %w", err)
+	}
+	return nil
+}
+
+func (r *AdminUserRepo) DeleteUser(ctx context.Context, id uuid.UUID) error {
+	tag, err := r.db(ctx).Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("postgres: delete user: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("user %s: %w", id, domain.ErrNotFound)
+	}
+	return nil
+}
+
 func (r *AdminUserRepo) Unblock(ctx context.Context, id uuid.UUID) (bool, error) {
 	tag, err := r.db(ctx).Exec(ctx, `UPDATE users SET blocked_at = NULL, blocked_reason = NULL
 		WHERE id = $1 AND status = 'active' AND blocked_at IS NOT NULL`, id)

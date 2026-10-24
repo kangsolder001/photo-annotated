@@ -125,3 +125,34 @@ func (u *AdminUsers) DeleteData(ctx context.Context, id uuid.UUID, includeAccept
 	}
 	return &m, nil
 }
+
+// DeleteAccount menghapus akun annotator beserta SEMUA datanya (termasuk submission accepted dan foto
+// yang belum dikirim) dalam satu transaksi: langkah 1 hapus permanen, lalu baris pengguna dihapus
+// (sesi dan challenge OTP ikut). File dibersihkan cleanup yang dijalankan segera. Setelahnya nomor
+// itu bisa didaftarkan lagi. Baris pengguna dikunci lebih dulu: submit yang berbarengan menunggu
+// lalu gagal (pengguna sudah tidak ada), atau sudah commit dan ikut ditandai hapus.
+func (u *AdminUsers) DeleteAccount(ctx context.Context, id uuid.UUID) (*UserDataMark, error) {
+	var m UserDataMark
+	err := u.tx.WithTx(ctx, func(ctx context.Context) error {
+		if err := u.repo.LockForDelete(ctx, id); err != nil {
+			return err
+		}
+		var err error
+		if m, err = u.deletion.MarkUserSubmissions(ctx, id, true, u.clock.Now()); err != nil {
+			return err
+		}
+		loose, err := u.deletion.MarkUserLoosePhotos(ctx, id)
+		if err != nil {
+			return err
+		}
+		m.Photos += loose
+		return u.repo.DeleteUser(ctx, id)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if m.Photos > 0 && u.afterDataDeleted != nil {
+		u.afterDataDeleted()
+	}
+	return &m, nil
+}

@@ -5,8 +5,9 @@ import { faImages } from "@fortawesome/free-solid-svg-icons/faImages";
 import { faLockOpen } from "@fortawesome/free-solid-svg-icons/faLockOpen";
 import { faPhone } from "@fortawesome/free-solid-svg-icons/faPhone";
 import { faTrashCan } from "@fortawesome/free-solid-svg-icons/faTrashCan";
+import { faUserXmark } from "@fortawesome/free-solid-svg-icons/faUserXmark";
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Icon } from "../../components/Icon";
 import { Banner, Spinner } from "../../components/ui";
 import { isCode } from "../../lib/errors";
@@ -21,14 +22,15 @@ import { Dialog } from "./ui/Dialog";
 import { ReasonDialog } from "./ui/ReasonDialog";
 import { useToast } from "./ui/Toasts";
 
-/** /admin/annotator/:id: profil + statistik, blokir/buka blokir, hapus data (spec-labels-admin §5.8). */
+/** /admin/annotator/:id: profil + statistik, blokir/buka blokir, hapus data, hapus akun (spec-labels-admin §5.8). */
 export function AnnotatorPage() {
   usePageTitle("Annotator");
   const { id = "" } = useParams();
   const toast = useToast();
+  const navigate = useNavigate();
   const [u, setU] = useState<AdminUser>();
   const [error, setError] = useState<string>();
-  const [dialog, setDialog] = useState<"block" | "unblock" | "delete" | null>(null);
+  const [dialog, setDialog] = useState<"block" | "unblock" | "delete" | "account" | null>(null);
   const [includeAccepted, setIncludeAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -72,6 +74,11 @@ export function AnnotatorPage() {
     toast("warn", `${r.submissions} submission (${r.photos} foto, ${r.annotations} kotak) dihapus; file dibersihkan otomatis.`);
     setDialog(null);
     await load();
+  };
+  const deleteAccount = async () => {
+    const r = await adminApi.deleteUser(u.id);
+    toast(r.status === "deleted" ? "ok" : "warn", `Akun ${u.name} dihapus beserta ${r.submissions} submission (${r.photos} foto, ${r.annotations} kotak)${r.status === "deleted" ? "." : "; file dibersihkan otomatis."}`);
+    navigate("/admin/annotator", { replace: true });
   };
   const s = u.stats;
   const toDelete = includeAccepted ? s.submissions : s.submissions - s.accepted;
@@ -122,6 +129,11 @@ export function AnnotatorPage() {
             <p className="muted">Hapus permanen submission annotator ini (akunnya tetap ada). Submission yang sudah diterima dipertahankan kecuali dipilih.</p>
             <button type="button" className="btn btn-danger" onClick={() => setDialog("delete")} disabled={s.submissions === 0}><Icon icon={faTrashCan} /> Hapus data annotator</button>
           </div>
+          <div className="card stack">
+            <h2>Hapus akun</h2>
+            <p className="muted">Hapus akun beserta semua datanya, termasuk submission yang sudah diterima. Nomor HP-nya bisa dipakai mendaftar lagi; untuk mencegah itu, cukup blokir.</p>
+            <button type="button" className="btn btn-danger" onClick={() => setDialog("account")}><Icon icon={faUserXmark} /> Hapus akun</button>
+          </div>
         </aside>
       </div>
 
@@ -145,6 +157,12 @@ export function AnnotatorPage() {
           <label className="check">
             <input type="checkbox" checked={includeAccepted} onChange={(e) => setIncludeAccepted(e.target.checked)} /> Ikut hapus submission yang sudah diterima
           </label>
+        </ConfirmDelete>
+      )}
+      {dialog === "account" && (
+        <ConfirmDelete title={`Hapus akun ${u.name}?`} confirmLabel="Hapus akun" onClose={() => setDialog(null)} onConfirm={deleteAccount}
+          what={`akun ${u.name} (${u.phone}) dan ${s.submissions} submission miliknya, termasuk ${s.accepted} yang sudah diterima`}>
+          <p>Semua sesinya langsung berakhir. Nomor ini bisa dipakai mendaftar akun baru.</p>
         </ConfirmDelete>
       )}
     </div>

@@ -248,6 +248,7 @@ func NewRouter(d Deps) *gin.Engine {
 			api.POST("/admin/users/:id/block", adminOnly, users.Block)
 			api.POST("/admin/users/:id/unblock", adminOnly, users.Unblock)
 			api.POST("/admin/users/:id/delete-data", adminOnly, users.DeleteData)
+			api.DELETE("/admin/users/:id", adminOnly, users.DeleteAccount)
 		}
 		if d.AdminDelete != nil {
 			dels := handler.NewAdminDeleteHandler(d.AdminDelete, d.Logger)

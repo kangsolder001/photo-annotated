@@ -190,6 +190,15 @@ export interface DeleteDataResult {
   status: "cleanup_pending";
 }
 
+/** DELETE /admin/users/{id}: akun + semua datanya; 200 "deleted" bila tidak ada foto sama sekali. */
+export interface DeleteAccountResult {
+  account_deleted: true;
+  submissions: number;
+  photos: number;
+  annotations: number;
+  status: "deleted" | "cleanup_pending";
+}
+
 // ---- statistik (§5.9)
 export interface LabelStat {
   id: number;

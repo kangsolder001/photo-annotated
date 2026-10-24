@@ -102,6 +102,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T51** Frontend admin: beranda status sistem + statistik label
 - [x] **T52** Frontend: tema terang hangat + gelap (pilihan Sistem/Terang/Gelap) untuk aplikasi user dan dashboard
 - [x] **T53** Frontend: hapus emoji, ganti ikon Font Awesome Free (dipakai semua task FE berikutnya)
+- [x] **T54** Hapus akun annotator (`DELETE /admin/users/{id}`, akun + semua data; nomor bisa daftar ulang) + tombol di profil annotator (permintaan Anda, 25 Okt)
 
 ### Checkpoint 9: Label & dashboard admin
 - [x] Deploy backend + FE bersamaan ke Pi (25 Okt, `a939b30`)

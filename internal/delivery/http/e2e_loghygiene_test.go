@@ -98,6 +98,7 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 	s.with(map[string]string{"Authorization": "Bearer token-palsu-rahasia"}).get(t, "/api/v1/auth/me", nil)
 	s.postJSON(t, "/api/v1/auth/otp/verify", `{"challenge_id":"`+reg["challenge_id"].(string)+`","code":"999999"}`)
 	user.authed(t, "POST", "/api/v1/auth/logout", "")
+	admin.send(t, "DELETE", "/api/v1/admin/users/"+uid, "")
 	s.get(t, "/healthz", nil)
 
 	out := logs.String()

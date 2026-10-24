@@ -12,6 +12,7 @@ import type {
   AdminVerifyResponse,
   BulkDeleteResult,
   BulkReviewResult,
+  DeleteAccountResult,
   DeleteDataResult,
   DeleteResult,
   LabelInput,
@@ -87,6 +88,7 @@ export const adminApi = {
   unblock: (id: string) => adm<unknown>("POST", `/users/${enc(id)}/unblock`),
   deleteUserData: (id: string, includeAccepted: boolean) =>
     adm<DeleteDataResult>("POST", `/users/${enc(id)}/delete-data`, { body: { include_accepted: includeAccepted } }),
+  deleteUser: (id: string) => adm<DeleteAccountResult>("DELETE", `/users/${enc(id)}`),
 
   // ---- statistik & status (§5.9, §5.10)
   labelStats: (q: { from?: string; to?: string; review_status?: ReviewStatus }) => adm<LabelStats>("GET", `/stats/labels${qs(q)}`),

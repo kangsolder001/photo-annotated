@@ -81,3 +81,23 @@ it("hapus data: default mempertahankan yang diterima; opsi ikut hapus; konfirmas
   await waitFor(() => expect(api.last("POST", "/api/v1/admin/users/u1/delete-data")?.body).toEqual({ include_accepted: true }));
   expect(await screen.findByText(/12 submission \(30 foto, 48 kotak\) dihapus; file dibersihkan otomatis/)).toBeTruthy();
 });
+
+it("hapus akun: konfirmasi HAPUS → DELETE, kembali ke daftar dengan notifikasi", async () => {
+  const api = fakeApi({
+    "GET /api/v1/admin/me": { body: ME_OTP },
+    "GET /api/v1/admin/users/:id": { body: user(1) },
+    "GET /api/v1/admin/users": { body: { items: [], next_cursor: null } },
+    "DELETE /api/v1/admin/users/:id": { status: 202, body: { account_deleted: true, submissions: 12, photos: 30, annotations: 48, status: "cleanup_pending" } },
+  });
+  renderAdmin("/admin/annotator/u1");
+  fireEvent.click(await screen.findByRole("button", { name: /Hapus akun/ }));
+  const dlg = screen.getByRole("dialog");
+  expect(within(dlg).getByText(/akun Budi 1 \(.+\) dan 12 submission miliknya, termasuk 9 yang sudah diterima/)).toBeTruthy();
+  const btn = within(dlg).getByRole("button", { name: /Hapus akun/ }) as HTMLButtonElement;
+  expect(btn.disabled).toBe(true);
+  fireEvent.change(within(dlg).getByLabelText(/Ketik HAPUS/), { target: { value: "HAPUS" } });
+  fireEvent.click(btn);
+  await waitFor(() => expect(api.count("DELETE", "/api/v1/admin/users/u1")).toBe(1));
+  expect(await screen.findByText(/Akun Budi 1 dihapus beserta 12 submission \(30 foto, 48 kotak\); file dibersihkan otomatis/)).toBeTruthy();
+  await waitFor(() => expect(api.count("GET", "/api/v1/admin/users")).toBeGreaterThan(0));
+});

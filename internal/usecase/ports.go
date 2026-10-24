@@ -476,6 +476,9 @@ type DeletionRepo interface {
 	// MarkUserSubmissions menjalankan langkah 1 untuk semua submission milik pengguna (yang accepted
 	// dilewati kecuali includeAccepted). Wajib di dalam transaksi; file dan baris dibersihkan cleanup.
 	MarkUserSubmissions(ctx context.Context, userID uuid.UUID, includeAccepted bool, now time.Time) (UserDataMark, error)
+	// MarkUserLoosePhotos menandai deleted foto milik pengguna yang belum masuk submission (pending /
+	// rejected), agar ikut dibersihkan cleanup saat akunnya dihapus.
+	MarkUserLoosePhotos(ctx context.Context, userID uuid.UUID) (int, error)
 }
 
 // AdminUserQuery adalah filter GET /admin/users (spec-labels-admin §5.8). Pengguna pending (belum
@@ -509,6 +512,11 @@ type AdminUserRepo interface {
 	Block(ctx context.Context, id uuid.UUID, reason string, now time.Time) (changed bool, err error)
 	// Unblock mengosongkan blokir (changed=false bila memang tidak diblokir).
 	Unblock(ctx context.Context, id uuid.UUID) (changed bool, err error)
+	// LockForDelete mengunci baris pengguna aktif (FOR UPDATE) agar submit yang berbarengan menunggu;
+	// selain pengguna aktif → domain.ErrNotFound. Wajib di dalam transaksi.
+	LockForDelete(ctx context.Context, id uuid.UUID) error
+	// DeleteUser menghapus baris pengguna; sesi dan challenge OTP ikut terhapus (ON DELETE CASCADE).
+	DeleteUser(ctx context.Context, id uuid.UUID) error
 }
 
 // UserDataMark meringkas langkah 1 hapus data annotator.

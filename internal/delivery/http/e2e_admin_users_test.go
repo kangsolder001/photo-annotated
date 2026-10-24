@@ -177,3 +177,74 @@ func TestE2EAdminUsersAbsentInModeNone(t *testing.T) {
 		t.Fatalf("block: %d", resp.StatusCode)
 	}
 }
+
+// Hapus akun annotator: semua data (termasuk accepted dan foto yang belum dikirim) hilang setelah
+// cleanup, sesi langsung 401, dan nomor yang sama bisa mendaftar lagi dengan kode WhatsApp sungguhan.
+func TestE2EAdminDeleteAccount(t *testing.T) {
+	cf := fakeSiteverify(t)
+	s := newAuthStack(t, cf.URL, 0, func(o *stackOpts) { o.otpCooldown = time.Nanosecond })
+	alice := s.login(t, "081200000001", "6281200000001")
+	bob := s.login(t, "085700000002", "6285700000002")
+	accepted := alice.submitted(t, 1)
+	other := alice.submitted(t, 2)
+	loose := alice.uploadedPhoto(t, 7)
+	kept := bob.submitted(t, 1)
+	admin := s.adminLogin(t)
+	_, m := admin.getJSON(t, "/api/v1/admin/users?q=0812")
+	aliceID := m["items"].([]any)[0].(map[string]any)["id"].(string)
+	if resp, _ := admin.send(t, "PUT", "/api/v1/admin/submissions/"+accepted.ID.String()+"/review", `{"status":"accepted","version":1}`); resp.StatusCode != 200 {
+		t.Fatal("terima")
+	}
+	keys := []string{s.storageKey(t, accepted.Photo[0]), s.storageKey(t, other.Photo[0]), s.storageKey(t, other.Photo[1]), s.storageKey(t, loose)}
+
+	resp, m := admin.send(t, "DELETE", "/api/v1/admin/users/"+aliceID, "")
+	if resp.StatusCode != 202 || m["account_deleted"] != true || m["submissions"] != 2.0 || m["photos"] != 4.0 ||
+		m["annotations"] != 4.0 || m["status"] != "cleanup_pending" {
+		t.Fatalf("hapus akun: %d %v", resp.StatusCode, m)
+	}
+	if s.cleanupRequests.Load() != 1 {
+		t.Fatal("hapus akun harus meminta cleanup segera")
+	}
+	if code, _, _ := alice.get(t, "/api/v1/auth/me", nil); code != 401 {
+		t.Fatalf("sesi akun terhapus: %d", code)
+	}
+	if code, _, _ := admin.get(t, "/api/v1/admin/users/"+aliceID, nil); code != 404 {
+		t.Fatalf("akun harus hilang: %d", code)
+	}
+	if resp, _ := admin.send(t, "DELETE", "/api/v1/admin/users/"+aliceID, ""); resp.StatusCode != 404 {
+		t.Fatalf("hapus ulang: %d", resp.StatusCode)
+	}
+	for _, id := range []string{accepted.ID.String(), other.ID.String()} {
+		if code, _, _ := admin.get(t, "/api/v1/admin/submissions/"+id, nil); code != 404 {
+			t.Fatalf("submission %s harus hilang: %d", id, code)
+		}
+	}
+	if resp, m := s.postJSON(t, "/api/v1/auth/login", `{"phone":"081200000001","password":"rahasia123"}`); resp.StatusCode != 401 || errField(m) != "INVALID_CREDENTIALS" {
+		t.Fatalf("login akun terhapus: %d %v", resp.StatusCode, m)
+	}
+	cu := usecase.NewCleanup(postgres.NewCleanupRepo(s.pool), s.store, usecase.SystemClock{}, usecase.CleanupConfig{
+		RetentionDays: 90, PendingTTL: 24 * time.Hour, Batch: 100, TmpMaxAge: time.Hour, OrphanMinAge: 24 * time.Hour})
+	if rep, err := cu.RunOnce(context.Background()); err != nil || rep.FilesDeleted < 4 || rep.SubmissionsDeleted != 2 {
+		t.Fatalf("cleanup: %+v %v", rep, err)
+	}
+	for _, k := range keys {
+		if s.onDisk(k) {
+			t.Fatal("file akun terhapus harus hilang setelah cleanup")
+		}
+	}
+	if code, _, _ := admin.get(t, "/api/v1/admin/submissions/"+kept.ID.String(), nil); code != 200 {
+		t.Fatalf("data annotator lain harus tetap: %d", code)
+	}
+	// nomor yang sama bisa mendaftar lagi (kode benar-benar terkirim)
+	again := s.login(t, "081200000001", "6281200000001")
+	if code, _, _ := again.get(t, "/api/v1/auth/me", nil); code != 200 {
+		t.Fatalf("daftar ulang: %d", code)
+	}
+	if _, m := admin.getJSON(t, "/api/v1/admin/users?q=0812"); len(m["items"].([]any)) != 1 ||
+		m["items"].([]any)[0].(map[string]any)["id"] == aliceID {
+		t.Fatalf("akun baru harus berbeda: %v", m)
+	}
+	if resp, _ := bob.send(t, "DELETE", "/api/v1/admin/users/"+aliceID, ""); resp.StatusCode != 401 {
+		t.Fatalf("token pengguna: %d", resp.StatusCode)
+	}
+}

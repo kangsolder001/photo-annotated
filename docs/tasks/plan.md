@@ -433,6 +433,11 @@ Spec: [spec-labels-admin.md](../spec-labels-admin.md). Dikerjakan paralel: backe
 
 **Deploy ke Pi (25 Okt, image `a939b30`):** backup dulu (`~/backups/photo-annotated/`: `config.json` + `pg_dump` DB), image lama di-tag `prev-3206339` untuk rollback; `config.json`: `admin.enabled=true` + `admin.superadmin` (nomor hanya di Pi). Migrasi 0006–0010 sukses, API `ready`. Smoke lewat https://cam.zipzip.my.id: `/admin/login` → 404, `/labels` tanpa sesi → 401, `/admin/channel-status` → `otp_available: true`, `/admin/masuk` tersaji.
 
+#### Task 54: Hapus akun annotator — **SELESAI** (25 Okt, permintaan Anda)
+**Latar:** "Hapus data annotator" hanya menghapus submission; akun tetap ada sehingga pemilik nomor tidak bisa mendaftar ulang (pendaftaran nomor aktif mendapat challenge palsu tanpa pesan WhatsApp). Ditemukan saat uji Checkpoint 9.
+**Hasil:** `DELETE /admin/users/{id}` (spec-labels-admin §5.8): satu transaksi mengunci baris user (`FOR UPDATE`), menandai hapus semua submission (termasuk `accepted`) dan foto lepas (pending/rejected), lalu menghapus baris user (sesi + challenge ikut lewat cascade); cleanup dijalankan segera; log `admin action` `user.delete_account`. FE: kartu **Hapus akun** di profil annotator, konfirmasi ketik `HAPUS`, kembali ke daftar dengan notifikasi.
+**Verification:** [x] e2e HTTP: akun dengan 2 submission (1 diterima) + 1 foto lepas → 202, sesi 401, login 401 `INVALID_CREDENTIALS`, submission 404, cleanup menghapus semua file, data annotator lain tetap, nomor yang sama berhasil daftar ulang (kode terkirim) sebagai akun baru, hapus ulang 404, token user 401; [x] log hygiene mencakup hapus akun; [x] test FE dialog + request.
+
 ### Checkpoint 7: Aplikasi utuh
 - [ ] Alur lengkap dari HP (seluler) berhasil, termasuk edit dan OTP
 - [ ] Review dengan Anda

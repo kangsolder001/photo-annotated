@@ -11,7 +11,7 @@ Saat ini setiap kotak anotasi berisi **teks bebas**. Perubahan ini menggantinya 
 2. melihat hasil anotasi: foto beserta kotaknya, label tiap kotak, dan **siapa yang menganotasi**;
 3. **menghapus permanen** foto/submission yang sudah dianotasi (dari database dan SSD);
 4. **mereview** submission (terima / tolak); submission yang **diterima tidak ikut terhapus retensi 90 hari**;
-5. **mengelola annotator** (lihat aktivitas, blokir, hapus data);
+5. **mengelola annotator** (lihat aktivitas, blokir, hapus data, hapus akun);
 6. melihat **statistik per label** dan **status sistem** (WhatsApp, SSD, antrean, cleanup);
 7. mengekspor dataset (export JSONL yang sudah ada, kini memuat label dan status review).
 
@@ -36,7 +36,6 @@ Akun admin dibuat **satu superadmin** yang ditulis di `config.json`. Login admin
 - Admin mengedit anotasi milik user (mengubah label, kotak, atau urutan foto). Satu-satunya tindakan admin atas data user adalah **hapus permanen** (§5.5).
 - Tempat sampah / pemulihan setelah hapus. Hapus admin bersifat final.
 - Review per kotak atau per foto (review berlaku untuk satu submission utuh), review bertingkat, atau beberapa reviewer.
-- Menghapus akun annotator (cukup blokir; datanya bisa dihapus terpisah).
 - Statistik per annotator, per hari, atau grafik tren (hanya statistik per label).
 - Menggantikan Grafana/alert: status sistem di dashboard hanya keadaan saat ini, tanpa riwayat.
 - Hierarki atau grup label, label per proyek, sinonim.
@@ -360,6 +359,12 @@ Hapus permanen semua submission user ini, memakai mekanisme §5.5. Body: `{ "inc
 - Jumlahnya bisa ratusan, jadi request ini hanya menjalankan langkah 1 §5.5 untuk semuanya dalam satu transaksi (submission `deleted_at`, foto `deleted`, anotasi dihapus), lalu membalas `202 { "submissions": 40, "photos": 112, "annotations": 380, "status": "cleanup_pending" }`. File dan baris dibersihkan cleanup berkala (langkah 2 cleanup induk sudah menangani foto `deleted` usia berapa pun; dijalankan segera sekali setelah request ini, tidak menunggu interval).
 - Akun user tidak dihapus; blokir tetap terpisah.
 
+#### `DELETE /admin/users/{id}` (hapus akun; ditambahkan 25 Okt)
+Menghapus akun annotator **beserta semua datanya**, termasuk submission `accepted` dan foto yang sudah diunggah tetapi belum dikirim. Dalam satu transaksi: baris user dikunci (`FOR UPDATE`, sehingga submit yang berbarengan menunggu lalu gagal atau sudah tercakup), langkah 1 §5.5 untuk semua submission-nya, foto lepasnya ditandai `deleted`, lalu baris `users` dihapus (sesi dan challenge OTP ikut terhapus lewat `ON DELETE CASCADE`). File dibersihkan cleanup yang dijalankan segera, sama seperti `delete-data`.
+- Response `202 { "account_deleted": true, "submissions": 2, "photos": 4, "annotations": 4, "status": "cleanup_pending" }`, atau `200` dengan `"status": "deleted"` bila tidak ada foto sama sekali. User tidak ada / belum verifikasi → `404`.
+- Sesudahnya token lama → `401`, login → `401 INVALID_CREDENTIALS` (seperti nomor tak terdaftar), dan **nomor itu bisa didaftarkan lagi** sebagai akun baru (kode WhatsApp terkirim). Untuk mencegah nomor dipakai lagi, admin cukup memblokir, bukan menghapus.
+- Alasan: pemilik nomor yang ingin "mulai dari awal" tidak bisa mendaftar ulang selama akun lama ada (pendaftaran nomor aktif mendapat challenge palsu tanpa pesan, §5.8 blokir dan T35).
+
 ### 5.9 Statistik per label
 
 #### `GET /admin/stats/labels`
@@ -467,7 +472,7 @@ Bagian dari SPA yang sama di bawah `/admin`, **dimuat terpisah (lazy chunk)** se
 | `/admin/anotasi` | Daftar submission terbaru: kartu dengan foto sampul + overlay kotak, nama & nomor annotator, waktu, chip label beserta jumlah. Filter: rentang tanggal, label, status review, cari annotator (nama/nomor), "masih ada catatan lama". Pintasan **Antrean review** (`review_status=pending`, `sort=oldest`). Lencana status review dan "terhapus dalam N hari" di tiap kartu. Tombol "Muat lagi" (cursor). Tombol **Export JSONL** untuk filter tanggal yang sedang aktif. Kotak centang per kartu + tombol **Terima terpilih**, **Tolak terpilih** (satu alasan untuk semua), dan **Hapus terpilih** (maks 50) |
 | `/admin/anotasi/:id` | Detail: semua foto dengan overlay kotak berwarna + nomor; daftar kotak (label, ukuran); kartu annotator (nama, email, nomor HP, tautan "semua dari annotator ini" = filter `user_id`); waktu dibuat/diubah, versi. Panel review: status saat ini, tombol **Terima** / **Tolak** (alasan wajib) / **Batalkan review**; tombol pintas Terima dan Tolak lalu buka submission berikutnya di antrean. Tombol **Hapus submission** dan tombol **Hapus foto** per foto |
 | `/admin/annotator` | Hanya mode `otp`. Tabel annotator: nama, nomor, email, jumlah submission / kotak / diterima / ditolak, aktivitas terakhir, status blokir. Cari nama/nomor, filter aktif/diblokir |
-| `/admin/annotator/:id` | Profil + statistik annotator, tautan ke submission-nya, tombol **Blokir** (alasan wajib) / **Buka blokir**, dan **Hapus data annotator** (pilihan "ikut hapus yang sudah diterima", konfirmasi ketik `HAPUS`) |
+| `/admin/annotator/:id` | Profil + statistik annotator, tautan ke submission-nya, tombol **Blokir** (alasan wajib) / **Buka blokir**, **Hapus data annotator** (pilihan "ikut hapus yang sudah diterima", konfirmasi ketik `HAPUS`), dan **Hapus akun** (akun + semua data, konfirmasi ketik `HAPUS`) |
 | `/admin/statistik` | Statistik per label (§5.9): batang horizontal per label (warna label, urut terbanyak), angka kotak / foto / submission dan persentase; filter rentang tanggal dan status review (default: diterima). Label dengan 0 contoh ditampilkan di bawah |
 | `/admin/label` | Tabel label: warna, nama, deskripsi, jumlah pemakaian, status. Tambah label (nama, deskripsi, warna), ubah inline, naik/turunkan urutan, arsip/buka arsip, hapus (hanya bila pemakaian 0; selain itu tombol berubah jadi "Arsipkan"). Peringatan saat mengganti nama label yang sudah dipakai |
 
@@ -562,7 +567,7 @@ Berlaku untuk **seluruh aplikasi**: layar anotasi user dan dashboard admin.
 
 - Nomor superadmin hanya ada di `config.json` (file mode 640, tidak di-commit). `config.json.example` memakai nomor placeholder yang **ditolak** validasi.
 - Dashboard menampilkan nomor HP annotator **utuh** (admin perlu bisa menghubungi), tetapi log tetap hanya memuat bentuk tersamar. Respons admin yang memuat data pribadi memakai `Cache-Control: no-store`.
-- Setiap perubahan label dicatat sebagai baris log `msg="admin action"` dengan `action` (`label.create` / `label.update` / `label.archive` / `label.unarchive` / `label.reorder` / `label.delete` / `submission.delete` / `photo.delete` / `submission.review` / `user.block` / `user.unblock` / `user.delete_data`), id yang terkait, jumlah foto/anotasi/file yang dihapus, dan `request_id`. Karena tidak ada audit log di DB, baris log ini (Loki, retensi 30 hari) adalah satu-satunya jejak siapa menghapus apa. Login admin berhasil/gagal dicatat (`admin login`, nomor tersamar). Nama label boleh di-log (bukan data pribadi).
+- Setiap perubahan label dicatat sebagai baris log `msg="admin action"` dengan `action` (`label.create` / `label.update` / `label.archive` / `label.unarchive` / `label.reorder` / `label.delete` / `submission.delete` / `photo.delete` / `submission.review` / `user.block` / `user.unblock` / `user.delete_data` / `user.delete_account`), id yang terkait, jumlah foto/anotasi/file yang dihapus, dan `request_id`. Karena tidak ada audit log di DB, baris log ini (Loki, retensi 30 hari) adalah satu-satunya jejak siapa menghapus apa. Login admin berhasil/gagal dicatat (`admin login`, nomor tersamar). Nama label boleh di-log (bukan data pribadi).
 - Pesan WhatsApp login admin memberi tahu bahwa itu kode **admin**, sehingga superadmin sadar bila ada yang mencoba masuk.
 - Test log hygiene (e2e) diperluas: alur login admin + kelola label tidak boleh membocorkan kode OTP, token `adm2`, atau nomor utuh.
 - Alert baru opsional: lebih dari 5 permintaan OTP admin per jam (indikasi percobaan).
@@ -610,7 +615,7 @@ Dikonfirmasi 24 Okt 2026:
 6. **Admin bisa menghapus permanen** submission atau foto yang sudah dianotasi: hard delete dari database dan dari SSD (§5.5).
 7. **Review submission** (terima / tolak) oleh admin (§5.7).
 8. **Submission yang diterima tidak ikut terhapus retensi 90 hari** (§5.7).
-9. **Kelola annotator**: daftar, blokir / buka blokir, hapus data (§5.8).
+9. **Kelola annotator**: daftar, blokir / buka blokir, hapus data, hapus akun (§5.8; hapus akun ditambahkan 25 Okt atas permintaan Anda).
 10. **Statistik per label saja** (§5.9).
 11. **Status sistem di dashboard** (§5.10).
 12. **Dashboard untuk desktop, tetap bisa dipakai penuh di HP** (§7.3).

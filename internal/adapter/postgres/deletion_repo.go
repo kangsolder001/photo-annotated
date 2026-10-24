@@ -160,6 +160,15 @@ func (r *DeletionRepo) DeleteSubmissionIfEmpty(ctx context.Context, id uuid.UUID
 	return tag.RowsAffected() == 1, nil
 }
 
+func (r *DeletionRepo) MarkUserLoosePhotos(ctx context.Context, userID uuid.UUID) (int, error) {
+	tag, err := r.db(ctx).Exec(ctx, `UPDATE photos SET status = 'deleted'
+		WHERE owner_id = $1 AND submission_id IS NULL AND status <> 'deleted'`, userID)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: mark loose photos deleted: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 func (r *DeletionRepo) MarkUserSubmissions(ctx context.Context, userID uuid.UUID, includeAccepted bool, now time.Time) (usecase.UserDataMark, error) {
 	var m usecase.UserDataMark
 	rows, err := r.db(ctx).Query(ctx, `SELECT id FROM submissions
