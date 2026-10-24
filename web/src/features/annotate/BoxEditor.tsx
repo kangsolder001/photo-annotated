@@ -31,6 +31,8 @@ type Gesture =
   | { kind: "resize"; id: string; corner: Corner; orig: Box };
 
 const CORNERS: Corner[] = ["nw", "ne", "sw", "se"];
+/** Garis tepi kontras di sekeliling kotak (sama di kedua tema: foto tidak ikut tema). */
+const HALO = "rgb(0 0 0 / 65%)";
 const KEY_STEP = 0.005;
 
 export function BoxEditor(p: Props) {
@@ -162,17 +164,22 @@ export function BoxEditor(p: Props) {
           const color = sel ? "var(--box-selected)" : "var(--box)";
           const label = String(i + 1);
           const fs = 14 * unit;
+          // terpilih dibedakan dengan garis lebih tebal (+ pegangan saat bisa diedit), bukan hanya warna
+          const sw = sel ? stroke * 1.7 : stroke;
+          const r = { x: b.x * W, y: b.y * H, width: b.w * W, height: b.h * H };
           return (
             <g key={b.id}>
+              {/* halo gelap tipis di bawah garis warna: tetap terlihat di foto terang maupun gelap */}
               <rect
-                x={b.x * W} y={b.y * H} width={b.w * W} height={b.h * H}
+                {...r}
                 fill={sel ? "rgb(14 165 233 / 18%)" : "rgb(245 158 11 / 10%)"}
-                stroke={color} strokeWidth={stroke}
+                stroke={HALO} strokeWidth={sw + 2.5 * unit}
                 style={{ cursor: editable && sel ? "move" : "pointer" }}
                 onPointerDown={(e) => onBoxDown(e, b)}
               />
-              <rect x={b.x * W} y={b.y * H} width={(label.length * 0.62 + 0.9) * fs} height={1.45 * fs} fill={color} pointerEvents="none" />
-              <text x={b.x * W + 0.45 * fs} y={b.y * H + 1.1 * fs} fontSize={fs} fontWeight={700} fill="#111" pointerEvents="none">{label}</text>
+              <rect {...r} fill="none" stroke={color} strokeWidth={sw} pointerEvents="none" />
+              <rect x={r.x} y={r.y} width={(label.length * 0.62 + 0.9) * fs} height={1.45 * fs} fill={color} stroke={HALO} strokeWidth={unit} pointerEvents="none" />
+              <text x={r.x + 0.45 * fs} y={r.y + 1.1 * fs} fontSize={fs} fontWeight={700} fill="#111" pointerEvents="none">{label}</text>
               {sel && editable && CORNERS.map((c) => {
                 const cx = (c === "nw" || c === "sw" ? b.x : b.x + b.w) * W;
                 const cy = (c === "nw" || c === "ne" ? b.y : b.y + b.h) * H;
@@ -180,7 +187,8 @@ export function BoxEditor(p: Props) {
                   <g key={c} onPointerDown={(e) => onHandleDown(e, b, c)} style={{ cursor: c === "nw" || c === "se" ? "nwse-resize" : "nesw-resize" }}>
                     {/* area sentuh ±44 px, lingkaran tampak 18 px */}
                     <circle cx={cx} cy={cy} r={22 * unit} fill="transparent" />
-                    <circle cx={cx} cy={cy} r={9 * unit} fill="#fff" stroke="var(--box-selected)" strokeWidth={stroke} />
+                    <circle cx={cx} cy={cy} r={9 * unit} fill="#fff" stroke={HALO} strokeWidth={stroke} />
+                    <circle cx={cx} cy={cy} r={6 * unit} fill={color} pointerEvents="none" />
                   </g>
                 );
               })}

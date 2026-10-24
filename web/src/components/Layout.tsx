@@ -6,6 +6,7 @@ import { config } from "../config";
 import { useSessionUser } from "../features/auth/useSession";
 import { session } from "../lib/session";
 import { Icon } from "./Icon";
+import { ThemeSwitcher } from "./ThemeSwitcher";
 
 export function Layout({ children }: { children: ReactNode }) {
   const user = useSessionUser();
@@ -31,6 +32,7 @@ export function Layout({ children }: { children: ReactNode }) {
             {user && <button type="button" onClick={logout} title={user.name}>Keluar</button>}
           </nav>
         )}
+        <ThemeSwitcher />
       </header>
       <main>{children}</main>
     </>
