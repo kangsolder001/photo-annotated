@@ -94,6 +94,7 @@ func TestParseFailures(t *testing.T) {
 		{"durasi tidak valid", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "edit": {"window": "dua hari"}`, 1), nil, []string{`durasi "dua hari" tidak valid`}},
 		{"root relatif", strings.Replace(minimalNone, `/data/photos`, `data/photos`, 1), nil, []string{"storage.local.root: harus path absolut"}},
 		{"driver s3 belum didukung", strings.Replace(minimalNone, `"driver": "local"`, `"driver": "s3"`, 1), nil, []string{`storage.driver: "s3" belum didukung`}},
+		{"trusted proxy tidak valid", strings.Replace(minimalNone, `"allowed_origins": ["https://app.example.com"]`, `"allowed_origins": ["https://app.example.com"], "trusted_proxies": ["bukan-ip"]`, 1), nil, []string{"app.trusted_proxies[0]"}},
 		{"origin berpath", strings.Replace(minimalNone, `https://app.example.com`, `https://app.example.com/app`, 1), nil, []string{"allowed_origins[0]"}},
 		{"public_base_url diakhiri slash", strings.Replace(minimalNone, `https://api.example.com`, `https://api.example.com/`, 1), nil, []string{"app.public_base_url"}},
 		{"admin plaintext", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "admin": {"enabled": true, "username": "a", "password_bcrypt": "rahasia123"}`, 1), nil, []string{"admin.password_bcrypt: harus hash bcrypt"}},
@@ -171,5 +172,24 @@ func TestLoadAndPath(t *testing.T) {
 	}
 	if _, err := Load(p, env(fullEnv())); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestParseProxy(t *testing.T) {
+	for in, want := range map[string]string{
+		"127.0.0.1":       "127.0.0.1/32",
+		"::1":             "::1/128",
+		"172.16.5.9/12":   "172.16.0.0/12",
+		"::ffff:10.0.0.1": "10.0.0.1/32",
+	} {
+		p, err := ParseProxy(in)
+		if err != nil || p.String() != want {
+			t.Errorf("ParseProxy(%q) = %v, %v; want %s", in, p, err, want)
+		}
+	}
+	for _, in := range []string{"", "abc", "1.2.3.4/99", "1.2.3"} {
+		if _, err := ParseProxy(in); err == nil {
+			t.Errorf("ParseProxy(%q) seharusnya gagal", in)
+		}
 	}
 }

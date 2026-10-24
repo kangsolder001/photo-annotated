@@ -3,7 +3,8 @@
     "env": "production",
     "http_addr": ":8080",
     "public_base_url": "https://api.example.com",
-    "allowed_origins": ["https://app.example.com"]
+    "allowed_origins": ["https://app.example.com"],
+    "trusted_proxies": ["127.0.0.1/32", "::1/128", "172.16.0.0/12"]
   },
   "auth": {
     "mode": "otp",

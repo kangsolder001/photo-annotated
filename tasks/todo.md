@@ -12,7 +12,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 
 ## Phase 1: Foundation
 - [x] **T5** Skeleton proyek + config loader (fail-fast)
-- [ ] **T6** HTTP server skeleton: Gin, middleware, `/healthz`
+- [x] **T6** HTTP server skeleton: Gin, middleware, `/healthz`
 - [ ] **T7** Koneksi DB + tool migrasi + `/readyz`
 - [ ] **T8** Middleware: rate limit, CORS, body limit
 

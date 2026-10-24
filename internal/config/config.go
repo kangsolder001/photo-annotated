@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -68,6 +69,9 @@ type App struct {
 	HTTPAddr       string   `json:"http_addr"`
 	PublicBaseURL  string   `json:"public_base_url"`
 	AllowedOrigins []string `json:"allowed_origins"`
+	// TrustedProxies: alamat/CIDR proxy (cloudflared) yang boleh menentukan IP klien lewat
+	// header CF-Connecting-IP. Koneksi dari alamat lain tidak dipercaya header itu.
+	TrustedProxies []string `json:"trusted_proxies"`
 }
 
 type Auth struct {
@@ -172,7 +176,11 @@ func (Secrets) LogValue() slog.Value {
 // sengaja tidak punya default dan wajib diisi.
 func Defaults() Config {
 	return Config{
-		App: App{Env: "production", HTTPAddr: ":8080"},
+		App: App{
+			Env:            "production",
+			HTTPAddr:       ":8080",
+			TrustedProxies: []string{"127.0.0.1/32", "::1/128", "172.16.0.0/12"},
+		},
 		Auth: Auth{
 			SessionTTL: Duration(30 * 24 * time.Hour),
 			OTP: OTP{
@@ -279,6 +287,11 @@ func (c *Config) Validate() error {
 	for i, o := range c.App.AllowedOrigins {
 		if err := checkAbsURL(o, true); err != nil {
 			bad(fmt.Sprintf("app.allowed_origins[%d]", i), "%v", err)
+		}
+	}
+	for i, p := range c.App.TrustedProxies {
+		if _, err := ParseProxy(p); err != nil {
+			bad(fmt.Sprintf("app.trusted_proxies[%d]", i), "%v", err)
 		}
 	}
 
@@ -399,6 +412,23 @@ func (c *Config) Validate() error {
 		return nil
 	}
 	return fmt.Errorf("config tidak valid:\n  - %w", joinLines(errs))
+}
+
+// ParseProxy menerima alamat IP tunggal atau CIDR dan mengembalikannya sebagai prefix.
+func ParseProxy(s string) (netip.Prefix, error) {
+	s = strings.TrimSpace(s)
+	if strings.Contains(s, "/") {
+		p, err := netip.ParsePrefix(s)
+		if err != nil {
+			return netip.Prefix{}, fmt.Errorf("%q bukan CIDR yang valid", s)
+		}
+		return p.Masked(), nil
+	}
+	a, err := netip.ParseAddr(s)
+	if err != nil {
+		return netip.Prefix{}, fmt.Errorf("%q bukan IP atau CIDR yang valid", s)
+	}
+	return netip.PrefixFrom(a.Unmap(), a.Unmap().BitLen()), nil
 }
 
 func requireSecret(errs *[]error, name, val, why string) {

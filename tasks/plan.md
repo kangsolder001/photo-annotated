@@ -100,13 +100,14 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [x] `go vet ./... && go test ./internal/config/... -race` (28 test); [x] `go build ./...`
 **Dependencies:** None · **Files:** `go.mod`, `internal/config/config.go`, `internal/config/config_test.go`, `config.json.example` · **Scope:** S
 
-#### Task 6: HTTP server skeleton
+#### Task 6: HTTP server skeleton — **SELESAI**
 **Description:** Gin (release mode, `gin.New()`), middleware `request_id`, slog JSON logger (tanpa data sensitif), recovery, trusted proxy + `CF-Connecting-IP`, format error JSON, `GET /healthz`, graceful shutdown. Timeout: `ReadHeaderTimeout 10s`, `IdleTimeout 60s`, deadline per-route lewat `ResponseController` (spec §11.3).
 **Acceptance criteria:**
-- [ ] `GET /healthz` → 200; setiap response punya `X-Request-ID`; log memuat field minimum spec §12
-- [ ] Panic di handler → 500 berformat error, proses tetap hidup
-- [ ] `client_ip` hanya dari `CF-Connecting-IP` bila request dari proxy tepercaya
-**Verification:** [ ] `go test ./internal/delivery/... -race`; [ ] `curl -i localhost:8080/healthz`
+- [x] `GET /healthz` → 200; setiap response punya `X-Request-ID` (id klien hanya diterima bila aman); log memuat field minimum spec §12; query string, header, dan body tidak pernah di-log
+- [x] Panic di handler → 500 berformat error tanpa detail, stack hanya di log, proses tetap hidup
+- [x] `client_ip` hanya dari `CF-Connecting-IP` bila koneksi dari `app.trusted_proxies` (config baru); `TrustedPlatform` Gin tidak dipakai karena mempercayai header dari siapa pun
+- [x] Server tanpa `ReadTimeout`/`WriteTimeout` global; deadline per-route lewat `ResponseController` (diuji: body lambat diputus)
+**Verification:** [x] `go test ./internal/... -race`; [x] binary dijalankan: `curl /healthz`, SIGTERM graceful, gagal-start saat secret kurang
 **Dependencies:** 5 · **Files:** `cmd/api/main.go`, `internal/delivery/http/router.go`, `.../middleware/{requestid,logger,recovery}.go` · **Scope:** M
 
 #### Task 7: Koneksi DB, tool migrasi, `/readyz`

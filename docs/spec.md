@@ -129,7 +129,7 @@ Aturan implementasi:
 - **Penyimpanan foto di balik port `PhotoStore`** (`Save`, `Open`, `Stat`, `Delete`, `FreeSpace`). v1 hanya punya adapter `localfs` (`storage.driver = "local"`). Jika nanti pindah ke S3/B2, port diperluas dengan presigned URL dan FE tidak berubah, karena kontrak `presign` tetap sama (hanya host pada `url` yang berbeda).
 - **Transaksi** lewat port `TxManager.WithTx(ctx, func(ctx) error)`; usecase menentukan batas transaksi, adapter postgres mengimplementasikannya.
 - **Otorisasi (owner/admin)** diputuskan di usecase. Middleware auth hanya mengisi `domain.Principal` ke context.
-- **Gin:** `gin.SetMode(gin.ReleaseMode)`, `gin.New()` (bukan `Default()`) dengan middleware sendiri. Set `SetTrustedProxies` ke alamat `cloudflared` saja, dan hanya percaya header `CF-Connecting-IP` dari proxy tersebut. Body request JSON dibatasi 64 KB lewat `http.MaxBytesReader`; rute upload foto memakai batas sendiri (§5.1b).
+- **Gin:** `gin.SetMode(gin.ReleaseMode)`, `gin.New()` (bukan `Default()`) dengan middleware sendiri. IP klien ditentukan oleh middleware sendiri: header `CF-Connecting-IP` hanya dipercaya jika koneksi berasal dari `app.trusted_proxies` (alamat/CIDR `cloudflared`); selain itu dipakai alamat koneksi langsung. `TrustedPlatform` bawaan Gin tidak dipakai karena mempercayai header itu dari siapa pun. Body request JSON dibatasi 64 KB lewat `http.MaxBytesReader`; rute upload foto memakai batas sendiri (§5.1b).
 - **Pengujian:** usecase diuji dengan fake port (tanpa DB/disk); repo postgres diuji terhadap database uji (`TEST_DATABASE_URL`); `localfs` diuji di direktori sementara (`t.TempDir()`); handler diuji dengan `httptest`.
 
 ### 3.2 Jalur ekstensi export
@@ -693,7 +693,8 @@ Konfigurasi non-rahasia di `config.json` (path dari env `CONFIG_PATH`, default `
     "env": "production",
     "http_addr": ":8080",
     "public_base_url": "https://api.example.com",
-    "allowed_origins": ["https://app.example.com"]
+    "allowed_origins": ["https://app.example.com"],
+    "trusted_proxies": ["127.0.0.1/32", "::1/128", "172.16.0.0/12"]
   },
   "auth": {
     "mode": "otp",
