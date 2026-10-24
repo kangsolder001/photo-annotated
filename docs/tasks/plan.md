@@ -380,7 +380,9 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [ ] unit test fungsi resize; [ ] manual di HP (Android Chrome + iOS Safari)
 **Dependencies:** Checkpoint 3 · **Files:** `web/package.json`, `web/src/lib/image.ts`, `web/src/lib/api.ts`, `web/src/pages/Upload.tsx` · **Scope:** M
 
-#### Task 27: FE anotasi + submit
+#### Task 27: FE anotasi + submit — **SELESAI**
+**Keputusan:** editor kotak dibuat sendiri (SVG + Pointer Events, `features/annotate/BoxEditor.tsx`), **bukan Annotorious**: catatan tiap kotak diisi di daftar bernomor di bawah foto (lebih nyaman di HP daripada popup di atas gambar), ada tombol mode gambar/gulir agar halaman tetap bisa digulir di atas foto, pegangan sudut berarea sentuh ±44 px, dan tanpa dependensi besar. Kotak baru langsung memfokuskan isian catatannya; panah/Delete untuk keyboard.
+**Hasil:** validasi FE = backend (ukuran ≥ 0,005, di dalam foto, teks 1–1000 karakter setelah trim dihitung per karakter, karakter kontrol/bidi ditolak, tab → spasi); tombol Kirim nonaktif sampai semua upload selesai, alasan ditampilkan; `client_request_id` satu per laporan sehingga dobel ketuk/retry tidak membuat duplikat; mode none: Turnstile (token dipakai ulang) + `edit_token` disimpan di riwayat perangkat. Peringatan sebelum meninggalkan halaman dengan pekerjaan belum terkirim. 45 test (termasuk interaksi seret/ketuk/mode gulir).
 **Description:** Annotorious (kotak + teks wajib), validasi koordinat sama dengan backend, submit dengan `client_request_id`, simpan `edit_token` (mode `none`).
 **Acceptance criteria:**
 - [ ] Kotak < 0.005 atau tanpa teks tidak bisa dikirim; Submit nonaktif sampai semua upload selesai

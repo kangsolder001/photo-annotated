@@ -131,3 +131,21 @@ input:focus-visible, textarea:focus-visible, .btn:focus-visible, a:focus-visible
 .photo-status { color: var(--muted); }
 .status-uploaded { color: var(--ok); }
 .status-error { color: var(--danger); }
+
+/* ---- anotasi */
+.annotator { padding: 0.75rem; }
+.annotator-toolbar { margin-bottom: 0.6rem; }
+.box-editor { position: relative; border-radius: 8px; overflow: hidden; background: #000; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.box-editor img { width: 100%; height: auto; pointer-events: none; }
+.box-editor svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.box-editor svg:focus-visible { outline: 3px solid var(--box-selected); outline-offset: -3px; }
+.annotation-list { list-style: none; margin: 0.75rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+.annotation-list li { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.5rem; border: 1px solid var(--border); border-radius: 10px; }
+.annotation-list li.selected { border-color: var(--box-selected); box-shadow: 0 0 0 1px var(--box-selected); }
+.ann-num { flex: none; width: 28px; height: 28px; border-radius: 6px; background: var(--box); color: #111; font-weight: 700; display: grid; place-items: center; margin-top: 0.4rem; }
+.annotation-list li.selected .ann-num { background: var(--box-selected); }
+.ann-body { flex: 1; display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.ann-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0.35rem 0; }
+
+.history-list { list-style: none; padding: 0; margin: 0; }
+.history-item { display: flex; flex-direction: column; text-decoration: none; color: var(--text); }
