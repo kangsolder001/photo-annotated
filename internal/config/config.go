@@ -63,8 +63,10 @@ type Config struct {
 	Limits    Limits    `json:"limits"`
 	Retention Retention `json:"retention"`
 
-	// Secrets hanya berasal dari environment, tidak pernah dari file.
-	Secrets Secrets `json:"-"`
+	// Secrets dibaca dari bagian "secrets" di config.json; env var dengan nama lama (DATABASE_URL,
+	// OTP_PEPPER, …) bila diisi menimpanya (berguna untuk dev/test). Karena file memuat rahasia,
+	// Load menolak config.json yang bisa dibaca semua pengguna.
+	Secrets Secrets `json:"secrets"`
 }
 
 type App struct {
@@ -167,19 +169,29 @@ type Retention struct {
 	OrphanMinAge Duration `json:"orphan_min_age"`
 }
 
-// Secrets berisi nilai rahasia dari environment. Nilainya disamarkan saat dicetak/di-log.
+// Secrets berisi nilai rahasia. Nilainya disamarkan saat dicetak, di-log, atau di-marshal ulang.
 type Secrets struct {
-	DatabaseURL          string
-	StorageSigningSecret string
-	EditTokenSecret      string
-	OTPPepper            string
-	AdminTokenSecret     string
-	WANotifToken         string
-	TurnstileSecret      string
+	DatabaseURL          string `json:"database_url"`
+	StorageSigningSecret string `json:"storage_signing_secret"`
+	EditTokenSecret      string `json:"edit_token_secret"`
+	OTPPepper            string `json:"otp_pepper"`
+	AdminTokenSecret     string `json:"admin_token_secret"`
+	WANotifToken         string `json:"wa_notif_token"`
+	TurnstileSecret      string `json:"turnstile_secret"`
 }
 
-func (Secrets) String() string   { return "Secrets{redacted}" }
-func (Secrets) GoString() string { return "Secrets{redacted}" }
+// secretEnv memetakan env var penimpa ke field Secrets.
+func (s *Secrets) secretEnv() map[string]*string {
+	return map[string]*string{
+		"DATABASE_URL": &s.DatabaseURL, "STORAGE_SIGNING_SECRET": &s.StorageSigningSecret,
+		"EDIT_TOKEN_SECRET": &s.EditTokenSecret, "OTP_PEPPER": &s.OTPPepper, "ADMIN_TOKEN_SECRET": &s.AdminTokenSecret,
+		"WA_NOTIF_TOKEN": &s.WANotifToken, "TURNSTILE_SECRET": &s.TurnstileSecret,
+	}
+}
+
+func (Secrets) MarshalJSON() ([]byte, error) { return []byte(`"redacted"`), nil }
+func (Secrets) String() string               { return "Secrets{redacted}" }
+func (Secrets) GoString() string             { return "Secrets{redacted}" }
 func (Secrets) LogValue() slog.Value {
 	return slog.StringValue("redacted")
 }
@@ -253,8 +265,16 @@ func Path(getenv func(string) string) string {
 	return "config.json"
 }
 
-// Load membaca file konfigurasi, menimpa secret dari environment, lalu memvalidasi.
+// Load membaca file konfigurasi, menimpa secret dari environment bila ada, lalu memvalidasi.
+// File yang bisa dibaca semua pengguna (o+r) ditolak karena memuat secret.
 func Load(path string, getenv func(string) string) (*Config, error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("config: membaca %s: %w", path, err)
+	}
+	if st.Mode().Perm()&0o007 != 0 {
+		return nil, fmt.Errorf("config: %s memuat secret tetapi bisa diakses semua pengguna (mode %#o); jalankan chmod 640 (atau 600)", path, st.Mode().Perm())
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("config: membaca %s: %w", path, err)
@@ -273,14 +293,12 @@ func Parse(raw []byte, getenv func(string) string) (*Config, error) {
 	if dec.More() {
 		return nil, errors.New("config: ada data setelah objek JSON utama")
 	}
-	cfg.Secrets = Secrets{
-		DatabaseURL:          strings.TrimSpace(getenv("DATABASE_URL")),
-		StorageSigningSecret: strings.TrimSpace(getenv("STORAGE_SIGNING_SECRET")),
-		EditTokenSecret:      strings.TrimSpace(getenv("EDIT_TOKEN_SECRET")),
-		OTPPepper:            strings.TrimSpace(getenv("OTP_PEPPER")),
-		AdminTokenSecret:     strings.TrimSpace(getenv("ADMIN_TOKEN_SECRET")),
-		WANotifToken:         strings.TrimSpace(getenv("WA_NOTIF_TOKEN")),
-		TurnstileSecret:      strings.TrimSpace(getenv("TURNSTILE_SECRET")),
+	for name, field := range cfg.Secrets.secretEnv() {
+		if v := strings.TrimSpace(getenv(name)); v != "" {
+			*field = v
+		} else {
+			*field = strings.TrimSpace(*field)
+		}
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -319,11 +337,11 @@ func (c *Config) Validate() error {
 	// auth
 	switch c.Auth.Mode {
 	case AuthModeNone:
-		requireSecret(&errs, "EDIT_TOKEN_SECRET", c.Secrets.EditTokenSecret, "auth.mode=none")
+		requireSecret(&errs, "secrets.edit_token_secret (EDIT_TOKEN_SECRET)", c.Secrets.EditTokenSecret, "auth.mode=none")
 	case AuthModeOTP:
-		requireSecret(&errs, "OTP_PEPPER", c.Secrets.OTPPepper, "auth.mode=otp")
+		requireSecret(&errs, "secrets.otp_pepper (OTP_PEPPER)", c.Secrets.OTPPepper, "auth.mode=otp")
 		if c.Secrets.WANotifToken == "" {
-			bad("WA_NOTIF_TOKEN", "wajib diisi (env) jika auth.mode=otp")
+			bad("secrets.wa_notif_token (WA_NOTIF_TOKEN)", "wajib diisi jika auth.mode=otp")
 		}
 		if err := checkAbsURL(c.WANotif.BaseURL, false); err != nil {
 			bad("wa_notif.base_url", "wajib untuk auth.mode=otp: %v", err)
@@ -367,7 +385,7 @@ func (c *Config) Validate() error {
 		if !looksLikeBcrypt(c.Admin.PasswordBcrypt) {
 			bad("admin.password_bcrypt", "harus hash bcrypt ($2a$/$2b$/$2y$, 60 karakter), bukan plaintext")
 		}
-		requireSecret(&errs, "ADMIN_TOKEN_SECRET", c.Secrets.AdminTokenSecret, "admin.enabled")
+		requireSecret(&errs, "secrets.admin_token_secret (ADMIN_TOKEN_SECRET)", c.Secrets.AdminTokenSecret, "admin.enabled")
 		if c.Admin.TokenTTL <= 0 {
 			bad("admin.token_ttl", "harus > 0")
 		}
@@ -375,7 +393,7 @@ func (c *Config) Validate() error {
 
 	// turnstile
 	if c.Turnstile.Enabled && c.Secrets.TurnstileSecret == "" {
-		bad("TURNSTILE_SECRET", "wajib diisi (env) jika turnstile.enabled")
+		bad("secrets.turnstile_secret (TURNSTILE_SECRET)", "wajib diisi jika turnstile.enabled")
 	}
 
 	// edit
@@ -385,14 +403,22 @@ func (c *Config) Validate() error {
 
 	// database
 	if c.Secrets.DatabaseURL == "" {
-		bad("DATABASE_URL", "wajib diisi (env)")
+		bad("secrets.database_url (DATABASE_URL)", "wajib diisi")
+	}
+	for name, v := range map[string]string{
+		"secrets.database_url": c.Secrets.DatabaseURL, "secrets.wa_notif_token": c.Secrets.WANotifToken,
+		"secrets.turnstile_secret": c.Secrets.TurnstileSecret,
+	} {
+		if strings.Contains(v, placeholder) {
+			bad(name, "masih berisi placeholder dari config.json.example")
+		}
 	}
 	if c.Database.MaxConns < 1 || c.Database.MaxConns > 100 {
 		bad("database.max_conns", "harus 1-100")
 	}
 
 	// storage
-	requireSecret(&errs, "STORAGE_SIGNING_SECRET", c.Secrets.StorageSigningSecret, "penyimpanan foto")
+	requireSecret(&errs, "secrets.storage_signing_secret (STORAGE_SIGNING_SECRET)", c.Secrets.StorageSigningSecret, "penyimpanan foto")
 	switch c.Storage.Driver {
 	case StorageDriverLocal:
 		if !filepath.IsAbs(c.Storage.Local.Root) {
@@ -466,10 +492,15 @@ func ParseProxy(s string) (netip.Prefix, error) {
 	return netip.PrefixFrom(a.Unmap(), a.Unmap().BitLen()), nil
 }
 
+// placeholder menandai nilai contoh di config.json.example yang wajib diganti.
+const placeholder = "GANTI"
+
 func requireSecret(errs *[]error, name, val, why string) {
 	switch {
+	case strings.Contains(val, placeholder):
+		*errs = append(*errs, fmt.Errorf("%s: masih berisi placeholder dari config.json.example", name))
 	case val == "":
-		*errs = append(*errs, fmt.Errorf("%s: wajib diisi (env) untuk %s", name, why))
+		*errs = append(*errs, fmt.Errorf("%s: wajib diisi untuk %s", name, why))
 	case len(val) < minSecretLen:
 		*errs = append(*errs, fmt.Errorf("%s: terlalu pendek (%d karakter, minimal %d)", name, len(val), minSecretLen))
 	}

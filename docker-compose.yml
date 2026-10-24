@@ -1,15 +1,15 @@
-# Deploy di Raspberry Pi: salin file ini ke /home/myrpi/docker/photo-annotated/ bersama:
-#   .env          secret (DATABASE_URL ke host shared-postgres, STORAGE_SIGNING_SECRET, …; spec §11.4)
-#   config.json   konfigurasi (lihat config.json.example; storage.local.root = /data/photos)
+# Deploy di Raspberry Pi: salin file ini ke /home/myrpi/docker/photo-annotated/ bersama config.json
+# (konfigurasi + secret di bagian "secrets"; lihat config.json.example). Container membacanya sebagai
+# UID 65532, dan API menolak start bila file bisa dibaca semua pengguna:
+#   chown myrpi:65532 config.json && chmod 640 config.json
 # lalu: docker compose up -d   (migrasi berjalan dulu, API start setelah migrasi sukses)
 #
-# Tunnel Cloudflare (profile "tunnel", butuh TUNNEL_TOKEN di .env):
-#   docker compose --profile tunnel up -d
+# Akses publik: cloudflared berjalan sebagai service di host Pi (tunnel dikelola di dashboard
+# Cloudflare). Daftarkan public hostname API dengan service  http://localhost:8080
 name: photo-annotated
 
 x-app: &app
   image: photo-annotated:${PHOTO_ANNOTATED_TAG:-latest}
-  env_file: .env
   environment:
     TZ: Asia/Jakarta
   read_only: true
@@ -21,6 +21,8 @@ services:
     <<: *app
     entrypoint: ["/usr/local/bin/migrate", "up"]
     restart: "no"
+    volumes:
+      - ./config.json:/etc/photo-annotated/config.json:ro
     networks: [shared-db]
 
   api:
@@ -34,10 +36,10 @@ services:
       # folder foto di SSD (pemilik UID 65532). Penanda .photo-annotated-store wajib ada
       # (storage.local.require_marker): bila SSD tidak ter-mount, API menolak start.
       - /mnt/ssd/photo-annotated/photos:/data/photos
-    # hanya localhost Pi; akses publik lewat cloudflared (network internal), bukan port terbuka
+    # hanya localhost Pi; cloudflared di host meneruskan trafik publik ke port ini
     ports:
       - "127.0.0.1:8080:8080"
-    networks: [default, shared-db, wa-notif]
+    networks: [shared-db, wa-notif]
     ulimits:
       nofile: { soft: 65536, hard: 65536 }
     stop_grace_period: 20s
@@ -46,21 +48,7 @@ services:
         limits:
           memory: 512m
 
-  cloudflared:
-    image: cloudflare/cloudflared:2024.12.2
-    profiles: [tunnel]
-    restart: unless-stopped
-    command: ["tunnel", "--no-autoupdate", "run"]
-    environment:
-      # wajib diisi di .env untuk profile tunnel (kosong → cloudflared berhenti dengan error).
-      # Default kosong karena compose menginterpolasi variabel profile yang tidak aktif juga.
-      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
-    depends_on: [api]
-    # ingress tunnel (di dashboard Cloudflare) diarahkan ke http://api:8080
-    networks: [default]
-
 networks:
-  default: {}
   shared-db:
     external: true
   wa-notif:

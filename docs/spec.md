@@ -118,7 +118,7 @@ internal/
     handler/             # handler tipis: bind → panggil usecase → map hasil
     dto/                 # request/response JSON (terpisah dari entity domain)
     middleware/          # request_id, slog logger, recovery, auth, rate limit, body limit
-  config/                # load & validasi config.json + override env
+  config/                # load & validasi config.json (termasuk secret) + override env opsional
 migrations/              # SQL migrasi (golang-migrate atau goose)
 config.json.example
 ```
@@ -634,7 +634,7 @@ Akses ke resource milik orang lain mengembalikan `404` (bukan `403`) agar ID tid
   - `auth/register` + `auth/otp/request`: 5 / menit; `auth/otp/verify`: 20 / menit; `admin/login`: 5 / menit
   - Tambahan rate limit di edge Cloudflare.
 - **CORS API:** `allowed_origins` dari config; method `GET, POST, PUT, OPTIONS`; header yang diizinkan `Content-Type`, `Authorization`, `X-Edit-Token`; preflight di-cache 1 jam (`Access-Control-Max-Age`). Upload `PUT` lintas-origin dengan `Content-Type` memicu preflight, jadi rute `/uploads/*` wajib tercakup.
-- `STORAGE_SIGNING_SECRET` (kunci HMAC URL upload dan lihat foto, ≥ 32 byte acak) hanya ada di env Raspi. Merotasinya membatalkan semua URL yang belum kedaluwarsa (umurnya pendek, dampaknya kecil). Pesan yang ditandatangani diberi awalan tujuan (`upload`/`view`) agar tanda tangan satu tujuan tidak bisa dipakai untuk yang lain.
+- `STORAGE_SIGNING_SECRET` (kunci HMAC URL upload dan lihat foto, ≥ 32 byte acak) hanya ada di `config.json` di Raspi (bagian `secrets`). Merotasinya membatalkan semua URL yang belum kedaluwarsa (umurnya pendek, dampaknya kecil). Pesan yang ditandatangani diberi awalan tujuan (`upload`/`view`) agar tanda tangan satu tujuan tidak bisa dipakai untuk yang lain.
 - **Secret tidak disimpan di `config.json`** (lihat §11.4).
 - URL bertanda tangan berumur pendek (upload 10 menit, lihat foto 5 menit).
 - Validasi berlapis: saat presign (deklarasi), saat upload (`Content-Length` dan jumlah byte aktual), dan setelah tulis (magic bytes + dimensi dari header gambar). Server benar-benar memeriksa isi file, sehingga file non-gambar dengan `Content-Type` palsu ditolak.
@@ -656,7 +656,7 @@ Risiko utama: endpoint OTP publik membuat API ini bisa dipakai untuk **mengirim 
 - **Nomor tujuan** hanya nomor kanonik hasil normalisasi §7.4 (tidak pernah JID atau input mentah).
 - **Anti-enumerasi:** `register` dan `otp/request` selalu membalas `202` berbentuk sama, baik nomor sudah terdaftar atau belum.
 - **Session token:** 32 byte acak, hanya hash SHA-256 yang disimpan, berlaku 30 hari, dicabut saat logout. Dikirim sebagai `Authorization: Bearer`. Karena disimpan di `localStorage`, FE wajib memakai CSP ketat dan merender teks user sebagai teks.
-- **Kredensial `wa-notif`:** bearer token `wa-notif` ada di env `WA_NOTIF_TOKEN` (bukan di `config.json`) dan tidak pernah dikirim ke FE.
+- **Kredensial `wa-notif`:** bearer token `wa-notif` ada di `secrets.wa_notif_token` (`config.json` di Pi, mode 640) dan tidak pernah dikirim ke FE.
 - **Pemetaan hasil `wa-notif` → `failure_reason`** (berdasarkan kode `wa-notif` saat ini):
 
   | Respons `wa-notif` | Perlakuan | `failure_reason` |
@@ -706,7 +706,7 @@ Risiko utama: endpoint OTP publik membuat API ini bisa dipakai untuk **mengirim 
   - Satu **database + role per service**, dibuat dengan `/home/myrpi/docker/postgres/create-service-db.sh <nama>` (mencetak `DATABASE_URL` dengan password acak). Untuk project ini: `./create-service-db.sh photo_annotated`.
   - Password superuser ada di `/home/myrpi/docker/postgres/.env` (mode 600, tidak di-commit). Service tidak pernah memakai superuser.
   - Batas memori `1g` di compose belum berlaku karena kernel Pi belum mengaktifkan memory cgroup; aktifkan (`cgroup_enable=memory cgroup_memory=1` di `cmdline.txt`) bila ingin batas itu ditegakkan.
-- Prasyarat project ini: jalankan `create-service-db.sh photo_annotated`, simpan `DATABASE_URL` ke env `api`, lalu jalankan `cmd/migrate` sebelum API pertama kali dijalankan.
+- Prasyarat project ini: jalankan `create-service-db.sh photo_annotated`, simpan URL-nya ke `secrets.database_url` di `config.json`, lalu jalankan `cmd/migrate` sebelum API pertama kali dijalankan.
 - Karena instance dipakai bersama, jumlah `database.max_conns` semua service digabung harus < `max_connections` (100) dikurangi cadangan untuk admin.
 
 ### 11.2 Container (Docker Compose)
@@ -718,7 +718,7 @@ Risiko utama: endpoint OTP publik membuat API ini bisa dipakai untuk **mengirim 
 - `config.json` di-mount read-only ke container `api`.
 - Root foto di-bind-mount dari SSD: `/mnt/ssd/photo-annotated/photos:/data/photos` (baca-tulis). Jika SSD belum ter-mount, bind mount mengarah ke direktori kosong di SD card; karena itu `storage.local.require_marker` wajib `true` di produksi dan penanda `.photo-annotated-store` harus ada di SSD (§8.2).
 - `ulimits: nofile: 65536` untuk `api` (banyak koneksi dan file terbuka bersamaan).
-- Implementasi (`Dockerfile`, `docker-compose.yml` di root repo): image `distroless/static` nonroot (UID 65532) ±16 MB berisi `api`, `migrate`, `maintenance`, `healthcheck`; dibangun silang di mesin dev (`docker buildx build --platform linux/arm64`) lalu dikirim ke Pi (`docker save | ssh … docker load`). Service `migrate` (one-shot) berjalan dulu, `api` start setelah migrasi sukses. Container `read_only`, `cap_drop: ALL`, `no-new-privileges`, HEALTHCHECK lewat biner `healthcheck` (distroless tanpa curl). Port API hanya `127.0.0.1:8080` di Pi; akses publik lewat `cloudflared` (profile `tunnel`, `TUNNEL_TOKEN` di `.env`, ingress ke `http://api:8080`).
+- Implementasi (`Dockerfile`, `docker-compose.yml` di root repo): image `distroless/static` nonroot (UID 65532) ±16 MB berisi `api`, `migrate`, `maintenance`, `healthcheck`; dibangun silang di mesin dev (`docker buildx build --platform linux/arm64`) lalu dikirim ke Pi (`docker save | ssh … docker load`). Service `migrate` (one-shot) berjalan dulu, `api` start setelah migrasi sukses. Container `read_only`, `cap_drop: ALL`, `no-new-privileges`, HEALTHCHECK lewat biner `healthcheck` (distroless tanpa curl). Port API hanya `127.0.0.1:8080` di Pi. Akses publik lewat `cloudflared` yang sudah berjalan sebagai service systemd di host Pi (tunnel dikelola di dashboard Cloudflare): public hostname API → service `http://localhost:8080`. Compose tidak memuat `cloudflared` dan tidak memakai `.env`.
 - **Catatan Pi:** kernel di-boot dengan `cgroup_disable=memory`, sehingga batas memori container (`api` 512 MB, `shared-postgres` 1 GB) **tidak ditegakkan** (`docker info`: "No memory limit support"). Mengaktifkannya: tambahkan `cgroup_enable=memory` di `/boot/firmware/cmdline.txt` lalu reboot (belum dilakukan; butuh persetujuan).
 
 ### 11.3 Tuning awal
@@ -730,7 +730,7 @@ Risiko utama: endpoint OTP publik membuat API ini bisa dipakai untuk **mengirim 
 
 ### 11.4 Konfigurasi
 
-Konfigurasi non-rahasia di `config.json` (path dari env `CONFIG_PATH`, default `./config.json`). **Secret hanya lewat env** dan tidak boleh ada di file config yang di-commit; env menimpa nilai file.
+Semua konfigurasi **termasuk secret** ada di satu file `config.json` (path dari env `CONFIG_PATH`, default `./config.json`; keputusan 24 Okt 2026: tanpa `.env`). Secret di bagian `"secrets"`. Karena itu `config.json` tidak pernah di-commit (hanya `config.json.example` berisi placeholder `GANTI…` yang ditolak saat validasi), dan **API/migrate menolak start bila file bisa dibaca semua pengguna** (wajib `chmod 640`/`600`; di Pi `chown myrpi:65532`, karena container membacanya sebagai UID 65532). Env var dengan nama lama (tabel di bawah) masih boleh dipakai dan menimpa nilai file, untuk dev/test.
 
 `config.json.example`:
 ```json
@@ -802,16 +802,16 @@ Konfigurasi non-rahasia di `config.json` (path dari env `CONFIG_PATH`, default `
 }
 ```
 
-Env (secret):
+Bagian `secrets` (nama env penimpa opsional dalam kurung):
 ```
-DATABASE_URL                # dari create-service-db.sh photo_annotated
-STORAGE_SIGNING_SECRET      # kunci HMAC URL upload & lihat foto (≥ 32 byte acak)
-TURNSTILE_SECRET            # jika turnstile.enabled
-EDIT_TOKEN_SECRET           # wajib jika auth.mode = none
-OTP_PEPPER                  # wajib jika auth.mode = otp (kunci HMAC kode OTP, ≥ 32 byte acak)
-WA_NOTIF_TOKEN              # wajib jika auth.mode = otp (bearer token wa-notif)
-ADMIN_TOKEN_SECRET          # wajib jika admin.enabled (kunci HMAC token admin, ≥ 32 byte acak)
-CONFIG_PATH
+database_url            (DATABASE_URL)            dari create-service-db.sh photo_annotated
+storage_signing_secret  (STORAGE_SIGNING_SECRET)  kunci HMAC URL upload & lihat foto (≥ 32 byte acak)
+turnstile_secret        (TURNSTILE_SECRET)        jika turnstile.enabled
+edit_token_secret       (EDIT_TOKEN_SECRET)       wajib jika auth.mode = none
+otp_pepper              (OTP_PEPPER)              wajib jika auth.mode = otp (kunci HMAC kode OTP, ≥ 32 byte acak)
+wa_notif_token          (WA_NOTIF_TOKEN)          wajib jika auth.mode = otp (bearer token wa-notif)
+admin_token_secret      (ADMIN_TOKEN_SECRET)      wajib jika admin.enabled (kunci HMAC token admin, ≥ 32 byte acak)
+```
 ```
 
 ### 11.5 Backup

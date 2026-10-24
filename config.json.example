@@ -54,6 +54,15 @@
     "upload_timeout": "60s",
     "rate_limit_per_min": { "presign": 30, "submissions": 10, "otp_request": 5, "otp_verify": 20, "admin_login": 5 }
   },
+  "secrets": {
+    "database_url": "postgres://photo_annotated:GANTI@shared-postgres:5432/photo_annotated?sslmode=disable",
+    "storage_signing_secret": "GANTI-dengan-openssl-rand-base64-48",
+    "edit_token_secret": "GANTI-dengan-openssl-rand-base64-48",
+    "otp_pepper": "GANTI-dengan-openssl-rand-base64-48",
+    "admin_token_secret": "GANTI-dengan-openssl-rand-base64-48",
+    "wa_notif_token": "GANTI-dengan-bearer_token-wa-notif",
+    "turnstile_secret": "GANTI-dengan-secret-key-turnstile"
+  },
   "retention": {
     "days": 90,
     "pending_photo_ttl": "24h",

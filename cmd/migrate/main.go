@@ -4,7 +4,8 @@
 //	migrate down     batalkan satu migrasi terakhir
 //	migrate status   tampilkan status migrasi
 //
-// Memakai env DATABASE_URL.
+// Memakai secrets.database_url dari config.json (CONFIG_PATH, default ./config.json); env DATABASE_URL,
+// bila diisi, didahulukan (mis. untuk dev tanpa config lengkap).
 package main
 
 import (
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"photo-annotated/internal/adapter/postgres"
+	"photo-annotated/internal/config"
 )
 
 func main() {
@@ -27,11 +29,15 @@ func main() {
 
 func run(args []string) error {
 	if len(args) != 1 || (args[0] != "up" && args[0] != "down" && args[0] != "status") {
-		return fmt.Errorf("pemakaian: migrate up|down|status (env DATABASE_URL)")
+		return fmt.Errorf("pemakaian: migrate up|down|status (config.json atau env DATABASE_URL)")
 	}
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
-		return fmt.Errorf("DATABASE_URL wajib diisi")
+		cfg, err := config.Load(config.Path(os.Getenv), os.Getenv)
+		if err != nil {
+			return err
+		}
+		url = cfg.Secrets.DatabaseURL
 	}
 	db, err := postgres.OpenSQL(url)
 	if err != nil {

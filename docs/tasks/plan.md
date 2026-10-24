@@ -420,7 +420,8 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Acceptance criteria:**
 - [x] `docker compose up -d` di Pi: `migrate` exit 0 lalu `api` `healthy`, `/healthz` dan `/readyz` 200; tanpa penanda SSD (direktori kosong) → API menolak start (`STORAGE_UNAVAILABLE … SSD belum ter-mount?`, exit 1)
 - [x] Container non-root (UID 65532, rootfs read-only, `cap_drop ALL`, nofile 65536) menulis ke `/data/photos`: 20 upload lewat SSH tunnel berhasil, file `65532:65532 0640` di SSD
-- [ ] ⏳ `curl https://<api>/healthz` lewat Tunnel: butuh domain + `TUNNEL_TOKEN` (profile `tunnel` sudah disiapkan)
+- [ ] ⏳ `curl https://<api>/healthz` lewat Tunnel: cloudflared sudah berjalan di host Pi; tinggal daftarkan public hostname → `http://localhost:8080`
+**Perubahan 24 Okt:** secret dipindah dari `.env` ke `config.json` (bagian `secrets`, mode 640, `chown myrpi:65532`) atas permintaan Anda; `.env` di Pi dihapus; service `cloudflared` di compose dibuang karena tunnel sudah ada di host.
 **Kondisi deploy saat ini di Pi:** `auth.mode=none`, Turnstile & admin mati (secret/password belum ada), `public_base_url` sementara `http://127.0.0.1:8080`, port hanya localhost. Diubah saat domain, `WA_NOTIF_TOKEN`, `TURNSTILE_SECRET`, dan password admin tersedia.
 **Temuan:** `cgroup_disable=memory` di kernel Pi → batas memori container tidak berlaku (lihat spec §11.2).
 **Verification:** [x] `docker compose ps`; [x] uji penanda; [x] uji tulis UID 65532; [ ] Tunnel

@@ -1,5 +1,5 @@
 // Command maintenance menjalankan pekerjaan pemeliharaan sekali jalan, memakai config dan env yang
-// sama dengan API (CONFIG_PATH, DATABASE_URL, ...):
+// sama dengan API (CONFIG_PATH; secret di config.json):
 //
 //	maintenance cleanup         pembersihan foto + retensi + sisa tmp (seperti putaran job per jam)
 //	maintenance sweep-orphans   sapuan file di SSD yang tidak punya baris foto

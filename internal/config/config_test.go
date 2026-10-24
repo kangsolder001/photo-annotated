@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -77,6 +78,13 @@ func TestExampleConfigIsValid(t *testing.T) {
 	if cfg.Auth.Mode != AuthModeOTP || !cfg.Admin.Enabled {
 		t.Fatalf("contoh seharusnya mode otp + admin: %+v", cfg.Auth)
 	}
+	// tanpa env penimpa, placeholder "GANTI" di contoh harus ditolak (tidak boleh terpakai di produksi)
+	_, err = Parse(raw, env(map[string]string{}))
+	for _, f := range []string{"secrets.database_url", "secrets.otp_pepper", "secrets.wa_notif_token", "secrets.turnstile_secret"} {
+		if err == nil || !strings.Contains(err.Error(), f) || !strings.Contains(err.Error(), "placeholder") {
+			t.Fatalf("placeholder %s harus ditolak: %v", f, err)
+		}
+	}
 }
 
 func TestParseFailures(t *testing.T) {
@@ -91,7 +99,7 @@ func TestParseFailures(t *testing.T) {
 		{"none tanpa EDIT_TOKEN_SECRET", minimalNone, func(m map[string]string) { delete(m, "EDIT_TOKEN_SECRET") }, []string{"EDIT_TOKEN_SECRET"}},
 		{"otp tanpa OTP_PEPPER", strings.Replace(minimalNone, `"none"`, `"otp"`, 1), func(m map[string]string) { delete(m, "OTP_PEPPER") }, []string{"OTP_PEPPER", "wa_notif.base_url"}},
 		{"otp tanpa WA_NOTIF_TOKEN", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "otp"}, "wa_notif": {"base_url": "http://wa:3030"}`, 1), func(m map[string]string) { delete(m, "WA_NOTIF_TOKEN") }, []string{"WA_NOTIF_TOKEN"}},
-		{"secret terlalu pendek", minimalNone, func(m map[string]string) { m["STORAGE_SIGNING_SECRET"] = "short" }, []string{"STORAGE_SIGNING_SECRET: terlalu pendek"}},
+		{"secret terlalu pendek", minimalNone, func(m map[string]string) { m["STORAGE_SIGNING_SECRET"] = "short" }, []string{"STORAGE_SIGNING_SECRET): terlalu pendek"}},
 		{"DATABASE_URL kosong", minimalNone, func(m map[string]string) { delete(m, "DATABASE_URL") }, []string{"DATABASE_URL"}},
 		{"field tak dikenal (secret di file)", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none", "otp_pepper": "x"}`, 1), nil, []string{"unknown field"}},
 		{"durasi bukan string", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "edit": {"window": 24}`, 1), nil, []string{"durasi harus berupa string"}},
@@ -200,5 +208,41 @@ func TestParseProxy(t *testing.T) {
 		if _, err := ParseProxy(in); err == nil {
 			t.Errorf("ParseProxy(%q) seharusnya gagal", in)
 		}
+	}
+}
+
+func TestSecretsFromFileAndEnvOverride(t *testing.T) {
+	raw := strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"},
+  "secrets": {"database_url": "postgres://file@db/x", "storage_signing_secret": " `+secret48+` ", "edit_token_secret": "`+secret48+`"}`, 1)
+	cfg, err := Parse([]byte(raw), env(map[string]string{}))
+	if err != nil {
+		t.Fatalf("secret dari config.json saja harus cukup: %v", err)
+	}
+	if cfg.Secrets.DatabaseURL != "postgres://file@db/x" || cfg.Secrets.StorageSigningSecret != secret48 {
+		t.Fatalf("secret file tidak terbaca/di-trim: %q", cfg.Secrets.DatabaseURL)
+	}
+	cfg, err = Parse([]byte(raw), env(map[string]string{"DATABASE_URL": "postgres://env@db/x"}))
+	if err != nil || cfg.Secrets.DatabaseURL != "postgres://env@db/x" {
+		t.Fatalf("env harus menimpa file: %v", err)
+	}
+	b, _ := json.Marshal(cfg)
+	if strings.Contains(string(b), secret48) || strings.Contains(string(b), "postgres://") {
+		t.Fatalf("marshal config membocorkan secret: %s", b)
+	}
+}
+
+func TestLoadRejectsWorldReadableConfig(t *testing.T) {
+	p := t.TempDir() + "/c.json"
+	if err := os.WriteFile(p, []byte(minimalNone), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(p, env(fullEnv())); err == nil || !strings.Contains(err.Error(), "chmod 640") {
+		t.Fatalf("config o+r harus ditolak: %v", err)
+	}
+	if err := os.Chmod(p, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(p, env(fullEnv())); err != nil {
+		t.Fatalf("mode 640 harus diterima: %v", err)
 	}
 }
