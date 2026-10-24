@@ -55,6 +55,8 @@ type stackOpts struct {
 	uploadTurnstile usecase.TurnstileVerifier
 	admin           httpapi.AdminAuth
 	adminPerMin     int
+	// tujuan log request (nil = dibuang)
+	logOut io.Writer
 }
 
 // otpParts adalah usecase auth OTP yang dirakit test di atas pool milik stack.
@@ -138,12 +140,16 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	})
 	upload := usecase.NewUpload(repo, store, sg, imagecheck.Inspector{}, usecase.SystemClock{},
 		usecase.UploadConfig{MaxConcurrent: o.maxConc})
+	logOut := o.logOut
+	if logOut == nil {
+		logOut = io.Discard
+	}
 	var otp otpParts
 	if o.otp != nil {
 		otp = o.otp(pool)
 	}
 	var h http.Handler = httpapi.NewRouter(httpapi.Deps{
-		Logger:         slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Logger:         slog.New(slog.NewJSONHandler(logOut, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		TrustedProxies: []netip.Prefix{},
 		DB:             pool,
 		AllowedOrigins: []string{"https://app.example.com"},

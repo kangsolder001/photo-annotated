@@ -43,6 +43,8 @@ const (
 	channelFailureThreshold = 3
 	// dispatcher memeriksa antrean paling lambat tiap detik (juga dibangunkan saat ada challenge baru)
 	dispatchIdle = time.Second
+	// interval baris log "stats" (gauge dashboard)
+	statsInterval = time.Minute
 )
 
 // jeda sebelum percobaan kirim ke-2 dan ke-3 (spec §4.0): kegagalan terlihat user dalam ± 25 detik
@@ -205,6 +207,16 @@ func run() error {
 		})
 	}()
 
+	// Gauge berkala untuk dashboard (spec §12): satu baris log "stats" per menit, dibaca Loki.
+	statsRepo := postgres.NewStatsRepo(pool)
+	jobs.Add(1)
+	go func() {
+		defer jobs.Done()
+		scheduler.Every(ctx, log, "stats", 30*time.Second, statsInterval, func(ctx context.Context) error {
+			return logStats(ctx, log, cfg, statsRepo, store, upload, deps.OTPChannel)
+		})
+	}()
+
 	errc := make(chan error, 1)
 	go func() {
 		log.Info("server listening", "addr", cfg.App.HTTPAddr, "env", cfg.App.Env, "auth_mode", cfg.Auth.Mode)
@@ -327,4 +339,28 @@ func logDispatch(log *slog.Logger, r usecase.DispatchResult, err error) {
 	if r.ChannelChanged {
 		logChannel(log, r.Available, "send", nil)
 	}
+}
+
+// logStats mencatat gauge: foto pending, slot upload, ruang SSD, dan (mode otp) antrean serta
+// hitungan OTP 24 jam terhadap daily_global_cap. Tanpa data pribadi.
+func logStats(ctx context.Context, log *slog.Logger, cfg *config.Config, repo *postgres.StatsRepo, store *localfs.Store,
+	upload *usecase.Upload, channel handler.ChannelStatus) error {
+	c, err := repo.Counts(ctx, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		return err
+	}
+	inUse, capacity := upload.Slots()
+	attrs := []any{"photos_pending", c.PhotosPending, "uploads_active", inUse, "uploads_max", capacity}
+	if total, free, err := store.Usage(); err == nil && total > 0 {
+		attrs = append(attrs, "storage_total_bytes", total, "storage_free_bytes", free,
+			"storage_used_pct", float64(total-free)*100/float64(total), "storage_min_free_bytes", cfg.Storage.Local.MinFreeBytes)
+	}
+	if channel != nil {
+		o := cfg.Auth.OTP
+		attrs = append(attrs, "otp_available", channel.Available(), "otp_queued", c.OTPQueued, "otp_max_queue", o.MaxQueue,
+			"otp_created_24h", c.OTPCreated24h, "otp_sent_24h", c.OTPSent24h, "otp_failed_24h", c.OTPFailed24h,
+			"otp_daily_cap", o.DailyGlobalCap)
+	}
+	log.Info("stats", attrs...)
+	return nil
 }

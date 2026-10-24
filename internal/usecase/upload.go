@@ -63,6 +63,9 @@ type UploadInput struct {
 	Body          io.Reader
 }
 
+// Slots mengembalikan jumlah upload yang sedang berjalan dan batasnya (untuk metrik).
+func (u *Upload) Slots() (inUse, capacity int) { return len(u.slots), cap(u.slots) }
+
 func (u *Upload) Upload(ctx context.Context, in UploadInput) error {
 	// 1-3. Otorisasi lebih dulu. Id yang tak dikenal dijawab sama dengan tanda tangan salah,
 	//      sehingga keberadaan foto tidak bisa ditebak.

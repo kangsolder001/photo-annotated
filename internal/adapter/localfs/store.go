@@ -142,6 +142,15 @@ func (s *Store) checkStructure() error {
 	return nil
 }
 
+// Usage mengembalikan kapasitas dan sisa ruang (byte) filesystem root foto, untuk metrik.
+func (s *Store) Usage() (total, free int64, err error) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(s.opts.Root, &st); err != nil {
+		return 0, 0, fmt.Errorf("statfs: %w", err)
+	}
+	return int64(st.Blocks) * int64(st.Bsize), int64(st.Bavail) * int64(st.Bsize), nil //nolint:gosec // ukuran disk jauh di bawah int64
+}
+
 func (s *Store) checkFreeSpace() error {
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(s.opts.Root, &st); err != nil {

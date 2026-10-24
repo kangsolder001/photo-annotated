@@ -250,6 +250,20 @@ type ExportEncoder interface {
 	Encode(item *ExportItem) error
 }
 
+// StatsCounts adalah hitungan untuk metrik berkala (spec §12).
+type StatsCounts struct {
+	PhotosPending int // foto presign yang belum dipakai submission
+	OTPQueued     int // challenge menunggu dikirim (termasuk yang sedang dikirim)
+	OTPCreated24h int // challenge dibuat 24 jam terakhir (dibandingkan daily_global_cap)
+	OTPSent24h    int
+	OTPFailed24h  int
+}
+
+// StatsRepo menghitung StatsCounts dalam satu query ringan.
+type StatsRepo interface {
+	Counts(ctx context.Context, since time.Time) (StatsCounts, error)
+}
+
 // AdminTokenSigner menerbitkan dan memverifikasi token admin stateless.
 type AdminTokenSigner interface {
 	Issue(expiresAt time.Time) string

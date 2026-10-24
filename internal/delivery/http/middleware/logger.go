@@ -7,9 +7,10 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"photo-annotated/internal/delivery/http/httpx"
+	"photo-annotated/internal/domain"
 )
 
-// Logger mencatat satu baris JSON per request dengan field minimum spec §12.
+// Logger mencatat satu baris JSON per request dengan field minimum spec §12 (user_id bila ada sesi).
 // Sengaja TIDAK mencatat query string (memuat tanda tangan URL), header
 // (Authorization, X-Edit-Token), maupun body.
 func Logger(log *slog.Logger) gin.HandlerFunc {
@@ -24,6 +25,8 @@ func Logger(log *slog.Logger) gin.HandlerFunc {
 			level = slog.LevelError
 		case status >= 400:
 			level = slog.LevelWarn
+		case c.FullPath() == "/healthz" || c.FullPath() == "/readyz":
+			level = slog.LevelDebug // probe Docker/monitor tiap 30 detik: jangan membanjiri log
 		}
 		attrs := []slog.Attr{
 			slog.String("request_id", httpx.RequestID(c)),
@@ -35,9 +38,19 @@ func Logger(log *slog.Logger) gin.HandlerFunc {
 			slog.String("client_ip", httpx.ClientIP(c)),
 			slog.Int("bytes", c.Writer.Size()),
 		}
+		if userID, _, ok := httpx.Session(c); ok {
+			attrs = append(attrs, slog.String("user_id", userID.String()))
+		}
+		if httpx.IsAdmin(c) {
+			attrs = append(attrs, slog.Bool("admin", true))
+		}
 		// Error internal yang dicatat handler lewat c.Error(err): hanya masuk log, tidak ke klien.
+		// Kode error domain dicatat terpisah agar mudah dihitung di dashboard (mis. UPLOAD_BUSY).
 		if errs := c.Errors.ByType(gin.ErrorTypePrivate); len(errs) > 0 {
 			attrs = append(attrs, slog.String("error", errs.String()))
+			if de, ok := domain.AsError(errs.Last().Err); ok {
+				attrs = append(attrs, slog.String("code", de.Code))
+			}
 		}
 		log.LogAttrs(c.Request.Context(), level, "request", attrs...)
 	}

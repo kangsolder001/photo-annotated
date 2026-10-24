@@ -140,7 +140,8 @@ func TestUnknownRouteAndMethodAreJSON(t *testing.T) {
 
 func TestRequestLoggedWithClientIPFromTrustedProxy(t *testing.T) {
 	h, buf := newTestRouter(t)
-	req := httptest.NewRequest("GET", "/healthz?sig=RAHASIA", nil)
+	// rute yang dicatat di level info (healthz sukses kini di level debug)
+	req := httptest.NewRequest("GET", "/tidak-ada?sig=RAHASIA", nil)
 	req.RemoteAddr = "127.0.0.1:5000"
 	req.Header.Set("CF-Connecting-IP", "203.0.113.9")
 	h.ServeHTTP(httptest.NewRecorder(), req)

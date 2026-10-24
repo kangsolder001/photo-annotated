@@ -425,11 +425,13 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [x] `docker compose ps`; [x] uji penanda; [x] uji tulis UID 65532; [ ] Tunnel
 **Dependencies:** Checkpoint 6 · **Files:** `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `cmd/healthcheck` · **Scope:** S
 
-#### Task 32: Observability
+#### Task 32: Observability — **bagian aplikasi SELESAI; stack & alert menunggu keputusan**
+**Sudah:** field log (`user_id`, `admin`, `code`), baris `stats` per menit (foto pending, slot upload, ruang SSD, antrean & hitungan OTP 24 jam vs `daily_global_cap`), healthz di level debug, test e2e kebersihan log (alur OTP → upload → submit → edit → baca → admin → export → permintaan gagal; tidak ada OTP, token, `Bearer`, `sig=`, nomor utuh, nama, email, password, teks anotasi). Diverifikasi di Pi: baris `stats` muncul, log tidak lagi dibanjiri healthcheck.
+**Menunggu Anda:** (1) Loki+Promtail+Grafana dijalankan di Pi (±300–500 MB RAM, sementara batas memori container belum berlaku) atau di luar (mis. Grafana Cloud); (2) tujuan alert (Telegram, email, atau WhatsApp lewat `wa-notif` — hati-hati: alert "wa-notif mati" tidak bisa dikirim lewat wa-notif).
 **Description:** Field log lengkap (tanpa data sensitif), Promtail → Loki, dashboard Grafana (spec §12), alert: error rate, suhu, SSD > 80%, mount hilang, antrean OTP, kegagalan `wa-notif`.
 **Acceptance criteria:**
 - [ ] Setiap alert di spec §12 punya rule yang teruji (picu manual)
-- [ ] `grep` log tidak menemukan OTP, `edit_token`, header Authorization, atau nomor HP utuh
+- [x] `grep` log tidak menemukan OTP, `edit_token`, header Authorization, atau nomor HP utuh (test otomatis)
 **Verification:** [ ] picu tiap alert; [ ] `grep` log
 **Dependencies:** 31 · **Scope:** M
 

@@ -38,7 +38,7 @@ type authStack struct {
 	wa      *wastub.Server
 }
 
-func newAuthStack(t *testing.T, cfURL string, otpPerMin int) *authStack {
+func newAuthStack(t *testing.T, cfURL string, otpPerMin int, extra ...func(*stackOpts)) *authStack {
 	t.Helper()
 	codes, err := signer.NewOTPCodes("pepper-0123456789abcdef0123456789abcdef", 6)
 	if err != nil {
@@ -69,7 +69,11 @@ func newAuthStack(t *testing.T, cfURL string, otpPerMin int) *authStack {
 	if err != nil {
 		t.Fatal(err)
 	}
-	as.stack = newStack(t, stackOpts{otp: parts, channel: as.channel, turnstile: ts, otpPerMin: otpPerMin, admin: testAdmin(t), adminPerMin: 1_000_000})
+	opts := stackOpts{otp: parts, channel: as.channel, turnstile: ts, otpPerMin: otpPerMin, admin: testAdmin(t), adminPerMin: 1_000_000}
+	for _, f := range extra {
+		f(&opts)
+	}
+	as.stack = newStack(t, opts)
 	return as
 }
 
