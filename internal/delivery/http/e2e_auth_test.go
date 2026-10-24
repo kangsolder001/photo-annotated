@@ -45,13 +45,13 @@ func newAuthStack(t *testing.T, cfURL string, otpPerMin int) *authStack {
 	uc := func(pool *pgxpool.Pool) handler.OTPRequester {
 		return usecase.NewOTPRequest(postgres.NewUserRepo(pool), postgres.NewOTPRepo(pool), codes, ch,
 			usecase.NewPhoneLimiter(time.Minute, 5), usecase.SystemClock{},
-			usecase.OTPRequestConfig{ResendCooldown: time.Minute, MaxQueue: 200, DailyGlobalCap: 500, SendInterval: 1500 * time.Millisecond})
+			usecase.OTPRequestConfig{ResendCooldown: time.Minute, MaxQueue: 200, DailyGlobalCap: 500, SendInterval: 1500 * time.Millisecond, CodeTTL: 5 * time.Minute})
 	}
 	ts, err := turnstile.New("secret", cfURL, 2*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &authStack{stack: newStack(t, stackOpts{otp: uc, turnstile: ts, otpPerMin: otpPerMin}), channel: ch}
+	return &authStack{stack: newStack(t, stackOpts{otp: uc, channel: ch, turnstile: ts, otpPerMin: otpPerMin}), channel: ch}
 }
 
 func (s *stack) postJSON(t *testing.T, path, body string) (*http.Response, map[string]any) {
@@ -177,5 +177,63 @@ func TestE2EOTPRoutesShareIPLimit(t *testing.T) {
 	resp, m := s.postJSON(t, "/api/v1/auth/otp/request", `{"phone":"081233334444","turnstile_token":"human"}`)
 	if resp.StatusCode != http.StatusTooManyRequests || errField(m) != "RATE_LIMITED" {
 		t.Fatalf("register + otp/request harus berbagi batas per IP: %d %v", resp.StatusCode, m)
+	}
+}
+
+func (s *stack) getJSON(t *testing.T, path string) (*http.Response, map[string]any) {
+	t.Helper()
+	resp, err := s.client.Get(s.srv.URL + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	var m map[string]any
+	_ = json.Unmarshal(raw, &m)
+	return resp, m
+}
+
+func TestE2EOTPStatusAndChannel(t *testing.T) {
+	cf := fakeSiteverify(t)
+	s := newAuthStack(t, cf.URL, 0)
+
+	resp, m := s.getJSON(t, "/api/v1/auth/channel-status")
+	if resp.StatusCode != 200 || m["otp_available"] != true || resp.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("channel-status = %d %v", resp.StatusCode, m)
+	}
+
+	_, reg := s.postJSON(t, "/api/v1/auth/register", regBody)
+	resp, m = s.getJSON(t, "/api/v1/auth/otp/"+reg["challenge_id"].(string))
+	if resp.StatusCode != 200 || m["status"] != "queued" || m["failure_reason"] != nil || m["expires_at"] != nil ||
+		m["resend_after_seconds"] != 60.0 || len(m) != 4 {
+		t.Fatalf("status = %d %v", resp.StatusCode, m)
+	}
+	_, _ = s.pool.Exec(context.Background(), `UPDATE otp_challenges SET status = 'failed', failure_reason = 'WA_UNAVAILABLE'`)
+	_, m = s.getJSON(t, "/api/v1/auth/otp/"+reg["challenge_id"].(string))
+	if m["status"] != "failed" || m["failure_reason"] != "WA_UNAVAILABLE" || m["resend_after_seconds"] != 0.0 {
+		t.Fatalf("status gagal = %v", m)
+	}
+	// id tak dikenal atau bukan UUID: queued, tanpa membuka informasi
+	for _, id := range []string{uuid.NewString(), "bukan-uuid"} {
+		resp, m = s.getJSON(t, "/api/v1/auth/otp/"+id)
+		if resp.StatusCode != 200 || m["status"] != "queued" {
+			t.Fatalf("%s: %d %v", id, resp.StatusCode, m)
+		}
+	}
+
+	for i := 0; i < 3; i++ {
+		s.channel.RecordSend(false)
+	}
+	if _, m = s.getJSON(t, "/api/v1/auth/channel-status"); m["otp_available"] != false {
+		t.Fatalf("channel-status setelah gagal = %v", m)
+	}
+}
+
+func TestE2EOTPStatusRoutesAbsentInModeNone(t *testing.T) {
+	s := newStack(t, stackOpts{})
+	for _, p := range []string{"/api/v1/auth/channel-status", "/api/v1/auth/otp/" + uuid.NewString()} {
+		if resp, _ := s.getJSON(t, p); resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s: %d", p, resp.StatusCode)
+		}
 	}
 }

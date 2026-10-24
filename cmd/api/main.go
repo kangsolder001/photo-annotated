@@ -14,11 +14,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"photo-annotated/internal/adapter/imagecheck"
 	"photo-annotated/internal/adapter/localfs"
 	"photo-annotated/internal/adapter/postgres"
 	"photo-annotated/internal/adapter/signer"
 	"photo-annotated/internal/adapter/turnstile"
+	"photo-annotated/internal/adapter/wanotif"
 	"photo-annotated/internal/config"
 	httpapi "photo-annotated/internal/delivery/http"
 	"photo-annotated/internal/scheduler"
@@ -30,7 +33,12 @@ const (
 	turnstileTimeout = 5 * time.Second
 	// ambang kegagalan kirim berturut-turut sebelum kanal OTP dianggap tidak tersedia (spec §9.5)
 	channelFailureThreshold = 3
+	// dispatcher memeriksa antrean paling lambat tiap detik (juga dibangunkan saat ada challenge baru)
+	dispatchIdle = time.Second
 )
+
+// jeda sebelum percobaan kirim ke-2 dan ke-3 (spec §4.0): kegagalan terlihat user dalam ± 25 detik
+var otpRetryDelays = []time.Duration{3 * time.Second, 10 * time.Second}
 
 func main() {
 	if err := run(); err != nil {
@@ -128,26 +136,17 @@ func run() error {
 		}
 		deps.Turnstile = ts
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	var jobs sync.WaitGroup
+
 	if cfg.Auth.Mode == config.AuthModeOTP {
-		codes, err := signer.NewOTPCodes(cfg.Secrets.OTPPepper, cfg.Auth.OTP.Length)
-		if err != nil {
+		if err := startOTP(ctx, log, cfg, pool, &deps, &jobs); err != nil {
 			return err
 		}
-		o := cfg.Auth.OTP
-		channel := usecase.NewChannel(channelFailureThreshold)
-		deps.OTPRequester = usecase.NewOTPRequest(postgres.NewUserRepo(pool), postgres.NewOTPRepo(pool), codes, channel,
-			usecase.NewPhoneLimiter(o.ResendCooldown.Std(), o.MaxPerPhonePerHour), usecase.SystemClock{},
-			usecase.OTPRequestConfig{
-				ResendCooldown: o.ResendCooldown.Std(), MaxQueue: o.MaxQueue, DailyGlobalCap: o.DailyGlobalCap,
-				SendInterval: cfg.WANotif.SendInterval.Std(),
-			})
-		deps.OTPRequestPerMin = cfg.Limits.RateLimitPerMin.OTPRequest
 	}
 	router := httpapi.NewRouter(deps)
 	srv := httpapi.NewServer(cfg.App.HTTPAddr, router)
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	// Pekerjaan berkala (spec §8.3): pembersihan + retensi tiap cleanup_interval, sapuan file
 	// yatim tiap orphan_sweep_interval. Keduanya berhenti saat ctx dibatalkan (SIGTERM).
@@ -158,7 +157,6 @@ func run() error {
 		TmpMaxAge:     cfg.Retention.TmpMaxAge.Std(),
 		OrphanMinAge:  cfg.Retention.OrphanMinAge.Std(),
 	})
-	var jobs sync.WaitGroup
 	jobs.Add(2)
 	go func() {
 		defer jobs.Done()
@@ -205,4 +203,95 @@ func run() error {
 	jobs.Wait() // ctx sudah dibatalkan: pekerjaan berkala berhenti di sela putaran
 	log.Info("server stopped")
 	return nil
+}
+
+// startOTP merakit alur OTP (auth.mode = otp): permintaan kode, dispatcher pengiriman, dan probe
+// kanal WhatsApp. Dispatcher dan probe berjalan sampai ctx dibatalkan.
+func startOTP(ctx context.Context, log *slog.Logger, cfg *config.Config, pool *pgxpool.Pool, deps *httpapi.Deps, jobs *sync.WaitGroup) error {
+	o := cfg.Auth.OTP
+	codes, err := signer.NewOTPCodes(cfg.Secrets.OTPPepper, o.Length)
+	if err != nil {
+		return err
+	}
+	wa, err := wanotif.New(cfg.WANotif.BaseURL, cfg.Secrets.WANotifToken, cfg.WANotif.Timeout.Std())
+	if err != nil {
+		return err
+	}
+	otps := postgres.NewOTPRepo(pool)
+	channel := usecase.NewChannel(channelFailureThreshold)
+	phones := usecase.NewPhoneLimiter(o.ResendCooldown.Std(), o.MaxPerPhonePerHour)
+	dispatcher := usecase.NewOTPDispatcher(otps, wa, codes, channel, phones, usecase.SystemClock{}, usecase.OTPDispatchConfig{
+		CodeTTL: o.TTL.Std(), MessageTemplate: o.MessageTemplate, RetryDelays: otpRetryDelays,
+		StuckAfter: 3 * cfg.WANotif.Timeout.Std(),
+	})
+	deps.OTPRequester = usecase.NewOTPRequest(postgres.NewUserRepo(pool), otps, codes, channel, phones, usecase.SystemClock{},
+		usecase.OTPRequestConfig{
+			ResendCooldown: o.ResendCooldown.Std(), MaxQueue: o.MaxQueue, DailyGlobalCap: o.DailyGlobalCap,
+			SendInterval: cfg.WANotif.SendInterval.Std(), CodeTTL: o.TTL.Std(), OnQueued: dispatcher.Wake,
+		})
+	deps.OTPChannel = channel
+	deps.OTPRequestPerMin = cfg.Limits.RateLimitPerMin.OTPRequest
+
+	jobs.Add(2)
+	go func() {
+		defer jobs.Done()
+		dispatcher.Run(ctx, dispatchIdle, func(r usecase.DispatchResult, err error) {
+			logDispatch(log, r, err)
+		})
+	}()
+	go func() {
+		defer jobs.Done()
+		scheduler.Every(ctx, log, "wa-probe", 0, cfg.WANotif.HealthProbeInterval.Std(), func(ctx context.Context) error {
+			err := wa.Check(ctx)
+			if ctx.Err() != nil {
+				return nil
+			}
+			if avail, changed := channel.RecordProbe(err); changed {
+				logChannel(log, avail, "probe", err)
+			}
+			return nil // status kanal dicatat saat berubah, bukan tiap probe gagal
+		})
+	}()
+	return nil
+}
+
+func logChannel(log *slog.Logger, available bool, source string, cause error) {
+	attrs := []any{"otp_available", available, "source", source}
+	if cause != nil {
+		attrs = append(attrs, "cause", cause.Error())
+	}
+	if available {
+		log.Info("otp channel available", attrs...)
+	} else {
+		log.Error("otp channel unavailable", attrs...)
+	}
+}
+
+// logDispatch mencatat hasil dispatcher. Nomor sudah disamarkan; kode dan isi pesan tidak pernah ada di sini.
+func logDispatch(log *slog.Logger, r usecase.DispatchResult, err error) {
+	if err != nil {
+		log.Error("otp dispatch error", "error", err.Error(), "challenge_id", r.ChallengeID)
+		return
+	}
+	attrs := []any{"outcome", string(r.Outcome), "challenge_id", r.ChallengeID, "phone", r.Phone, "attempt", r.Attempt}
+	if r.Outcome == usecase.DispatchRequeued {
+		attrs = []any{"outcome", string(r.Outcome), "count", r.Requeued}
+	}
+	if r.Reason != "" {
+		attrs = append(attrs, "failure_reason", r.Reason)
+	}
+	if r.Cause != nil {
+		attrs = append(attrs, "cause", r.Cause.Error())
+	}
+	switch {
+	case r.Alert:
+		log.Error("otp dispatch needs operator attention", attrs...)
+	case r.Outcome == usecase.DispatchFailed || r.Outcome == usecase.DispatchRetry:
+		log.Warn("otp dispatch", attrs...)
+	default:
+		log.Info("otp dispatch", attrs...)
+	}
+	if r.ChannelChanged {
+		logChannel(log, r.Available, "send", nil)
+	}
 }

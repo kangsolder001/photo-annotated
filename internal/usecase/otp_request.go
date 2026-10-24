@@ -17,6 +17,9 @@ type OTPRequestConfig struct {
 	MaxQueue       int           // challenge queued maksimal; penuh → 503 OTP_BUSY
 	DailyGlobalCap int           // challenge yang dibuat per 24 jam; terlampaui → 503 OTP_BUSY
 	SendInterval   time.Duration // jeda kirim wa-notif, untuk estimated_wait
+	CodeTTL        time.Duration // masa berlaku kode sejak terkirim (untuk status challenge palsu)
+	// OnQueued dipanggil setelah challenge baru diantrekan (membangunkan dispatcher); opsional.
+	OnQueued func()
 }
 
 // RegisterInput adalah isi POST /auth/register.
@@ -42,13 +45,18 @@ type OTPRequest struct {
 	phones  *PhoneLimiter
 	clock   Clock
 	cfg     OTPRequestConfig
+	decoys  *decoys
 }
 
+// maxDecoys membatasi memori untuk challenge palsu (± 100 byte per entri).
+const maxDecoys = 10_000
+
 func NewOTPRequest(users UserRepo, otps OTPRepo, codes OTPCodes, channel *Channel, phones *PhoneLimiter, clock Clock, cfg OTPRequestConfig) *OTPRequest {
-	if cfg.MaxQueue < 1 || cfg.DailyGlobalCap < 1 || cfg.SendInterval <= 0 || cfg.ResendCooldown < 0 {
+	if cfg.MaxQueue < 1 || cfg.DailyGlobalCap < 1 || cfg.SendInterval <= 0 || cfg.ResendCooldown < 0 || cfg.CodeTTL <= 0 {
 		panic("usecase: OTPRequestConfig tidak valid")
 	}
-	return &OTPRequest{users: users, otps: otps, codes: codes, channel: channel, phones: phones, clock: clock, cfg: cfg}
+	return &OTPRequest{users: users, otps: otps, codes: codes, channel: channel, phones: phones, clock: clock, cfg: cfg,
+		decoys: newDecoys(maxDecoys)}
 }
 
 var (
@@ -98,7 +106,10 @@ func (o *OTPRequest) Request(ctx context.Context, rawPhone string, clientIP *net
 	}
 	u, err := o.users.GetByPhone(ctx, phone)
 	if errors.Is(err, domain.ErrNotFound) {
-		return o.ticket(uuid.New(), ahead), nil
+		t := o.ticket(uuid.New(), ahead)
+		now := o.clock.Now()
+		o.decoys.add(t.ChallengeID, now, now.Add(t.EstimatedWait))
+		return t, nil
 	}
 	if err != nil {
 		return nil, err
@@ -144,6 +155,9 @@ func (o *OTPRequest) issue(ctx context.Context, u *domain.User, clientIP *netip.
 	if err := o.otps.Replace(ctx, c); err != nil {
 		o.phones.Refund(u.Phone)
 		return nil, err
+	}
+	if o.cfg.OnQueued != nil {
+		o.cfg.OnQueued()
 	}
 	return o.ticket(id, ahead), nil
 }

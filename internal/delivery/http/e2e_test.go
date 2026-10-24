@@ -47,6 +47,7 @@ type stackOpts struct {
 	maxBytes  int64
 	// Auth OTP opsional (nil = mode none: rute /auth/* 404).
 	otp       func(*pgxpool.Pool) handler.OTPRequester
+	channel   handler.ChannelStatus
 	turnstile usecase.TurnstileVerifier
 	otpPerMin int
 }
@@ -133,7 +134,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		Uploader: upload, MaxUploadBytes: o.maxBytes, UploadTimeout: time.Minute,
 		Submitter: submit, SubmissionsPerMin: 1_000_000,
 		Reader: reader, Editor: editor,
-		OTPRequester: otp, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin,
+		OTPRequester: otp, OTPChannel: o.channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin,
 	})
 	inner.Store(&h)
 	return &stack{pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}

@@ -298,17 +298,19 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 - [x] Rute `/auth/*` hanya ada pada `auth.mode = otp` (mode `none` → 404); `register` dan `otp/request` berbagi satu limiter per IP
 **Keputusan:** kode OTP **diturunkan** dari challenge ID: `HMAC(OTP_PEPPER, "otp-code"‖id) mod 10^n` (`adapter/signer/otpcodes.go`). Kode asli tetap tidak disimpan (hanya `code_hash`), tetapi dispatcher bisa membuatnya ulang saat mengirim, tanpa kolom terenkripsi. Ditambah config `wa_notif.send_interval` (1,5 s) untuk `estimated_wait_seconds = (antrean di depan + 1) × send_interval`.
 **Verification:** [x] `go test ./... -race` (usecase dengan Postgres asli, adapter Turnstile dengan siteverify palsu, e2e HTTP); [x] test konkuren diulang 3× dengan `-race`
-**Catatan:** probe kanal dan dispatcher belum dijalankan di `cmd/api` (T21): sampai itu, challenge yang dibuat tetap `queued`.
 **Dependencies:** 8, 18, 19 · **Files:** `usecase/{otp_request,phone_limiter}.go`, `internal/ratelimit/` (diekstrak dari middleware, + `Undo`), `adapter/turnstile/verify.go`, `adapter/signer/otpcodes.go`, `handler/auth.go` + test · **Scope:** M
 
-#### Task 21: Dispatcher OTP + status
+#### Task 21: Dispatcher OTP + status — **SELESAI**
 **Description:** Worker tunggal (`FOR UPDATE SKIP LOCKED`), max 3 percobaan (3s, 10s), isi `sent_at`/`expires_at`, `GET /auth/otp/{id}`, `GET /auth/channel-status`.
 **Acceptance criteria:**
-- [ ] Hanya satu pesan terkirim per challenge walau worker restart di tengah
-- [ ] Gagal permanen terlihat user ≤ ±25 detik dengan `failure_reason`
-- [ ] `estimated_wait_seconds` mengikuti panjang antrean
-**Verification:** [ ] `go test ./internal/usecase/... -race` (terhadap stub); [ ] manual: matikan stub → status `failed`
-**Dependencies:** 20 · **Files:** `usecase/otp_dispatch.go`, `cmd/api/dispatcher.go`, handler status + test · **Scope:** M
+- [x] Satu challenge tidak pernah dikirim berbarengan; bila worker mati di tengah kirim, challenge diantrekan ulang (setelah 3× timeout) dan **bisa** terkirim dua kali, tetapi dengan kode yang sama (diuji). *Diubah dari "hanya satu pesan": at-most-once membuat user tanpa kode bila proses mati setelah kirim, sedangkan kode turunan membuat duplikat tidak berbahaya.* Percobaan yang sudah habis → `failed` tanpa kirim; shutdown → kembali ke antrean, bukan kegagalan kanal
+- [x] Gagal permanen terlihat user ≤ ±25 detik dengan `failure_reason` (manual: 14 detik); jatah nomor dikembalikan sehingga kirim ulang langsung boleh
+- [x] `estimated_wait_seconds` mengikuti panjang antrean (T20)
+- [x] Challenge diganti permintaan baru saat sedang dikirim → `superseded`, pesan berikutnya memuat kode challenge baru
+- [x] Status nomor tak terdaftar ditiru (`queued` → `sent` → `expired`) agar polling tidak membuka pendaftaran; id tak dikenal/bukan UUID → `queued`
+**Temuan & perbaikan:** test menunjukkan 3× `SEND_FAILED` untuk satu nomor menutup kanal untuk semua pengguna (DoS murah: daftarkan nomor tanpa WhatsApp). Kini hanya `WA_UNAVAILABLE` yang dihitung untuk status kanal.
+**Verification:** [x] `go test ./... -race` (dispatcher terhadap stub + Postgres asli, diulang 3×); [x] manual (`cmd/api` mode otp + `cmd/wanotif-stub`, schema sementara): register → `sent` ±13 ms; stub dimatikan → `failed WA_UNAVAILABLE` setelah 14 detik, `channel-status=false`, `otp/request` → `503 OTP_UNAVAILABLE`; stub hidup lagi → pulih ≤ 2 detik (probe), kirim ulang langsung terkirim; log tanpa kode OTP; shutdown bersih
+**Dependencies:** 20 · **Files:** `usecase/{otp_dispatch,otp_status}.go`, `cmd/api/main.go` (`startOTP`), `handler/auth.go` + test · **Scope:** M
 
 #### Task 22: Verify + session + Authenticator `otp`
 **Description:** `POST /auth/otp/verify` (5 percobaan, `hmac.Equal`, sekali pakai, aktifkan user), session token 32 byte (hash SHA-256), `GET /auth/me`, `POST /auth/logout`, middleware Bearer.

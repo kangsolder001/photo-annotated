@@ -18,15 +18,20 @@ import (
 type OTPRequester interface {
 	Register(ctx context.Context, in usecase.RegisterInput) (*usecase.OTPTicket, error)
 	Request(ctx context.Context, phone string, clientIP *netip.Addr) (*usecase.OTPTicket, error)
+	Status(ctx context.Context, id uuid.UUID) (*usecase.OTPStatusView, error)
 }
+
+// ChannelStatus dipenuhi oleh *usecase.Channel.
+type ChannelStatus interface{ Available() bool }
 
 type AuthHandler struct {
 	otp       OTPRequester
+	channel   ChannelStatus
 	turnstile usecase.TurnstileVerifier // nil bila turnstile.enabled = false
 }
 
-func NewAuthHandler(otp OTPRequester, turnstile usecase.TurnstileVerifier) *AuthHandler {
-	return &AuthHandler{otp: otp, turnstile: turnstile}
+func NewAuthHandler(otp OTPRequester, channel ChannelStatus, turnstile usecase.TurnstileVerifier) *AuthHandler {
+	return &AuthHandler{otp: otp, channel: channel, turnstile: turnstile}
 }
 
 type registerRequest struct {
@@ -100,4 +105,42 @@ func (h *AuthHandler) RequestOTP(c *gin.Context) {
 	}
 	t, err := h.otp.Request(c.Request.Context(), req.Phone, clientAddr(c))
 	writeTicket(c, t, err)
+}
+
+type otpStatusResponse struct {
+	Status             string     `json:"status"`
+	FailureReason      *string    `json:"failure_reason"`
+	ResendAfterSeconds int        `json:"resend_after_seconds"`
+	ExpiresAt          *time.Time `json:"expires_at"`
+}
+
+// OTPStatus menangani GET /api/v1/auth/otp/{challenge_id} (spec §5.8), dipantau FE tiap 2 detik.
+// Id yang tidak dikenal (termasuk yang bukan UUID) dijawab queued agar tidak membuka informasi.
+func (h *AuthHandler) OTPStatus(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		id = uuid.Nil
+	}
+	v, err := h.otp.Status(c.Request.Context(), id)
+	if err != nil {
+		httpx.WriteError(c, err)
+		return
+	}
+	out := otpStatusResponse{Status: string(v.Status), ResendAfterSeconds: seconds(v.ResendAfter)}
+	if v.FailureReason != "" {
+		out.FailureReason = &v.FailureReason
+	}
+	if v.ExpiresAt != nil {
+		t := v.ExpiresAt.UTC()
+		out.ExpiresAt = &t
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, out)
+}
+
+// ChannelStatus menangani GET /api/v1/auth/channel-status: apakah pengiriman kode WhatsApp sedang
+// dapat dipakai (spec §9.5).
+func (h *AuthHandler) ChannelStatus(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{"otp_available": h.channel.Available()})
 }

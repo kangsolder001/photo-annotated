@@ -58,7 +58,7 @@ func newOTPReqRig(t *testing.T, o otpReqOpts) *otpReqRig {
 	}
 	limiter := usecase.NewPhoneLimiterWithClock(o.cooldown, o.perHour, func() time.Time { return r.clock.t })
 	r.uc = usecase.NewOTPRequest(r.users, r.otps, codes, r.channel, limiter, r.clock, usecase.OTPRequestConfig{
-		ResendCooldown: 60 * time.Second, MaxQueue: o.maxQueue, DailyGlobalCap: o.daily, SendInterval: 1500 * time.Millisecond,
+		ResendCooldown: 60 * time.Second, MaxQueue: o.maxQueue, DailyGlobalCap: o.daily, SendInterval: 1500 * time.Millisecond, CodeTTL: 5 * time.Minute,
 	})
 	return r
 }
@@ -299,7 +299,7 @@ func TestOTPIssueFailureRefundsQuota(t *testing.T) {
 	repo := &failingReplace{OTPRepo: r.otps, fail: true}
 	limiter := usecase.NewPhoneLimiterWithClock(time.Minute, 5, func() time.Time { return r.clock.t })
 	uc := usecase.NewOTPRequest(r.users, repo, r.codes, r.channel, limiter, r.clock, usecase.OTPRequestConfig{
-		ResendCooldown: time.Minute, MaxQueue: 10, DailyGlobalCap: 10, SendInterval: time.Second,
+		ResendCooldown: time.Minute, MaxQueue: 10, DailyGlobalCap: 10, SendInterval: time.Second, CodeTTL: 5 * time.Minute,
 	})
 	in := usecase.RegisterInput{Name: "A", Email: "a@b.co", Phone: "081234567890"}
 	if _, err := uc.Register(bg, in); err == nil {

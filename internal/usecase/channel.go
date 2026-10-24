@@ -7,6 +7,9 @@ import "sync"
 //
 //	tersedia = probe terakhir menunjukkan tersambung  DAN  kegagalan kirim berturut-turut < ambang
 //
+// Yang dihitung hanya kegagalan gateway (WA_UNAVAILABLE); SEND_FAILED bisa khusus satu nomor dan
+// tidak dicatat sama sekali (dispatcher tidak memanggil RecordSend untuknya).
+//
 // Probe yang berhasil juga mereset hitungan kegagalan. Itu disengaja: saat tidak tersedia, tidak ada
 // request baru yang diantrekan, sehingga tanpa probe tidak akan pernah ada pengiriman yang bisa
 // memulihkan status. Satu probe sukses mengizinkan beberapa pengiriman percobaan.
