@@ -28,12 +28,18 @@ const MESSAGES: Record<string, string> = {
   INVALID_EMAIL: "Alamat email tidak valid.",
   INVALID_NAME: "Nama wajib diisi (maksimal 100 karakter).",
   INVALID_CODE: "Kode hanya berisi angka.",
+  INVALID_CREDENTIALS: "Nomor HP atau password salah.",
+  INVALID_PASSWORD: "Password minimal 8 karakter (maksimal 72 byte) dan tidak boleh hanya spasi.",
+  PASSWORD_REQUIRED: "Masukkan password baru.",
 };
 
 export function errorMessage(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.code === "RATE_LIMITED" && e.retryAfter) {
       return `Terlalu banyak permintaan. Coba lagi dalam ${formatWait(e.retryAfter)}.`;
+    }
+    if (e.code === "LOGIN_LOCKED") {
+      return `Terlalu banyak percobaan masuk untuk nomor ini. Coba lagi${e.retryAfter ? ` dalam ${formatWait(e.retryAfter)}` : " nanti"}, atau gunakan "Lupa password".`;
     }
     const base = MESSAGES[e.code];
     if (base) return base;

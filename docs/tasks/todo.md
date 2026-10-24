@@ -82,7 +82,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 
 ## Perubahan 24 Okt: login dengan password (permintaan Anda)
 - [x] **T35** Backend: registrasi dengan password, login nomor HP + password, lupa password via OTP, kirim ulang kode
-- [ ] **T36** Frontend: form daftar dengan password, login password, lupa password
+- [x] **T36** Frontend: form daftar dengan password, login password, lupa password
 
 ### Checkpoint 7: Aplikasi utuh
 - [ ] Alur lengkap dari HP lewat jaringan seluler (termasuk edit dan OTP)

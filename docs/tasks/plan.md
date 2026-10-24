@@ -421,6 +421,10 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Keamanan:** data registrasi disimpan di challenge dan diterapkan saat challenge itu diverifikasi → pendaftaran ulang nomor pending tidak bisa menyisipkan password penyerang (diuji); nomor aktif tidak bisa didaftar ulang (challenge palsu, tanpa pesan); login: pesan & waktu sama untuk semua kegagalan, batas per IP dan 10 percobaan/15 menit per nomor (seragam); reset mencabut semua sesi lama.
 **Verification:** [x] `go test ./... -race` (repo: round-trip & constraint; usecase: registrasi, ambil-alih ditolak, lupa password seragam, kirim ulang, reset + cabut sesi, login + batas; e2e HTTP login & reset)
 
+#### Task 36: Frontend login dengan password — **SELESAI**
+**Hasil:** tab **Masuk** (nomor + password, tautan "Lupa password?"), tab **Daftar baru** (nama, email, nomor, password + ulangi, tombol lihat/sembunyikan, aturan sama dengan backend), `/masuk/lupa` (kirim kode reset), `/masuk/kode` menyesuaikan tujuan (registrasi: kode saja, otomatis saat 6 digit; reset: kode + password baru), kirim ulang lewat `challenge_id` (password tidak pernah disimpan di browser), petunjuk bila kode tidak datang karena nomor sudah terdaftar, pesan `INVALID_CREDENTIALS`/`LOGIN_LOCKED`.
+**Verifikasi browser (E2E, nomor acak per run):** konfirmasi beda ditolak → daftar → kode salah/benar → foto, kirim, edit, draf → keluar → password salah ditolak, benar masuk tanpa OTP → lupa password → kode + password baru → masuk dengan password baru. Semua lulus.
+
 ### Checkpoint 7: Aplikasi utuh
 - [ ] Alur lengkap dari HP (seluler) berhasil, termasuk edit dan OTP
 - [ ] Review dengan Anda

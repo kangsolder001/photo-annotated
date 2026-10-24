@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { api } from "../../api/endpoints";
 import type { OTPStatusView } from "../../api/types";
+import { PasswordField } from "../../components/PasswordField";
 import { Turnstile, type TurnstileHandle } from "../../components/Turnstile";
 import { Banner } from "../../components/ui";
 import { errorMessage, isCode } from "../../lib/errors";
+import { passwordProblem } from "../../lib/password";
 import { session } from "../../lib/session";
 import { ChannelBanner } from "./ChannelBanner";
 import { describeStatus } from "./otpStatus";
@@ -13,7 +15,10 @@ import { pending as store, type PendingOTP } from "./pending";
 const POLL_MS = 2000;
 const CODE_LEN = 6;
 
-/** Masukkan kode WhatsApp; status pengiriman dipantau tiap 2 detik sampai kode terkirim/gagal. */
+/**
+ * Masukkan kode WhatsApp; status pengiriman dipantau tiap 2 detik sampai kode terkirim/gagal.
+ * Registrasi: kode saja (otomatis terkirim saat 6 digit). Reset password: kode + password baru.
+ */
 export function OtpPage() {
   const navigate = useNavigate();
   const [p, setP] = useState<PendingOTP | null>(() => store.get());
@@ -23,6 +28,11 @@ export function OtpPage() {
   const [error, setError] = useState<string>();
   const [now, setNow] = useState(() => Date.now());
   const [mustResend, setMustResend] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [touched, setTouched] = useState(false);
+  const isReset = p?.purpose === "reset";
+  const pwProblem = isReset ? passwordProblem(newPassword) ?? (confirm !== newPassword ? "Konfirmasi password tidak sama." : null) : null;
   const turnstile = useRef<TurnstileHandle>(null);
   const input = useRef<HTMLInputElement>(null);
 
@@ -55,10 +65,14 @@ export function OtpPage() {
 
   const verify = useCallback(async (value: string) => {
     if (!p || busy || value.length !== CODE_LEN) return;
+    if (p.purpose === "reset") {
+      setTouched(true);
+      if (pwProblem) return;
+    }
     setBusy(true);
     setError(undefined);
     try {
-      const r = await api.verifyOTP({ challenge_id: p.challengeId, code: value });
+      const r = await api.verifyOTP({ challenge_id: p.challengeId, code: value, new_password: p.purpose === "reset" ? newPassword : undefined });
       session.save(r.access_token, r.expires_at, r.user);
       store.clear();
       navigate(p.next, { replace: true });
@@ -74,7 +88,7 @@ export function OtpPage() {
       setBusy(false);
       input.current?.focus();
     }
-  }, [p, busy, navigate]);
+  }, [p, busy, navigate, pwProblem, newPassword]);
 
   if (!p) return <Navigate to="/masuk" replace />;
 
@@ -88,8 +102,8 @@ export function OtpPage() {
     setBusy(true);
     setError(undefined);
     try {
-      const t = await api.requestOTP({ phone: p.phone, turnstile_token: await turnstile.current?.token() });
-      setP(store.set(t, p.phone, p.next));
+      const t = await api.resendOTP({ challenge_id: p.challengeId, turnstile_token: await turnstile.current?.token() });
+      setP(store.set(t, p.purpose, p.next));
       setStatus(undefined);
       setMustResend(false);
       setCode("");
@@ -108,7 +122,7 @@ export function OtpPage() {
 
   return (
     <>
-      <h1>Masukkan kode</h1>
+      <h1>{isReset ? "Buat password baru" : "Verifikasi nomor"}</h1>
       <ChannelBanner />
       <Banner kind={info.kind}>{info.text}</Banner>
       <form className="card stack" onSubmit={onSubmit}>
@@ -121,7 +135,8 @@ export function OtpPage() {
             onChange={(e) => {
               const v = e.target.value.replace(/\D/g, "").slice(0, CODE_LEN);
               setCode(v);
-              if (v.length === CODE_LEN) void verify(v); // otomatis saat lengkap (juga saat ditempel)
+              // registrasi: otomatis saat lengkap (juga saat ditempel); reset menunggu password baru
+              if (v.length === CODE_LEN && !isReset) void verify(v);
             }}
             autoComplete="one-time-code"
             inputMode="numeric"
@@ -133,16 +148,25 @@ export function OtpPage() {
           />
         </label>
         <span id="otp-help" className="muted">Buka WhatsApp, cari pesan berisi kode, lalu ketik atau tempel di sini.</span>
+        {isReset && (
+          <>
+            <PasswordField label="Password baru" value={newPassword} onChange={setNewPassword} autoComplete="new-password" hint="Minimal 8 karakter." />
+            <PasswordField label="Ulangi password baru" value={confirm} onChange={setConfirm} autoComplete="new-password" error={touched ? pwProblem : null} />
+          </>
+        )}
         {error && <Banner kind="error">{error}</Banner>}
-        <button type="submit" className="btn btn-primary btn-block" disabled={busy || code.length !== CODE_LEN || mustResend}>
-          {busy ? <><span className="spinner" aria-hidden="true" /> Memeriksa…</> : "Masuk"}
+        <button type="submit" className="btn btn-primary btn-block" disabled={busy || code.length !== CODE_LEN || mustResend || (isReset && !confirm)}>
+          {busy ? <><span className="spinner" aria-hidden="true" /> Memeriksa…</> : isReset ? "Simpan password & masuk" : "Verifikasi & masuk"}
         </button>
         <div className="row">
           <button type="button" className="btn" onClick={resend} disabled={busy || !canResend}>
             {canResend ? "Kirim ulang kode" : `Kirim ulang dalam ${cooldownLeft} detik`}
           </button>
-          <Link to="/masuk" onClick={() => store.clear()}>Ganti nomor</Link>
+          <Link to={isReset ? "/masuk/lupa" : "/masuk?daftar=1"} onClick={() => store.clear()}>Ganti nomor</Link>
         </div>
+        {!isReset && (
+          <p className="muted">Tidak menerima kode? Bila nomor ini sudah terdaftar, kode tidak dikirim: silakan <Link to="/masuk" onClick={() => store.clear()}>masuk</Link> atau gunakan <Link to="/masuk/lupa" onClick={() => store.clear()}>lupa password</Link>.</p>
+        )}
         <Turnstile ref={turnstile} />
       </form>
     </>

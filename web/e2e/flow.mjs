@@ -1,6 +1,6 @@
 // Uji end-to-end alur lengkap di Chrome (viewport HP 390×844, layar sentuh) memakai playwright-core.
 //
-// Prasyarat (lihat web/README.md): API lokal mode otp dengan stub wa-notif di 127.0.0.1:13030
+// Prasyarat (lihat web/README.md): API lokal mode otp (auth.otp.resend_cooldown pendek, mis. "2s") dengan stub wa-notif di 127.0.0.1:13030
 // (cmd/wanotif-stub -token …), Vite dev di http://localhost:5173 dengan VITE_AUTH_MODE=otp dan
 // VITE_DEV_API_TARGET ke API, serta public_base_url API = http://localhost:5173.
 //   node e2e/flow.mjs <folder-kerja>     (folder berisi img/big.jpg; screenshot ke <folder>/shots)
@@ -10,6 +10,10 @@ import { argv } from "node:process";
 
 const dir = argv[2];
 const BASE = "http://localhost:5173";
+// nomor acak per run: nomor yang sudah aktif tidak bisa didaftarkan ulang (tidak ada kode dikirim)
+const DIGITS = String(Math.floor(1e7 + Math.random() * 9e7));
+const PHONE = `0812${DIGITS}`; // seperti diketik
+const CANON = `62812${DIGITS}`; // bentuk kanonik di server
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/usr/bin/google-chrome", headless: true });
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, locale: "id-ID" });
 const page = await ctx.newPage();
@@ -36,9 +40,15 @@ await shot("01-masuk");
 await page.getByRole("tab", { name: "Daftar baru" }).click();
 await page.getByLabel("Nama").fill("Budi Santoso");
 await page.getByLabel("Email").fill("budi@example.com");
-await page.getByLabel(/Nomor WhatsApp/).fill("0812-3456-7890");
+await page.getByLabel(/Nomor WhatsApp/).fill(PHONE);
+await page.getByLabel("Password", { exact: true }).fill("rahasia123");
+await page.getByLabel("Ulangi password").fill("rahasia12");
+await page.getByRole("button", { name: /Daftar & kirim kode/ }).click();
+await page.getByText("Konfirmasi password tidak sama.").waitFor();
+step("konfirmasi password berbeda ditolak di form");
+await page.getByLabel("Ulangi password").fill("rahasia123");
 await shot("02-daftar");
-await page.getByRole("button", { name: "Kirim kode WhatsApp" }).click();
+await page.getByRole("button", { name: /Daftar & kirim kode/ }).click();
 await page.waitForURL(/\/masuk\/kode/);
 await page.getByText("Kode sudah dikirim ke WhatsApp Anda.").waitFor();
 await shot("03-kode");
@@ -48,7 +58,7 @@ step("register → kode terkirim");
 await page.getByLabel(/Kode 6 digit/).fill("000000");
 await page.getByText(/Kode salah\. Sisa 4 percobaan\./).waitFor();
 step("kode salah → sisa 4 percobaan");
-await page.getByLabel(/Kode 6 digit/).fill(await stubCode("6281234567890"));
+await page.getByLabel(/Kode 6 digit/).fill(await stubCode(CANON));
 await page.waitForURL(BASE + "/");
 step("login berhasil → halaman laporan baru");
 await shot("04-baru-kosong");
@@ -118,21 +128,41 @@ await page.goto(BASE + "/riwayat");
 await page.waitForURL(/\/masuk\?next=%2Friwayat/);
 step("logout → rute dilindungi mengarah ke /masuk?next=");
 
-// 5. login lagi (nomor terdaftar) → kembali ke tujuan semula
-await page.getByLabel(/Nomor WhatsApp/).fill("+62 812 3456 7890");
-await page.getByRole("button", { name: "Kirim kode WhatsApp" }).click();
-// diminta < 60 detik setelah kode sebelumnya: cooldown per nomor, pesan menyebut waktu tunggu
-const rl = page.getByText(/Coba lagi dalam (\d+) detik/);
-await rl.waitFor();
-await shot("11-cooldown");
-const wait = Number((await rl.textContent()).match(/(\d+) detik/)[1]);
-step(`cooldown per nomor ditampilkan (${wait} detik)`);
-await page.waitForTimeout((wait + 1) * 1000);
-await page.getByRole("button", { name: "Kirim kode WhatsApp" }).click();
-await page.getByText("Kode sudah dikirim ke WhatsApp Anda.").waitFor();
-await page.getByLabel(/Kode 6 digit/).fill(await stubCode("6281234567890"));
+// 5. masuk dengan nomor + password (tanpa OTP); password salah dulu
+await page.getByLabel(/Nomor WhatsApp/).fill(PHONE);
+await page.getByLabel("Password", { exact: true }).fill("salahsalah");
+await page.getByRole("button", { name: "Masuk", exact: true }).click();
+await page.getByText("Nomor HP atau password salah.").waitFor();
+await shot("11-login-salah");
+await page.getByLabel("Password", { exact: true }).fill("rahasia123");
+await page.getByRole("button", { name: "Masuk", exact: true }).click();
 await page.waitForURL(BASE + "/riwayat");
-step("login ulang kembali ke /riwayat");
+step("password salah ditolak; password benar → kembali ke /riwayat tanpa OTP");
+
+// 6. lupa password → kode → password baru → masuk
+await page.getByRole("button", { name: "Keluar" }).click();
+await page.waitForURL(/\/masuk/);
+await page.getByRole("link", { name: "Lupa password?" }).click();
+await page.getByLabel(/Nomor WhatsApp terdaftar/).fill(PHONE);
+await shot("12-lupa");
+await page.getByRole("button", { name: "Kirim kode WhatsApp" }).click();
+await page.waitForURL(/\/masuk\/kode/);
+await page.getByText("Kode sudah dikirim ke WhatsApp Anda.").waitFor();
+await page.getByLabel(/Kode 6 digit/).fill(await stubCode(CANON));
+await page.getByLabel("Password baru", { exact: true }).fill("passwordbaru1");
+await page.getByLabel("Ulangi password baru").fill("passwordbaru1");
+await shot("13-password-baru");
+await page.getByRole("button", { name: "Simpan password & masuk" }).click();
+const inApp = (u) => !u.pathname.startsWith("/masuk");
+await page.waitForURL(inApp); // kembali ke halaman terakhir (?next=)
+step("lupa password: kode + password baru → langsung masuk");
+await page.getByRole("button", { name: "Keluar" }).click();
+await page.waitForURL(/\/masuk/);
+await page.getByLabel(/Nomor WhatsApp/).fill(PHONE);
+await page.getByLabel("Password", { exact: true }).fill("passwordbaru1");
+await page.getByRole("button", { name: "Masuk", exact: true }).click();
+await page.waitForURL(inApp);
+step("masuk dengan password baru");
 
 console.log(logs.length ? "LOG BROWSER:\n" + logs.join("\n") : "tanpa error di console browser");
 await browser.close();

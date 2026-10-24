@@ -40,13 +40,17 @@ export const api = {
     request<PhotoURL>("GET", `/api/v1/photos/${enc(photoId)}/url`, { headers: editTokenHeader(editToken) }),
 
   // ---- auth (mode otp)
-  register: (body: { name: string; email: string; phone: string; turnstile_token?: string }) =>
+  register: (body: { name: string; email: string; phone: string; password: string; turnstile_token?: string }) =>
     request<OTPTicket>("POST", "/api/v1/auth/register", { body, auth: false }),
-  requestOTP: (body: { phone: string; turnstile_token?: string }) =>
-    request<OTPTicket>("POST", "/api/v1/auth/otp/request", { body, auth: false }),
+  login: (body: { phone: string; password: string }) =>
+    request<LoginResponse>("POST", "/api/v1/auth/login", { body, auth: false }),
+  forgotPassword: (body: { phone: string; turnstile_token?: string }) =>
+    request<OTPTicket>("POST", "/api/v1/auth/password/forgot", { body, auth: false }),
+  resendOTP: (body: { challenge_id: string; turnstile_token?: string }) =>
+    request<OTPTicket>("POST", "/api/v1/auth/otp/resend", { body, auth: false }),
   otpStatus: (challengeId: string) =>
     request<OTPStatusView>("GET", `/api/v1/auth/otp/${enc(challengeId)}`, { auth: false }),
-  verifyOTP: (body: { challenge_id: string; code: string }) =>
+  verifyOTP: (body: { challenge_id: string; code: string; new_password?: string }) =>
     request<LoginResponse>("POST", "/api/v1/auth/otp/verify", { body, auth: false }),
   channelStatus: () => request<{ otp_available: boolean }>("GET", "/api/v1/auth/channel-status", { auth: false }),
   me: () => request<User>("GET", "/api/v1/auth/me"),
