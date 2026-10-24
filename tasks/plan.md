@@ -247,13 +247,16 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 
 ### Phase 4: Retensi
 
-#### Task 17: Cleanup job
+#### Task 17: Cleanup job — **SELESAI**
 **Description:** Scheduler di proses API (interval dari config): foto yatim/`rejected`/`deleted`, retensi 90 hari, sapuan `tmp/*.part` > 1 jam dan file yatim > 24 jam, data auth (users `pending`, challenges, sessions). Objek dulu, baris kemudian.
 **Acceptance criteria:**
-- [ ] File yang gagal dihapus → baris dipertahankan dan dicoba ulang
-- [ ] File < 24 jam tak pernah disapu; hasil putaran tercatat di log
-- [ ] Diuji dengan fake clock dan `localfs` di direktori sementara
-**Verification:** [ ] `go test ./internal/usecase/... ./internal/adapter/... -race`
+- [x] File dulu, baris kemudian: kegagalan hapus file mempertahankan baris (dan submission untuk retensi) dan dicoba ulang run berikutnya; baris yang gagal tidak dicoba ulang dalam run yang sama, tidak membuat run berputar, dan tidak menghalangi baris lain
+- [x] Foto pending basi di-claim atomik (tidak bisa lagi di-attach, termasuk saat berbalapan dengan `Attach`); batas TTL dan retensi ketat (tepat pada batas belum dihapus); foto attached, muda, dan submission baru tak tersentuh
+- [x] Retensi 90 hari menghapus file, baris foto, anotasi (CASCADE), lalu submission; submission tanpa foto ikut dihapus; foto yang dibuang lewat edit dibersihkan
+- [x] Sapuan file yatim: hanya file lama tanpa baris berstatus apa pun; file muda, file ber-baris, berkas asing, penanda, dan `tmp/` tak tersentuh; 450 file lintas 3 chunk; **bila pengecekan DB gagal tidak ada yang dihapus**; konteks batal tidak menghapus apa pun
+- [x] Idempoten (putaran kedua kosong), 4 run serentak tanpa error, batas `MaxBatches`, langkah tambahan (`CleanupStep`) dengan error terisolasi, `scheduler` (tidak tumpang tindih, panic ditangkap, error shutdown tidak dicatat)
+- [x] Config baru: `orphan_sweep_interval`, `tmp_max_age`, `orphan_min_age` (divalidasi; `orphan_min_age` ≥ `upload_url_ttl`); `cmd/maintenance` untuk menjalankan sekali
+**Verification:** [x] `go test ./... -race` (termasuk 14 test repo, 7 test localfs, 25 test usecase cleanup/sapuan, 6 test scheduler); [x] di Pi (SSD & DB asli, UID 65532, `cmd/maintenance`): dari 6 file .webp dan 1 tmp lama → 3 file, 0 tmp; submission 100 hari, pending 25 jam, foto rejected, file yatim 3 hari terhapus; submission baru, pending muda, yatim muda (1 jam) utuh dan masih bisa dibaca; putaran kedua kosong
 **Dependencies:** 14, 16 · **Files:** `usecase/cleanup.go`, `adapter/postgres/cleanup_queries.go`, `cmd/api/scheduler.go` + test · **Scope:** M
 
 ### Checkpoint 4: Backend inti (mode `none`) selesai

@@ -18,6 +18,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -38,7 +39,7 @@ const (
 )
 
 // ErrInvalidKey berarti kunci penyimpanan tidak berbentuk kanonik (bug pemanggil atau serangan).
-var ErrInvalidKey = errors.New("localfs: invalid storage key")
+var ErrInvalidKey = usecase.ErrInvalidStorageKey
 
 type Options struct {
 	Root          string // path absolut root foto
@@ -359,6 +360,64 @@ func (s *Store) Delete(_ context.Context, key string) error {
 		return mapIOError(err)
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------- pembersihan
+
+// SweepTmp menghapus sisa upload sementara yang lebih tua dari cutoff: berkas *.part (upload
+// yang terputus atau proses yang mati) dan berkas .probe-* (probe kesiapan). Upload yang masih
+// berjalan tidak tersentuh karena cutoff biasanya satu jam ke belakang.
+func (s *Store) SweepTmp(ctx context.Context, cutoff time.Time) (int, error) {
+	ents, err := fs.ReadDir(s.root.FS(), tmpDir)
+	if err != nil {
+		return 0, mapIOError(err)
+	}
+	removed := 0
+	for _, e := range ents {
+		if err := ctx.Err(); err != nil {
+			return removed, err
+		}
+		name := e.Name()
+		if !e.Type().IsRegular() || !(strings.HasSuffix(name, ".part") || strings.HasPrefix(name, ".probe-")) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := s.root.Remove(path.Join(tmpDir, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return removed, mapIOError(err)
+		}
+		removed++
+	}
+	return removed, nil
+}
+
+// WalkOlderThan memanggil fn untuk setiap file foto (nama berbentuk kunci kanonik) yang
+// dimodifikasi sebelum cutoff, berurutan menurut kunci. tmp/, penanda, dan berkas asing dilewati.
+func (s *Store) WalkOlderThan(ctx context.Context, cutoff time.Time, fn func(key string) error) error {
+	return fs.WalkDir(s.root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return mapIOError(err)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if p == tmpDir {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !d.Type().IsRegular() || !domain.IsValidStorageKey(p) {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			return nil
+		}
+		return fn(p)
+	})
 }
 
 // ---------------------------------------------------------------- util

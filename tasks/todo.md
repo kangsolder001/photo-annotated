@@ -45,7 +45,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [ ] Review dengan Anda
 
 ## Phase 4: Retensi
-- [ ] **T17** Cleanup job (foto yatim, retensi 90 hari, file yatim, data auth)
+- [x] **T17** Cleanup job (foto yatim, retensi 90 hari, file yatim, data auth)
 
 ### Checkpoint 4: Backend inti (mode `none`) selesai
 - [ ] Semua test hijau; demo end-to-end di Pi dengan SSD

@@ -16,6 +16,10 @@ import (
 // ErrFileNotFound dikembalikan PhotoStore.Open/Stat jika file tidak ada.
 var ErrFileNotFound = errors.New("file not found")
 
+// ErrInvalidStorageKey dikembalikan PhotoStore bila kunci tidak berbentuk kanonik. Kunci seperti
+// itu tidak pernah menunjuk file, jadi tidak ada yang perlu dihapus.
+var ErrInvalidStorageKey = errors.New("invalid storage key")
+
 // FileInfo adalah metadata file di penyimpanan foto.
 type FileInfo struct {
 	Size    int64
@@ -56,6 +60,37 @@ type PhotoStore interface {
 	Stat(ctx context.Context, key string) (FileInfo, error)
 	// Delete idempotent: file yang tidak ada dianggap sukses.
 	Delete(ctx context.Context, key string) error
+	// SweepTmp menghapus sisa upload sementara (tmp/*.part dan berkas probe) yang lebih tua dari
+	// cutoff; mengembalikan jumlah yang dihapus.
+	SweepTmp(ctx context.Context, cutoff time.Time) (int, error)
+	// WalkOlderThan memanggil fn untuk tiap file foto (kunci kanonik) yang dimodifikasi sebelum
+	// cutoff, berurutan menurut kunci. tmp/ dan berkas non-foto dilewati.
+	WalkOlderThan(ctx context.Context, cutoff time.Time, fn func(key string) error) error
+}
+
+// PhotoRef menunjuk satu baris foto beserta lokasi file-nya.
+type PhotoRef struct {
+	ID         uuid.UUID
+	StorageKey string
+}
+
+// CleanupRepo berisi kueri untuk job pembersihan dan retensi (spec §8.3). Semuanya aman
+// dijalankan berulang dan oleh lebih dari satu instance (FOR UPDATE SKIP LOCKED).
+type CleanupRepo interface {
+	// ClaimStalePending mengubah foto pending yang dibuat sebelum cutoff menjadi deleted secara
+	// atomik. Setelah di-claim, foto tidak bisa lagi dilampirkan (Attach hanya menerima pending).
+	ClaimStalePending(ctx context.Context, cutoff time.Time, limit int) (int, error)
+	// ListDeletablePhotos mengembalikan foto rejected/deleted dengan id > afterID, berurutan id.
+	ListDeletablePhotos(ctx context.Context, afterID uuid.UUID, limit int) ([]PhotoRef, error)
+	// DeletePhotoRow menghapus baris foto rejected/deleted (anotasinya ikut lewat CASCADE).
+	DeletePhotoRow(ctx context.Context, id uuid.UUID) error
+	// ExpireSubmissions menandai semua foto milik submission yang dibuat sebelum cutoff sebagai
+	// deleted; mengembalikan jumlah foto yang ditandai. Submission yang fotonya sudah deleted dilewati.
+	ExpireSubmissions(ctx context.Context, cutoff time.Time, limit int) (int, error)
+	// DeleteEmptyExpiredSubmissions menghapus submission kedaluwarsa yang sudah tidak punya baris foto.
+	DeleteEmptyExpiredSubmissions(ctx context.Context, cutoff time.Time, limit int) (int, error)
+	// ExistingStorageKeys mengembalikan himpunan kunci yang punya baris foto (status apa pun).
+	ExistingStorageKeys(ctx context.Context, keys []string) (map[string]bool, error)
 }
 
 // Clock memungkinkan waktu dikendalikan di test.

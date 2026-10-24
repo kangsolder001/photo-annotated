@@ -635,3 +635,124 @@ func newWithMarker(root string) (*localfs.Store, error) { return newWithMarkerOp
 func newWithMarkerOpt(root string, marker bool) (*localfs.Store, error) {
 	return localfs.New(localfs.Options{Root: root, RequireMarker: marker})
 }
+
+// ---------------------------------------------------------------- SweepTmp / WalkOlderThan
+
+func age(t *testing.T, path string, d time.Duration) {
+	t.Helper()
+	old := time.Now().Add(-d)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSweepTmp(t *testing.T) {
+	s, dir := newStore(t, nil)
+	tmp := filepath.Join(dir, "tmp")
+	mk := func(name string, a time.Duration) string {
+		p := filepath.Join(tmp, name)
+		if err := os.WriteFile(p, []byte("x"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		age(t, p, a)
+		return p
+	}
+	oldPart := mk("a.webp.1111.part", 2*time.Hour)
+	youngPart := mk("b.webp.2222.part", 5*time.Minute)
+	oldProbe := mk(".probe-abc", 3*time.Hour)
+	other := mk("catatan.txt", 5*time.Hour) // bukan milik kita: jangan disentuh
+	if err := os.Mkdir(filepath.Join(tmp, "subdir.part"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := s.SweepTmp(bg, time.Now().Add(-time.Hour))
+	if err != nil || n != 2 {
+		t.Fatalf("n=%d err=%v, want 2", n, err)
+	}
+	for p, want := range map[string]bool{oldPart: false, oldProbe: false, youngPart: true, other: true} {
+		_, err := os.Stat(p)
+		if (err == nil) != want {
+			t.Errorf("%s ada=%v, want %v", filepath.Base(p), err == nil, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "subdir.part")); err != nil {
+		t.Fatal("direktori tidak boleh dihapus")
+	}
+	// idempotent
+	if n, err := s.SweepTmp(bg, time.Now().Add(-time.Hour)); err != nil || n != 0 {
+		t.Fatalf("putaran kedua: n=%d err=%v", n, err)
+	}
+}
+
+func TestSweepTmpHonorsContext(t *testing.T) {
+	s, dir := newStore(t, nil)
+	for i := 0; i < 3; i++ {
+		p := filepath.Join(dir, "tmp", fmt.Sprintf("f%d.part", i))
+		_ = os.WriteFile(p, []byte("x"), 0o640)
+		age(t, p, 2*time.Hour)
+	}
+	ctx, cancel := context.WithCancel(bg)
+	cancel()
+	if _, err := s.SweepTmp(ctx, time.Now()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWalkOlderThanFiltersAndOrders(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, localfs.MarkerName), nil, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	s, err := localfs.New(localfs.Options{Root: dir, RequireMarker: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	put := func(day int, ext string, a time.Duration) string {
+		id := uuid.New()
+		key := fmt.Sprintf("2026/10/%02d/%s.%s", day, id, ext)
+		p := filepath.Join(dir, key)
+		_ = os.MkdirAll(filepath.Dir(p), 0o750)
+		if err := os.WriteFile(p, []byte("x"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		age(t, p, a)
+		return key
+	}
+	k22 := put(22, "webp", 48*time.Hour)
+	k20 := put(20, "jpg", 72*time.Hour)
+	put(23, "webp", time.Hour) // terlalu muda
+	// berkas asing tidak boleh muncul
+	_ = os.WriteFile(filepath.Join(dir, "2026", "10", "20", "catatan.txt"), []byte("x"), 0o640)
+	age(t, filepath.Join(dir, "2026", "10", "20", "catatan.txt"), 100*time.Hour)
+	_ = os.WriteFile(filepath.Join(dir, "tmp", "x.webp.1.part"), []byte("x"), 0o640)
+	age(t, filepath.Join(dir, "tmp", "x.webp.1.part"), 100*time.Hour)
+	age(t, filepath.Join(dir, localfs.MarkerName), 100*time.Hour)
+
+	var got []string
+	err = s.WalkOlderThan(bg, time.Now().Add(-24*time.Hour), func(key string) error {
+		got = append(got, key)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != k20 || got[1] != k22 {
+		t.Fatalf("got %v, want [%s %s] (berurutan menurut kunci, tanpa tmp/penanda/berkas asing/file muda)", got, k20, k22)
+	}
+
+	// fn mengembalikan error → berhenti dan error diteruskan
+	boom := errors.New("berhenti")
+	calls := 0
+	err = s.WalkOlderThan(bg, time.Now().Add(-24*time.Hour), func(string) error { calls++; return boom })
+	if !errors.Is(err, boom) || calls != 1 {
+		t.Fatalf("err=%v calls=%d", err, calls)
+	}
+	// konteks batal
+	ctx, cancel := context.WithCancel(bg)
+	cancel()
+	if err := s.WalkOlderThan(ctx, time.Now(), func(string) error { return nil }); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+}

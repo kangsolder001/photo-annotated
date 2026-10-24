@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"photo-annotated/internal/adapter/signer"
 	"photo-annotated/internal/config"
 	httpapi "photo-annotated/internal/delivery/http"
+	"photo-annotated/internal/scheduler"
 	"photo-annotated/internal/usecase"
 )
 
@@ -118,6 +120,38 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Pekerjaan berkala (spec §8.3): pembersihan + retensi tiap cleanup_interval, sapuan file
+	// yatim tiap orphan_sweep_interval. Keduanya berhenti saat ctx dibatalkan (SIGTERM).
+	cleanup := usecase.NewCleanup(postgres.NewCleanupRepo(pool), store, usecase.SystemClock{}, usecase.CleanupConfig{
+		RetentionDays: cfg.Retention.Days,
+		PendingTTL:    cfg.Retention.PendingPhotoTTL.Std(),
+		Batch:         cfg.Retention.CleanupBatch,
+		TmpMaxAge:     cfg.Retention.TmpMaxAge.Std(),
+		OrphanMinAge:  cfg.Retention.OrphanMinAge.Std(),
+	})
+	var jobs sync.WaitGroup
+	jobs.Add(2)
+	go func() {
+		defer jobs.Done()
+		scheduler.Every(ctx, log, "cleanup", time.Minute, cfg.Retention.CleanupInterval.Std(), func(ctx context.Context) error {
+			rep, err := cleanup.RunOnce(ctx)
+			if !rep.Empty() || err != nil {
+				log.Info("cleanup", "stale_pending", rep.StalePendingClaimed, "retention_photos", rep.RetentionPhotos,
+					"files_deleted", rep.FilesDeleted, "file_failures", rep.FileDeleteFailures, "photo_rows_deleted", rep.PhotoRowsDeleted,
+					"submissions_deleted", rep.SubmissionsDeleted, "tmp_swept", rep.TmpSwept, "duration_ms", rep.Duration.Milliseconds())
+			}
+			return err
+		})
+	}()
+	go func() {
+		defer jobs.Done()
+		scheduler.Every(ctx, log, "orphan-sweep", 5*time.Minute, cfg.Retention.OrphanSweepInterval.Std(), func(ctx context.Context) error {
+			rep, err := cleanup.SweepOrphans(ctx)
+			log.Info("orphan sweep", "scanned", rep.Scanned, "removed", rep.Removed, "failures", rep.Failures, "duration_ms", rep.Duration.Milliseconds())
+			return err
+		})
+	}()
+
 	errc := make(chan error, 1)
 	go func() {
 		log.Info("server listening", "addr", cfg.App.HTTPAddr, "env", cfg.App.Env, "auth_mode", cfg.Auth.Mode)
@@ -139,6 +173,7 @@ func run() error {
 	if err := srv.Shutdown(shCtx); err != nil {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
+	jobs.Wait() // ctx sudah dibatalkan: pekerjaan berkala berhenti di sela putaran
 	log.Info("server stopped")
 	return nil
 }

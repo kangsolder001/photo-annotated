@@ -564,14 +564,20 @@ Index: `(user_id)`. Validasi token = satu lookup indeks unik per request (tidak 
 
 ### 8.3 Cleanup & retensi
 
-Job periodik di proses API (default tiap 1 jam, batch 100 per putaran), semua parameter dari `config.json` (§11.4). Seluruhnya dijalankan oleh usecase `cleanup`:
+Dua pekerjaan berkala berjalan di dalam proses API (`internal/scheduler`; putaran tidak pernah tumpang tindih, panic ditangkap, berhenti saat shutdown). Semua kueri memakai `FOR UPDATE SKIP LOCKED` dan semua langkah idempoten, jadi aman dijalankan bersama instance lain atau lewat `cmd/maintenance`. Setiap putaran dibatasi `MaxBatches` (50 × `cleanup_batch`); sisanya dikerjakan putaran berikutnya.
 
-1. **Foto yatim:** `photos` berstatus `pending` dengan `created_at < now() - pending_photo_ttl` (default 24 jam), serta foto `rejected` dan `deleted` → hapus file dari SSD (`Delete`, idempotent), lalu baris diberi status `deleted` (atau dihapus jika file sudah tidak ada).
-2. **Retensi data:** `submissions` dengan `created_at < now() - retention.days` (**default 90 hari / 3 bulan**) → tandai foto-fotonya `deleted`, hapus file tiap foto, lalu hapus baris submission (anotasi ikut terhapus lewat `ON DELETE CASCADE`).
-3. Urutan selalu **file dulu, baris kemudian**. Jika penghapusan file gagal (selain "tidak ditemukan", yang dianggap sukses), baris dipertahankan dan dicoba lagi di putaran berikutnya.
-4. **Data auth:** hapus `users` berstatus `pending` yang lebih tua dari 24 jam, `otp_challenges` yang lebih tua dari 24 jam, dan `sessions` yang sudah kedaluwarsa atau dicabut lebih dari 7 hari.
-5. **File yatim di disk:** sapuan harian menghapus `tmp/*.part` yang lebih tua dari 1 jam (upload terputus) dan file di root foto yang tidak punya baris `photos` serta lebih tua dari 24 jam (mis. proses mati antara `rename` dan update DB). Sapuan dibatasi jumlahnya per putaran dan tidak pernah menyentuh file yang lebih muda dari 24 jam.
-6. Hasil tiap putaran (jumlah dihapus, gagal) dicatat ke log untuk dashboard §12.
+**Aturan utama: file dulu, baris kemudian.** Baris hanya dihapus setelah filenya terhapus, sehingga kegagalan menghapus file tidak pernah meninggalkan file tanpa catatan.
+
+**Pembersihan + retensi** (tiap `retention.cleanup_interval`, default 1 jam; putaran pertama 1 menit setelah start):
+1. **Foto pending basi:** `pending` dengan `created_at < now - pending_photo_ttl` (default 24 jam) **di-claim secara atomik** (`status → deleted`, `FOR UPDATE SKIP LOCKED`). Setelah di-claim foto tidak bisa lagi dilampirkan (`Attach` hanya menerima `pending`), sehingga klien yang melampirkan foto tepat pada detik cleanup tidak kehilangan filenya.
+2. **Foto `rejected`/`deleted`** (hasil validasi gagal, claim di atas, atau dibuang lewat edit), usia berapa pun: `Delete` file (idempoten; file yang sudah tidak ada dianggap sukses), lalu hapus barisnya (anotasi ikut lewat `CASCADE`). Kegagalan hapus file → baris dipertahankan dan dicoba lagi pada putaran berikutnya; baris itu tidak dicoba ulang dalam putaran yang sama dan tidak membuat putaran berputar tanpa henti.
+3. **Retensi** (`retention.days`, default 90): submission dengan `created_at < now - days` (batas ketat; tepat pada batas belum dihapus) → seluruh fotonya ditandai `deleted` (foto tak lagi terlihat klien), file dan barisnya dihapus seperti langkah 2, dan **baru setelah submission tidak punya baris foto lagi** barisnya dihapus. Submission yang file-nya gagal dihapus bertahan sampai penyimpanan pulih, tanpa menghalangi submission lain.
+4. **Langkah tambahan** (data auth: `users` `pending` > 24 jam, `otp_challenges` > 24 jam, `sessions` kedaluwarsa/dicabut > 7 hari) didaftarkan sebagai `CleanupStep` saat fitur auth dibangun (T18+). Kegagalan satu langkah tidak menghentikan langkah lain.
+5. **Sisa tmp:** `tmp/*.part` dan `.probe-*` yang lebih tua dari `retention.tmp_max_age` (default 1 jam).
+
+**Sapuan file yatim** (tiap `retention.orphan_sweep_interval`, default 24 jam; pertama 5 menit setelah start): file di SSD yang namanya berbentuk kunci kanonik, lebih tua dari `retention.orphan_min_age` (default 24 jam, tidak boleh lebih pendek dari `storage.upload_url_ttl`), dan **tidak punya baris foto berstatus apa pun** → dihapus (mis. proses mati antara file terbit dan baris dicatat, atau upload yang kalah balapan dengan cleanup). Kunci diperiksa ke DB per 200 sekaligus; bila pengecekan DB gagal, **tidak ada file yang dihapus**. Berkas asing (penanda, catatan admin, dsb.) tidak pernah disentuh.
+
+Hasil tiap putaran (jumlah di-claim, ditandai, file dihapus/gagal, baris dihapus, submission dihapus, tmp dibersihkan) dicatat ke log untuk dashboard §12. `cmd/maintenance cleanup|sweep-orphans` menjalankan pekerjaan yang sama sekali jalan untuk keperluan operasional.
 
 ## 9. Keamanan & Autentikasi
 
@@ -771,7 +777,10 @@ Konfigurasi non-rahasia di `config.json` (path dari env `CONFIG_PATH`, default `
     "days": 90,
     "pending_photo_ttl": "24h",
     "cleanup_interval": "1h",
-    "cleanup_batch": 100
+    "cleanup_batch": 100,
+    "orphan_sweep_interval": "24h",
+    "tmp_max_age": "1h",
+    "orphan_min_age": "24h"
   }
 }
 ```

@@ -155,6 +155,13 @@ type Retention struct {
 	PendingPhotoTTL Duration `json:"pending_photo_ttl"`
 	CleanupInterval Duration `json:"cleanup_interval"`
 	CleanupBatch    int      `json:"cleanup_batch"`
+	// OrphanSweepInterval: sapuan file yatim di disk (file tanpa baris foto), default harian.
+	OrphanSweepInterval Duration `json:"orphan_sweep_interval"`
+	// TmpMaxAge: sisa upload sementara (tmp/*.part) yang lebih tua dari ini dihapus.
+	TmpMaxAge Duration `json:"tmp_max_age"`
+	// OrphanMinAge: file tanpa baris foto baru dihapus bila lebih tua dari ini (melindungi
+	// jendela singkat antara file terbit dan baris DB dicatat).
+	OrphanMinAge Duration `json:"orphan_min_age"`
 }
 
 // Secrets berisi nilai rahasia dari environment. Nilainya disamarkan saat dicetak/di-log.
@@ -223,6 +230,10 @@ func Defaults() Config {
 			PendingPhotoTTL: Duration(24 * time.Hour),
 			CleanupInterval: Duration(time.Hour),
 			CleanupBatch:    100,
+
+			OrphanSweepInterval: Duration(24 * time.Hour),
+			TmpMaxAge:           Duration(time.Hour),
+			OrphanMinAge:        Duration(24 * time.Hour),
 		},
 	}
 }
@@ -412,6 +423,14 @@ func (c *Config) Validate() error {
 	t := c.Retention
 	if t.Days < 1 || t.CleanupBatch < 1 || t.PendingPhotoTTL <= 0 || t.CleanupInterval <= 0 {
 		bad("retention", "days >= 1, cleanup_batch >= 1, pending_photo_ttl dan cleanup_interval > 0")
+	}
+	if t.OrphanSweepInterval <= 0 || t.TmpMaxAge <= 0 || t.OrphanMinAge <= 0 {
+		bad("retention", "orphan_sweep_interval, tmp_max_age, dan orphan_min_age harus > 0")
+	}
+	// file yang baru di-commit tidak boleh sempat dianggap yatim: harus lebih lama dari masa
+	// berlaku URL upload (upload yang lambat) ditambah ruang aman
+	if t.OrphanMinAge < c.Storage.UploadURLTTL {
+		bad("retention.orphan_min_age", "tidak boleh lebih pendek dari storage.upload_url_ttl")
 	}
 
 	if len(errs) == 0 {

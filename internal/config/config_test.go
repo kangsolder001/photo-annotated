@@ -42,6 +42,10 @@ func TestParseMinimalNone(t *testing.T) {
 	if cfg.App.HTTPAddr != ":8080" || cfg.Edit.Window.Std() != 24*time.Hour || cfg.Retention.Days != 90 {
 		t.Fatalf("default tidak terterapkan: %+v", cfg.App)
 	}
+	if cfg.Retention.OrphanSweepInterval.Std() != 24*time.Hour || cfg.Retention.TmpMaxAge.Std() != time.Hour ||
+		cfg.Retention.OrphanMinAge.Std() != 24*time.Hour {
+		t.Fatalf("default retention: %+v", cfg.Retention)
+	}
 	if cfg.Limits.MaxUploadBytes != 2<<20 || cfg.Storage.Local.MinFreeBytes != 5<<30 || !cfg.Storage.Local.RequireMarker {
 		t.Fatalf("default storage/limits salah: %+v %+v", cfg.Storage, cfg.Limits)
 	}
@@ -101,6 +105,9 @@ func TestParseFailures(t *testing.T) {
 		{"admin tanpa ADMIN_TOKEN_SECRET", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "admin": {"enabled": true, "username": "a", "password_bcrypt": "$2a$10$FCu4N2Hbf06J0yoSrrEd5ukjWw1w/U3I4RxiGQwtHuzwOAm/1IXmy"}`, 1), func(m map[string]string) { delete(m, "ADMIN_TOKEN_SECRET") }, []string{"ADMIN_TOKEN_SECRET"}},
 		{"turnstile tanpa secret", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "turnstile": {"enabled": true}`, 1), func(m map[string]string) { delete(m, "TURNSTILE_SECRET") }, []string{"TURNSTILE_SECRET"}},
 		{"teks anotasi melebihi batas DB", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "limits": {"max_annotation_text_len": 1001}`, 1), nil, []string{"limits.max_annotation_text_len"}},
+		{"orphan_min_age lebih pendek dari masa berlaku URL upload", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "retention": {"orphan_min_age": "1m"}`, 1), nil, []string{"retention.orphan_min_age"}},
+		{"orphan_sweep_interval nol", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "retention": {"orphan_sweep_interval": "0s"}`, 1), nil, []string{"orphan_sweep_interval"}},
+		{"tmp_max_age nol", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "retention": {"tmp_max_age": "0s"}`, 1), nil, []string{"tmp_max_age"}},
 		{"limit nol", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "limits": {"max_concurrent_uploads": 0}`, 1), nil, []string{"limits"}},
 		{"max_conns di luar rentang", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "database": {"max_conns": 500}`, 1), nil, []string{"database.max_conns"}},
 		{"JSON rusak", `{`, nil, []string{"config:"}},
