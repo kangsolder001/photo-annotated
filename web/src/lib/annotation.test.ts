@@ -39,7 +39,7 @@ describe("validasi (sama dengan backend)", () => {
     [{ w: 0.004 }, ["too-small"]],
     [{ text: "   \n " }, ["empty-text"]],
     [{ text: "a".repeat(1001) }, ["text-too-long"]],
-    [{ text: "😀".repeat(1000) }, []], // dihitung per karakter, bukan per unit UTF-16
+    [{ text: "\u{1F600}".repeat(1000) }, []], // dihitung per karakter, bukan per unit UTF-16
     [{ text: "a‮b" }, ["bad-char"]],
     [{ text: "baris1\nbaris2\tkolom" }, []], // tab dinormalkan menjadi spasi
     [{ text: "a\u0007b" }, ["bad-char"]],

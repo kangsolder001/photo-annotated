@@ -12,6 +12,10 @@
     "e2e": "node e2e/flow.mjs"
   },
   "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "6.7.2",
+    "@fortawesome/free-regular-svg-icons": "6.7.2",
+    "@fortawesome/free-solid-svg-icons": "6.7.2",
+    "@fortawesome/react-fontawesome": "3.5.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-router-dom": "7.18.4"

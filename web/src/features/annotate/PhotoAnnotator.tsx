@@ -1,4 +1,6 @@
+import { faHand, faVectorSquare } from "@fortawesome/free-solid-svg-icons";
 import { useState } from "react";
+import { Icon } from "../../components/Icon";
 import { limits } from "../../config";
 import type { Box } from "../../lib/annotation";
 import { AnnotationList } from "./AnnotationList";
@@ -26,7 +28,7 @@ export function PhotoAnnotator(props: {
       {!props.readOnly && (
         <div className="row annotator-toolbar">
           <button type="button" className={`btn btn-small${drawMode ? " btn-primary" : ""}`} aria-pressed={drawMode} onClick={() => setDrawMode((v) => !v)}>
-            {drawMode ? "✏️ Menggambar kotak" : "👆 Mode gulir"}
+            {drawMode ? <><Icon icon={faVectorSquare} /> Menggambar kotak</> : <><Icon icon={faHand} /> Mode gulir</>}
           </button>
           <span className="muted">
             {full ? `Maksimal ${limits.maxBoxesPerPhoto} kotak per foto.` : drawMode ? "Seret di foto untuk membuat kotak." : "Ketuk tombol untuk kembali menggambar."}

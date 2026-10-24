@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
+import { faCamera } from "@fortawesome/free-solid-svg-icons";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { api } from "../api/endpoints";
 import { config } from "../config";
 import { useSessionUser } from "../features/auth/useSession";
 import { session } from "../lib/session";
+import { Icon } from "./Icon";
 
 export function Layout({ children }: { children: ReactNode }) {
   const user = useSessionUser();
@@ -21,7 +23,7 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <>
       <header className="app-header">
-        <Link to="/" className="brand">📷 Photo Annotated</Link>
+        <Link to="/" className="brand"><Icon icon={faCamera} /> Photo Annotated</Link>
         {showNav && (
           <nav aria-label="Navigasi utama">
             <NavLink to="/" end>Baru</NavLink>

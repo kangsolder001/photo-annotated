@@ -162,3 +162,13 @@ div.field span.hint { font-weight: 400; color: var(--muted); font-size: 0.88rem;
 .password-row { display: flex; gap: 0.5rem; align-items: center; }
 .password-row input { flex: 1; }
 .link-button { background: none; border: 0; padding: 0; font: inherit; color: var(--primary); text-decoration: underline; cursor: pointer; }
+
+/* ---- ikon (Font Awesome, SVG inline) */
+.icon-btn {
+  display: inline-grid; place-items: center; flex: none;
+  min-width: 44px; min-height: 44px; padding: 0; border-radius: 10px;
+  border: 0; background: none; color: inherit; font-size: 20px; cursor: pointer;
+}
+.icon-btn:hover { background: var(--primary-soft); }
+.icon-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.icon-btn:focus-visible { outline: 3px solid var(--box-selected); outline-offset: 2px; }
