@@ -425,6 +425,12 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Hasil:** tab **Masuk** (nomor + password, tautan "Lupa password?"), tab **Daftar baru** (nama, email, nomor, password + ulangi, tombol lihat/sembunyikan, aturan sama dengan backend), `/masuk/lupa` (kirim kode reset), `/masuk/kode` menyesuaikan tujuan (registrasi: kode saja, otomatis saat 6 digit; reset: kode + password baru), kirim ulang lewat `challenge_id` (password tidak pernah disimpan di browser), petunjuk bila kode tidak datang karena nomor sudah terdaftar, pesan `INVALID_CREDENTIALS`/`LOGIN_LOCKED`.
 **Verifikasi browser (E2E, nomor acak per run):** konfirmasi beda ditolak → daftar → kode salah/benar → foto, kirim, edit, draf → keluar → password salah ditolak, benar masuk tanpa OTP → lupa password → kode + password baru → masuk dengan password baru. Semua lulus.
 
+## Perubahan 24–25 Okt: label terkontrol & dashboard superadmin
+
+Spec: [spec-labels-admin.md](../spec-labels-admin.md). Dikerjakan paralel: backend (T37–T40, T44, T46–T48) dan frontend (T41–T43, T45, T49–T53) di worktree terpisah, lalu digabung ke `feat/implementation` dan diuji bersama. Catatan lengkap per task (Hasil / Keputusan / Temuan / Verification) ada di [notes-backend.md](notes-backend.md) (termasuk penyimpangan kontrak dan perubahan config deploy) dan [notes-frontend.md](notes-frontend.md).
+
+**Verifikasi gabungan (25 Okt):** `go vet`, `go build ./cmd/...`, `go test ./... -race` hijau (DB test di Pi); FE typecheck, 496 test, build hijau (bundle user 374 kB, chunk admin lazy 104 kB); E2E browser `web/e2e/flow.mjs` lulus penuh terhadap backend gabungan (admin OTP → label → anotasi berlabel → review tolak → lencana user → hapus permanen, file hilang dari penyimpanan → hapus/arsip label).
+
 ### Checkpoint 7: Aplikasi utuh
 - [ ] Alur lengkap dari HP (seluler) berhasil, termasuk edit dan OTP
 - [ ] Review dengan Anda

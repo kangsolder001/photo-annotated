@@ -308,7 +308,7 @@ teks status, meter SSD, tautan antrean, muat ulang 30 detik dengan timer palsu; 
 kedua tema (Beranda, Statistik): tanpa scroll horizontal; diperbaiki: sel nama label `display:flex`
 merusak garis baris tabel.
 
-#### E2E browser (`web/e2e/flow.mjs`) — **diperbarui, BELUM DIJALANKAN**
+#### E2E browser (`web/e2e/flow.mjs`) — **LULUS setelah merge (25 Okt)**
 Diperbarui ke kontrak label dan diperluas dengan alur admin (commit terpisah setelah T51, karena
 mencakup T41–T51). Belum bisa dijalankan: backend T37–T48 belum ada di branch ini.
 Alur: admin masuk OTP (`ADMIN_PHONE` / `ADMIN_CANON`, default `0812-0000-0001` / `6281200000001`;
@@ -322,3 +322,4 @@ menyebut "2 foto, 3 kotak anotasi milik Budi Santoso", ketik `HAPUS`) → user m
 "Laporan ini sudah dihapus" → admin hapus label tak terpakai, arsipkan label lain → Keluar.
 Yang perlu dicek saat dijalankan: teks/peran tombol yang diasumsikan di atas, urutan kotak setelah
 reload draf, dan bahwa `GET /submissions/{id}` user memuat `review`.
+**Hasil setelah merge (25 Okt):** dijalankan terhadap backend gabungan lokal (mode `otp`, stub `wa-notif`, schema sementara di DB test, Vite dev). Seluruh alur lulus. Satu bug ditemukan dan diperbaiki: di StrictMode dua pemuatan sama-sama mendapat 404, yang kedua menimpa pesan "sudah dihapus" dengan pesan umum karena entri riwayat sudah dibuang oleh yang pertama; kini status "tercatat di riwayat" dibaca sebelum request. Setelah hapus admin, direktori foto kosong; log tidak memuat nomor superadmin utuh maupun token `adm2`. Juga: test `findBy` pada halaman admin (lazy) kadang melewati batas 1 detik saat seluruh suite paralel → `asyncUtilTimeout` 5 detik di `src/test/setup.ts`.
