@@ -4,8 +4,10 @@
 #   chown myrpi:65532 config.json && chmod 640 config.json
 # lalu: docker compose up -d   (migrasi berjalan dulu, API start setelah migrasi sukses)
 #
-# Akses publik: cloudflared berjalan sebagai service di host Pi (tunnel dikelola di dashboard
-# Cloudflare). Daftarkan public hostname API dengan service  http://localhost:8080
+# Akses: service `web` (nginx) menyajikan frontend dan meneruskan /api ke `api` dalam satu origin di
+# port 8081 (LAN: http://<ip-pi>:8081). cloudflared berjalan sebagai service di host Pi; daftarkan
+# public hostname dengan service  http://localhost:8081  (frontend + API sekaligus).
+# Image web: docker buildx build --platform linux/arm64 -t photo-annotated-web:<tag> --load web/
 name: photo-annotated
 
 x-app: &app
@@ -39,7 +41,7 @@ services:
     # hanya localhost Pi; cloudflared di host meneruskan trafik publik ke port ini
     ports:
       - "127.0.0.1:8080:8080"
-    networks: [shared-db, wa-notif]
+    networks: [default, shared-db, wa-notif]
     ulimits:
       nofile: { soft: 65536, hard: 65536 }
     stop_grace_period: 20s
@@ -47,6 +49,22 @@ services:
       resources:
         limits:
           memory: 512m
+
+  web:
+    image: photo-annotated-web:${PHOTO_ANNOTATED_TAG:-latest}
+    restart: unless-stopped
+    depends_on: [api]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    ports:
+      - "8081:8080"
+    networks: [default]
+    deploy:
+      resources:
+        limits:
+          memory: 64m
 
 networks:
   shared-db:

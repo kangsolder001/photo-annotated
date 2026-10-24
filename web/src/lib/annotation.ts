@@ -1,5 +1,6 @@
 import type { AnnotationDTO } from "../api/types";
 import { limits } from "../config";
+import { uuid } from "./id";
 
 // Model kotak anotasi. Koordinat ternormalisasi 0..1 terhadap foto hasil proses (spec §6.3), sama
 // dengan yang disimpan API. Aturan validasi di sini harus sama dengan backend (domain/annotation.go).
@@ -84,5 +85,5 @@ export function toDTO(b: Box): AnnotationDTO {
 }
 
 export function fromDTO(a: AnnotationDTO): Box {
-  return { id: crypto.randomUUID(), x: a.x, y: a.y, w: a.w, h: a.h, text: a.text };
+  return { id: uuid(), x: a.x, y: a.y, w: a.w, h: a.h, text: a.text };
 }

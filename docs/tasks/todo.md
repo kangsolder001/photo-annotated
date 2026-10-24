@@ -78,7 +78,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T27** FE: anotasi (Annotorious) + submit
 - [x] **T28** FE: edit + draft + sisa waktu edit
 - [x] **T29** FE: registrasi/login OTP + banner kanal
-- [ ] **T30** 🔒 Deploy FE ke Cloudflare Pages (butuh domain/akun)
+- [ ] **T30** FE disajikan dari Pi (nginx, port 8081) ✅ di LAN — tinggal public hostname tunnel → `http://localhost:8081`
 
 ### Checkpoint 7: Aplikasi utuh
 - [ ] Alur lengkap dari HP lewat jaringan seluler (termasuk edit dan OTP)

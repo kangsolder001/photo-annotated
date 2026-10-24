@@ -4,6 +4,7 @@ import { limits } from "../../config";
 import { errorMessage, isCode } from "../../lib/errors";
 import { processPhoto } from "../../lib/image";
 import { uploadWithRetry } from "../../lib/upload";
+import { uuid } from "../../lib/id";
 
 // Mengelola foto yang dipilih pengguna: proses di browser → presign → upload (dengan progres).
 
@@ -96,7 +97,7 @@ export function usePhotoUploads(turnstile?: TokenProvider) {
   const add = useCallback((list: FileList | File[], capacity: number) => {
     const picked = Array.from(list).slice(0, Math.max(0, capacity));
     const fresh = picked.map((f) => {
-      const key = crypto.randomUUID();
+      const key = uuid();
       files.current.set(key, f);
       return { key, status: "processing" as const, progress: 0 };
     });

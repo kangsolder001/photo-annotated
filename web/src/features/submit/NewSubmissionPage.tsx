@@ -13,6 +13,7 @@ import { currentOwner } from "../auth/owner";
 import { PhotoPicker } from "./PhotoPicker";
 import { PhotoStrip } from "./PhotoStrip";
 import { usePhotoUploads } from "./usePhotoUploads";
+import { uuid } from "../../lib/id";
 
 /** Laporan baru: pilih/ambil foto → upload otomatis → tandai kotak + catatan → kirim. */
 export function NewSubmissionPage() {
@@ -32,7 +33,7 @@ export function NewSubmissionPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
   // satu id per laporan: kirim ulang (dobel ketuk, jaringan putus) tidak membuat duplikat
-  const requestId = useRef(crypto.randomUUID());
+  const requestId = useRef(uuid());
 
   const items = uploads.items;
   const current = items.find((i) => i.key === selected && i.previewUrl) ?? items.find((i) => i.previewUrl);

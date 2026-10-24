@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as RPointerEvent, type KeyboardEvent } from "react";
 import { isBigEnough, moveBox, rectFromPoints, resizeBox, type Box, type Corner } from "../../lib/annotation";
+import { uuid } from "../../lib/id";
 
 // Editor kotak di atas foto. Satu jalur input untuk mouse, sentuh, dan pena (Pointer Events).
 //  - Mode gambar aktif: seret di area kosong = kotak baru; seret kotak terpilih = pindah;
@@ -113,7 +114,7 @@ export function BoxEditor(p: Props) {
     if (g?.kind !== "draw") return;
     const r = rectFromPoints(g.x0, g.y0, g.x1, g.y1);
     if (!isBigEnough(r)) return; // ketukan biasa, bukan seret
-    const box: Box = { id: crypto.randomUUID(), ...r, text: "" };
+    const box: Box = { id: uuid(), ...r, text: "" };
     p.onChange?.([...p.boxes, box]);
     p.onSelect?.(box.id);
     p.onCreate?.(box.id);
