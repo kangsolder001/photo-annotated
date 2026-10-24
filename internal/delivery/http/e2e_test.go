@@ -57,6 +57,8 @@ type stackOpts struct {
 	// superadmin opsional (nil = admin dimatikan: /admin/* 404); dirakit di atas pool milik stack
 	admin       func(*pgxpool.Pool) adminParts
 	adminPerMin int
+	// deleteStore membungkus PhotoStore untuk hapus permanen admin (mis. simulasi SSD error); nil = asli
+	deleteStore func(usecase.PhotoStore) usecase.PhotoStore
 	// tujuan log request (nil = dibuang)
 	logOut io.Writer
 	// cooldown kode OTP per nomor di stack auth (0 = 1 menit)
@@ -187,6 +189,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		Reader: reader, Editor: editor,
 		Labels:       usecase.NewLabels(postgres.NewLabelRepo(pool), txm, usecase.SystemClock{}, usecase.LabelsConfig{MaxActive: 200}),
 		OTPRequester: otp.req, OTPVerifier: otp.verify, PasswordLogin: otp.login, LoginPerMin: 1_000_000, Sessions: otp.sessions, OTPVerifyPerMin: 1_000_000, OTPChannel: channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin, UploadTurnstile: o.uploadTurnstile, Admin: adm.login, AdminLoginPerMin: o.adminPerMin, AuthMode: authMode,
+		AdminDelete: usecase.NewAdminDelete(postgres.NewDeletionRepo(pool), txm, o.wrapStore(store), usecase.SystemClock{}),
 		AdminSubmissions: usecase.NewAdminSubmissions(postgres.NewAdminSubmissionRepo(pool), subs, sg, usecase.SystemClock{},
 			usecase.AdminSubmissionsConfig{PublicBaseURL: srv.URL, ViewURLTTL: o.viewTTL, EditWindow: 24 * time.Hour, RetentionDays: 90}),
 		Exporter: usecase.NewExport(postgres.NewExportRepo(pool), sg, usecase.SystemClock{}, usecase.ExportConfig{PublicBaseURL: srv.URL, URLTTL: time.Hour, PageSize: 2}),
@@ -209,6 +212,13 @@ func seedE2ELabels(t *testing.T, pool *pgxpool.Pool) {
 			t.Fatalf("seed label %d: id=%d err=%v", i, id, err)
 		}
 	}
+}
+
+func (o stackOpts) wrapStore(s usecase.PhotoStore) usecase.PhotoStore {
+	if o.deleteStore != nil {
+		return o.deleteStore(s)
+	}
+	return s
 }
 
 type presigned struct {

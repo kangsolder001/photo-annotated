@@ -50,7 +50,8 @@ func (r *SubmissionRepo) GetByClientRequestID(ctx context.Context, id uuid.UUID)
 
 func (r *SubmissionRepo) getBy(ctx context.Context, column string, id uuid.UUID) (*domain.Submission, error) {
 	var s domain.Submission
-	err := r.db(ctx).QueryRow(ctx, `SELECT `+submissionColumns+` FROM submissions WHERE `+column+` = $1`, id).
+	// submission yang dihapus admin (deleted_at) tidak terlihat oleh siapa pun (spec-labels-admin §5.5)
+	err := r.db(ctx).QueryRow(ctx, `SELECT `+submissionColumns+` FROM submissions WHERE `+column+` = $1 AND deleted_at IS NULL`, id).
 		Scan(&s.ID, &s.OwnerID, &s.ClientRequestID, &s.ClientIP, &s.Version, &s.CreatedAt, &s.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("submission %s: %w", id, domain.ErrNotFound)
@@ -73,7 +74,7 @@ func (r *SubmissionRepo) GetDetail(ctx context.Context, id uuid.UUID) (*domain.S
 		  LEFT JOIN photos p      ON p.submission_id = s.id AND p.status = 'attached'
 		  LEFT JOIN annotations a ON a.photo_id = p.id
 		  LEFT JOIN labels l      ON l.id = a.label_id
-		 WHERE s.id = $1
+		 WHERE s.id = $1 AND s.deleted_at IS NULL
 		 ORDER BY p.position, p.id, a.id`, id)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: get submission detail: %w", err)
@@ -210,7 +211,7 @@ func (r *SubmissionRepo) ReplaceAnnotations(ctx context.Context, photoID uuid.UU
 func (r *SubmissionRepo) BumpVersion(ctx context.Context, id uuid.UUID, expected int, now time.Time) (int, error) {
 	var v int
 	err := r.db(ctx).QueryRow(ctx,
-		`UPDATE submissions SET version = version + 1, updated_at = $3 WHERE id = $1 AND version = $2 RETURNING version`,
+		`UPDATE submissions SET version = version + 1, updated_at = $3 WHERE id = $1 AND version = $2 AND deleted_at IS NULL RETURNING version`,
 		id, expected, now).Scan(&v)
 	if err == nil {
 		return v, nil
@@ -219,7 +220,7 @@ func (r *SubmissionRepo) BumpVersion(ctx context.Context, id uuid.UUID, expected
 		return 0, fmt.Errorf("postgres: bump version: %w", err)
 	}
 	var exists bool
-	if qerr := r.db(ctx).QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM submissions WHERE id = $1)`, id).Scan(&exists); qerr != nil {
+	if qerr := r.db(ctx).QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM submissions WHERE id = $1 AND deleted_at IS NULL)`, id).Scan(&exists); qerr != nil {
 		return 0, fmt.Errorf("postgres: bump version: %w", qerr)
 	}
 	if !exists {

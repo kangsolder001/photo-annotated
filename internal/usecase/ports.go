@@ -89,6 +89,9 @@ type CleanupRepo interface {
 	ExpireSubmissions(ctx context.Context, cutoff time.Time, limit int) (int, error)
 	// DeleteEmptyExpiredSubmissions menghapus submission kedaluwarsa yang sudah tidak punya baris foto.
 	DeleteEmptyExpiredSubmissions(ctx context.Context, cutoff time.Time, limit int) (int, error)
+	// DeleteEmptyDeletedSubmissions menghapus submission yang dihapus admin (deleted_at) dan sudah tidak
+	// punya baris foto.
+	DeleteEmptyDeletedSubmissions(ctx context.Context, limit int) (int, error)
 	// ExistingStorageKeys mengembalikan himpunan kunci yang punya baris foto (status apa pun).
 	ExistingStorageKeys(ctx context.Context, keys []string) (map[string]bool, error)
 }
@@ -437,4 +440,30 @@ type AdminSubmissionRepo interface {
 	List(ctx context.Context, q AdminListQuery) ([]AdminSubmissionRow, error)
 	// Annotator mengembalikan identitas pemilik, atau nil bila tidak ada (mode none / akun dihapus).
 	Annotator(ctx context.Context, userID uuid.UUID) (*Annotator, error)
+}
+
+// DeletionMark adalah hasil langkah 1 hapus permanen: apa yang sudah disembunyikan di dalam transaksi
+// dan file mana yang perlu dihapus setelah commit.
+type DeletionMark struct {
+	SubmissionID       uuid.UUID
+	PhotosDeleted      int        // foto attached yang dihapus
+	AnnotationsDeleted int        // anotasi yang dihapus
+	SubmissionDeleted  bool       // submission ikut dihapus (deleted_at diisi)
+	Files              []PhotoRef // semua baris foto berstatus deleted yang filenya perlu dihapus
+}
+
+// DeletionRepo menjalankan langkah hapus permanen (spec-labels-admin §5.5). Mark* wajib di dalam
+// transaksi: baris submission dikunci FOR UPDATE sehingga edit yang berbarengan menunggu lalu 404.
+type DeletionRepo interface {
+	// MarkSubmission menandai submission deleted_at, semua fotonya deleted, dan menghapus anotasinya.
+	// Submission tidak ada / sudah dihapus → domain.ErrNotFound.
+	MarkSubmission(ctx context.Context, id uuid.UUID, now time.Time) (*DeletionMark, error)
+	// MarkPhoto menandai satu foto attached deleted, menghapus anotasinya, menaikkan version, dan
+	// merapatkan position foto sisanya; bila tidak ada lagi foto attached, submission ikut ditandai.
+	// Foto tidak ada / bukan attached → domain.ErrNotFound.
+	MarkPhoto(ctx context.Context, photoID uuid.UUID, now time.Time) (*DeletionMark, error)
+	// DeletePhotoRow menghapus baris foto berstatus deleted (setelah filenya terhapus).
+	DeletePhotoRow(ctx context.Context, id uuid.UUID) error
+	// DeleteSubmissionIfEmpty menghapus baris submission ber-deleted_at yang tidak punya foto lagi.
+	DeleteSubmissionIfEmpty(ctx context.Context, id uuid.UUID) (bool, error)
 }

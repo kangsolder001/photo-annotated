@@ -22,6 +22,8 @@ const (
 	jsonWriteDeadline = 15 * time.Second
 	// export: batas waktu menulis satu halaman ke klien (deadline digeser tiap halaman)
 	exportPageGrace = 60 * time.Second
+	// hapus massal: semua file dihapus sebelum respons ditulis
+	bulkDeleteDeadline = 5 * time.Minute
 )
 
 // AdminAuth dipenuhi oleh *usecase.AdminLogin: login superadmin lewat OTP dan verifikasi token admin.
@@ -78,6 +80,9 @@ type Deps struct {
 
 	// Hasil anotasi untuk dashboard (spec-labels-admin §5.4); hanya aktif bila Admin juga diisi.
 	AdminSubmissions handler.AdminSubmissionReader
+
+	// Hapus permanen oleh admin (spec-labels-admin §5.5); hanya aktif bila Admin juga diisi.
+	AdminDelete handler.AdminDeleter
 
 	// Export dataset (spec §5.7); hanya aktif bila Admin juga diisi.
 	Exporter handler.Exporter
@@ -221,6 +226,14 @@ func NewRouter(d Deps) *gin.Engine {
 			subsAdmin := handler.NewAdminSubmissionHandler(d.AdminSubmissions)
 			api.GET("/admin/submissions", adminOnly, subsAdmin.List)
 			api.GET("/admin/submissions/:id", adminOnly, subsAdmin.Detail)
+		}
+		if d.AdminDelete != nil {
+			dels := handler.NewAdminDeleteHandler(d.AdminDelete, d.Logger)
+			api.DELETE("/admin/submissions/:id", adminOnly, dels.DeleteSubmission)
+			api.DELETE("/admin/photos/:id", adminOnly, dels.DeletePhoto)
+			// Hapus massal (50 submission × 5 foto = 250 file): deadline tulis diperpanjang seperti export.
+			r.POST("/api/v1/admin/submissions/delete", middleware.Deadlines(jsonReadDeadline, bulkDeleteDeadline),
+				middleware.BodyLimit(middleware.JSONBodyLimit), adminOnly, dels.DeleteMany)
 		}
 	}
 

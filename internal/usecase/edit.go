@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -95,7 +96,7 @@ func (u *Edit) Edit(ctx context.Context, in EditInput) (*EditOutput, error) {
 	}
 	freshPhotos, err := u.gate.load(ctx, fresh, sub.OwnerID)
 	if err != nil {
-		return nil, err
+		return nil, u.goneOr(ctx, sub.ID, err)
 	}
 	if err := u.gate.checkFiles(ctx, fresh, freshPhotos); err != nil {
 		return nil, err
@@ -161,7 +162,19 @@ func (u *Edit) Edit(ctx context.Context, in EditInput) (*EditOutput, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, u.goneOr(ctx, sub.ID, err)
 	}
 	return &EditOutput{SubmissionID: sub.ID, Version: newVersion, UpdatedAt: now}, nil
+}
+
+// goneOr: bila submission dihapus admin di tengah edit, foto-fotonya ikut hilang dan pemeriksaan foto
+// gagal dengan error yang menyesatkan (mis. PHOTO_NOT_FOUND). Dalam kasus itu jawab 404 seperti
+// pembacaan lain atas submission yang sudah dihapus (spec-labels-admin §5.5).
+func (u *Edit) goneOr(ctx context.Context, id uuid.UUID, err error) error {
+	if de, ok := domain.AsError(err); ok && de.Kind != domain.KindNotFound {
+		if _, gerr := u.subs.Get(ctx, id); errors.Is(gerr, domain.ErrNotFound) {
+			return notFound()
+		}
+	}
+	return err
 }

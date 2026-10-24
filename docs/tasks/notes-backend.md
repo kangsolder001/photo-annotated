@@ -28,6 +28,9 @@ Tidak ada penyimpangan dari bentuk JSON spec. Detail yang spec tidak sebutkan da
 - `GET /admin/submissions/{id}` menambah `url_expires_at` (kapan URL foto di respons kedaluwarsa) di samping field
   spec; bentuk lain sama dengan `GET /submissions/{id}` (+ `annotator`, `review`, `retention_deletes_at`, per foto
   `url` + `sha256` hex).
+- Hapus massal `POST /admin/submissions/delete`: daftar kosong, > 50, duplikat, atau UUID nol → `422 INVALID_IDS`
+  (kode tidak disebut spec); id yang bukan UUID → `400 INVALID_JSON`. Respons `202 cleanup_pending` memuat field
+  yang sama dengan `200` (`photos_deleted`, `annotations_deleted`, `submission_deleted`).
 
 ## Perubahan config untuk deploy
 
@@ -150,3 +153,29 @@ filter, hitungan + label + teks lama, sampul, retensi, urutan, cursor dua arah d
 detail + annotator terhapus; e2e: mode otp dengan nomor utuh, URL sampul bisa diunduh, filter, halaman, 11 query
 salah → 422, 404, 401 untuk token pengguna/tanpa token, mode none annotator null, log hygiene: respons memuat nomor
 utuh tetapi log tidak)
+
+#### Task 44: Hapus permanen (admin) — **SELESAI**
+**Hasil:** migrasi `0008_submission_delete` (`submissions.deleted_at` + indeks parsial). `DELETE
+/admin/submissions/{id}`, `DELETE /admin/photos/{id}`, `POST /admin/submissions/delete` (1–50 id, hasil per id).
+Semua jalur baca/edit/daftar admin/export memfilter `deleted_at IS NULL`. Cleanup mendapat langkah baru: hapus
+submission ber-`deleted_at` yang sudah tidak punya baris foto. Log `admin action` `submission.delete`/`photo.delete`
+dengan id, status, jumlah foto/anotasi/file terhapus, dan kegagalan file.
+**Keputusan:**
+- Langkah 1 satu transaksi: kunci baris submission `FOR UPDATE` (edit berbarengan menunggu lalu `404`), foto →
+  `deleted`, anotasi dihapus, `deleted_at` diisi (hapus submission / foto terakhir); hapus satu foto menaikkan
+  `version` + `updated_at` dan merapatkan `position`. Langkah 2 setelah commit: hapus file (idempoten) lalu baris
+  foto, lalu baris submission bila kosong. Langkah 2 berjalan lepas dari pembatalan request (batas 2 menit) agar
+  klien yang memutus koneksi tidak meninggalkan pekerjaan setengah jalan.
+- Foto lain milik submission yang masih punya baris (mis. dibuang lewat edit, menunggu cleanup) ikut dibersihkan
+  saat submission dihapus.
+- Edit yang kalah balapan dengan hapus kini selalu berakhir `404` (sebelumnya bisa `422 PHOTO_NOT_FOUND` karena
+  foto sudah terhapus): kegagalan pemeriksaan foto/transaksi memeriksa ulang apakah submission masih ada.
+- Hapus massal dipasang di luar grup JSON dengan deadline tulis 5 menit (seperti export), batas body 64 KB tetap.
+- `client_request_id` submission yang dihapus: setelah barisnya hilang, retry membuat submission baru (sesuai spec);
+  selama `cleanup_pending` retry mendapat `409 DUPLICATE_CLIENT_REQUEST`.
+**Verification:** [x] `go vet`, `go build ./cmd/...`, `go test ./... -race` (usecase: baris + file hilang, pemilik
+404, hapus foto: versi naik/position rapat/edit basi 409, foto bukan attached 404, foto terakhir menghapus submission,
+SSD error → cleanup_pending + data tersembunyi + baris foto dipertahankan + cleanup menuntaskan, balapan edit vs hapus
+5 putaran tanpa data hidup kembali, hapus massal + validasi; e2e: hapus foto/submission, file hilang dari SSD, pemilik
+404 di GET/URL/edit, export tidak memuat, 404 berulang, 401 tanpa token, hapus massal dengan not_found + 202, log
+hygiene)

@@ -41,6 +41,7 @@ func (a *sqlArgs) add(v any) string {
 func (r *AdminSubmissionRepo) List(ctx context.Context, q usecase.AdminListQuery) ([]usecase.AdminSubmissionRow, error) {
 	var a sqlArgs
 	where := []string{
+		`s.deleted_at IS NULL`,
 		// hanya submission yang masih punya foto terlihat (retensi/hapus menandai foto deleted lebih dulu)
 		`EXISTS (SELECT 1 FROM photos ep WHERE ep.submission_id = s.id AND ep.status = 'attached')`,
 	}

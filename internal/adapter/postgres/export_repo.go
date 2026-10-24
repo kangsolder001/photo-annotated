@@ -34,7 +34,7 @@ func (r *ExportRepo) ExportPage(ctx context.Context, after *usecase.ExportCursor
 		SELECT s.id, s.created_at, p.id, p.position, p.storage_key, p.content_type, p.size_bytes, p.width, p.height, p.sha256
 		  FROM photos p
 		  JOIN submissions s ON s.id = p.submission_id
-		 WHERE p.status = 'attached'
+		 WHERE p.status = 'attached' AND s.deleted_at IS NULL
 		   AND ($1::timestamptz IS NULL OR s.created_at >= $1)
 		   AND ($2::timestamptz IS NULL OR s.created_at < $2)
 		   AND ($3::timestamptz IS NULL OR (s.created_at, s.id, p.position, p.id) > ($3, $4::uuid, $5::smallint, $6::uuid))

@@ -148,6 +148,7 @@ func run() error {
 		Uploader: upload, MaxUploadBytes: cfg.Limits.MaxUploadBytes, UploadTimeout: cfg.Limits.UploadTimeout.Std(),
 	}
 	if cfg.Admin.Enabled {
+		deps.AdminDelete = usecase.NewAdminDelete(postgres.NewDeletionRepo(pool), txm, store, usecase.SystemClock{})
 		deps.AdminSubmissions = usecase.NewAdminSubmissions(postgres.NewAdminSubmissionRepo(pool), subs, urlSigner, usecase.SystemClock{},
 			usecase.AdminSubmissionsConfig{
 				PublicBaseURL: cfg.App.PublicBaseURL, ViewURLTTL: cfg.Storage.ViewURLTTL.Std(),

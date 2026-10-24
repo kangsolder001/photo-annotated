@@ -84,6 +84,7 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 		t.Fatalf("daftar admin harus memuat nomor utuh (yang tidak boleh masuk log): %s", listRaw)
 	}
 	admin.get(t, "/api/v1/admin/submissions/"+sub.SubmissionID.String(), nil)
+	admin.send(t, "DELETE", "/api/v1/admin/submissions/"+sub.SubmissionID.String(), "")
 	_, fake := s.postJSON(t, "/api/v1/admin/otp/request", `{"phone":"0813-5555-6666","turnstile_token":"human"}`)
 	s.postJSON(t, "/api/v1/admin/otp/verify", `{"challenge_id":"`+fake["challenge_id"].(string)+`","code":"424242"}`)
 	s.getJSON(t, "/api/v1/admin/otp/"+fake["challenge_id"].(string))
@@ -96,7 +97,8 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 	if !strings.Contains(out, `"user_id"`) || !strings.Contains(out, `"code":"OTP_EXPIRED"`) ||
 		!strings.Contains(out, `"msg":"admin login"`) || !strings.Contains(out, `"phone":"62813****2222"`) ||
 		!strings.Contains(out, `"action":"label.create"`) || !strings.Contains(out, `"action":"label.archive"`) ||
-		!strings.Contains(out, `"action":"label.reorder"`) || !strings.Contains(out, `"action":"label.delete"`) {
+		!strings.Contains(out, `"action":"label.reorder"`) || !strings.Contains(out, `"action":"label.delete"`) ||
+		!strings.Contains(out, `"action":"submission.delete"`) {
 		t.Fatalf("log kurang lengkap (user_id/code):\n%s", out)
 	}
 	secrets := map[string]string{
