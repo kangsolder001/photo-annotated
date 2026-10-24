@@ -68,21 +68,28 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 	r, _ := admin.client.Get(s.srv.URL + "/api/v1/admin/export?include_urls=true")
 	io.Copy(io.Discard, r.Body)
 	r.Body.Close()
-	s.postJSON(t, "/api/v1/admin/login", `{"username":"admin","password":"PASSWORD-SALAH-RAHASIA"}`)
+	adminCode := s.wa.LastCodeFor(testSuperadmin)
+	admin.get(t, "/api/v1/admin/me", nil)
+	_, fake := s.postJSON(t, "/api/v1/admin/otp/request", `{"phone":"0813-5555-6666","turnstile_token":"human"}`)
+	s.postJSON(t, "/api/v1/admin/otp/verify", `{"challenge_id":"`+fake["challenge_id"].(string)+`","code":"424242"}`)
+	s.getJSON(t, "/api/v1/admin/otp/"+fake["challenge_id"].(string))
 	s.with(map[string]string{"Authorization": "Bearer token-palsu-rahasia"}).get(t, "/api/v1/auth/me", nil)
 	s.postJSON(t, "/api/v1/auth/otp/verify", `{"challenge_id":"`+reg["challenge_id"].(string)+`","code":"999999"}`)
 	user.authed(t, "POST", "/api/v1/auth/logout", "")
 	s.get(t, "/healthz", nil)
 
 	out := logs.String()
-	if !strings.Contains(out, `"user_id"`) || !strings.Contains(out, `"code":"OTP_EXPIRED"`) {
+	if !strings.Contains(out, `"user_id"`) || !strings.Contains(out, `"code":"OTP_EXPIRED"`) ||
+		!strings.Contains(out, `"msg":"admin login"`) || !strings.Contains(out, `"phone":"62813****2222"`) {
 		t.Fatalf("log kurang lengkap (user_id/code):\n%s", out)
 	}
 	secrets := map[string]string{
 		"kode OTP": code, "token sesi": token, "token admin": strings.TrimPrefix(adminTok, "Bearer "),
 		"nomor utuh": "6281277771234", "nomor input": "0812-7777-1234", "nama": "Rahasia Namanya",
 		"email": "surel.rahasia", "teks anotasi": "TEKS-ANOTASI-RAHASIA", "teks edit": "EDIT-RAHASIA",
-		"password": "PASSWORD-SALAH-RAHASIA", "password daftar": "PASSWORD-RAHASIA-1", "token palsu": "token-palsu-rahasia", "tanda tangan URL": "sig=",
+		"kode OTP admin": adminCode, "nomor superadmin": testSuperadmin, "nomor superadmin input": testSuperadminInput,
+		"nomor lain di login admin": "6281355556666", "kode admin salah": "424242",
+		"password daftar": "PASSWORD-RAHASIA-1", "token palsu": "token-palsu-rahasia", "tanda tangan URL": "sig=",
 		"header Authorization": "Bearer", "turnstile": `"human"`,
 	}
 	for what, v := range secrets {

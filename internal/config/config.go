@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"photo-annotated/internal/domain"
 )
 
 const (
@@ -105,11 +107,23 @@ type WANotif struct {
 	SendInterval Duration `json:"send_interval"`
 }
 
+// Admin: satu superadmin yang login dengan OTP WhatsApp ke nomornya (spec-labels-admin §3.1).
 type Admin struct {
-	Enabled        bool     `json:"enabled"`
-	Username       string   `json:"username"`
-	PasswordBcrypt string   `json:"password_bcrypt"`
-	TokenTTL       Duration `json:"token_ttl"`
+	Enabled            bool       `json:"enabled"`
+	Superadmin         Superadmin `json:"superadmin"`
+	TokenTTL           Duration   `json:"token_ttl"`
+	OTPMessageTemplate string     `json:"otp_message_template"`
+
+	// Field lama login username/password. Tetap dikenali hanya agar bisa ditolak dengan pesan yang
+	// jelas (bukan "unknown field"), sehingga salah konfigurasi tidak lolos diam-diam.
+	Username       string `json:"username"`
+	PasswordBcrypt string `json:"password_bcrypt"`
+}
+
+// Superadmin: nama dan nomor HP superadmin. Phone dinormalisasi ke bentuk kanonik 628… saat validasi.
+type Superadmin struct {
+	Name  string `json:"name"`
+	Phone string `json:"phone"`
 }
 
 type Edit struct {
@@ -225,7 +239,10 @@ func Defaults() Config {
 			HealthProbeInterval: Duration(30 * time.Second),
 			SendInterval:        Duration(1500 * time.Millisecond),
 		},
-		Admin: Admin{TokenTTL: Duration(8 * time.Hour)},
+		Admin: Admin{
+			TokenTTL:           Duration(8 * time.Hour),
+			OTPMessageTemplate: "*{code}* adalah kode masuk ADMIN Photo Annotated. Berlaku {ttl_minutes} menit. Jika Anda tidak sedang masuk, abaikan dan periksa keamanan akun.",
+		},
 		Edit:  Edit{Window: Duration(24 * time.Hour)},
 		Turnstile: Turnstile{
 			Enabled: false,
@@ -340,12 +357,27 @@ func (c *Config) Validate() error {
 	case AuthModeNone:
 		requireSecret(&errs, "secrets.edit_token_secret (EDIT_TOKEN_SECRET)", c.Secrets.EditTokenSecret, "auth.mode=none")
 	case AuthModeOTP:
-		requireSecret(&errs, "secrets.otp_pepper (OTP_PEPPER)", c.Secrets.OTPPepper, "auth.mode=otp")
+		if c.Auth.SessionTTL <= 0 {
+			bad("auth.session_ttl", "harus > 0")
+		}
+	case "":
+		bad("auth.mode", "wajib diisi (%q atau %q)", AuthModeNone, AuthModeOTP)
+	default:
+		bad("auth.mode", "%q tidak dikenal (gunakan %q atau %q)", c.Auth.Mode, AuthModeNone, AuthModeOTP)
+	}
+
+	// OTP WhatsApp: dipakai auth.mode=otp dan login admin (di semua mode)
+	if c.Auth.Mode == AuthModeOTP || c.Admin.Enabled {
+		why := "auth.mode=otp"
+		if c.Auth.Mode != AuthModeOTP {
+			why = "admin.enabled (login admin lewat OTP)"
+		}
+		requireSecret(&errs, "secrets.otp_pepper (OTP_PEPPER)", c.Secrets.OTPPepper, why)
 		if c.Secrets.WANotifToken == "" {
-			bad("secrets.wa_notif_token (WA_NOTIF_TOKEN)", "wajib diisi jika auth.mode=otp")
+			bad("secrets.wa_notif_token (WA_NOTIF_TOKEN)", "wajib diisi jika %s", why)
 		}
 		if err := checkAbsURL(c.WANotif.BaseURL, false); err != nil {
-			bad("wa_notif.base_url", "wajib untuk auth.mode=otp: %v", err)
+			bad("wa_notif.base_url", "wajib untuk %s: %v", why, err)
 		}
 		if c.WANotif.Timeout <= 0 {
 			bad("wa_notif.timeout", "harus > 0")
@@ -369,22 +401,26 @@ func (c *Config) Validate() error {
 		if !strings.Contains(o.MessageTemplate, "{code}") {
 			bad("auth.otp.message_template", "harus memuat {code}")
 		}
-		if c.Auth.SessionTTL <= 0 {
-			bad("auth.session_ttl", "harus > 0")
-		}
-	case "":
-		bad("auth.mode", "wajib diisi (%q atau %q)", AuthModeNone, AuthModeOTP)
-	default:
-		bad("auth.mode", "%q tidak dikenal (gunakan %q atau %q)", c.Auth.Mode, AuthModeNone, AuthModeOTP)
 	}
 
 	// admin
+	if c.Admin.Username != "" || c.Admin.PasswordBcrypt != "" {
+		bad("admin.username/admin.password_bcrypt", "login admin kini lewat OTP; hapus field ini dan isi admin.superadmin.phone")
+	}
 	if c.Admin.Enabled {
-		if strings.TrimSpace(c.Admin.Username) == "" {
-			bad("admin.username", "wajib diisi jika admin.enabled")
+		sa := &c.Admin.Superadmin
+		if phone, err := domain.NormalizePhone(sa.Phone); err != nil {
+			bad("admin.superadmin.phone", "harus nomor seluler Indonesia yang valid (nilai: %q)", sa.Phone)
+		} else {
+			sa.Phone = phone
 		}
-		if !looksLikeBcrypt(c.Admin.PasswordBcrypt) {
-			bad("admin.password_bcrypt", "harus hash bcrypt ($2a$/$2b$/$2y$, 60 karakter), bukan plaintext")
+		if name, err := domain.NormalizeName(sa.Name); err != nil {
+			bad("admin.superadmin.name", "wajib 1-100 karakter tanpa karakter kontrol")
+		} else {
+			sa.Name = name
+		}
+		if !strings.Contains(c.Admin.OTPMessageTemplate, "{code}") {
+			bad("admin.otp_message_template", "harus memuat {code}")
 		}
 		requireSecret(&errs, "secrets.admin_token_secret (ADMIN_TOKEN_SECRET)", c.Secrets.AdminTokenSecret, "admin.enabled")
 		if c.Admin.TokenTTL <= 0 {
@@ -522,13 +558,6 @@ func checkAbsURL(s string, originOnly bool) error {
 		return fmt.Errorf("%q tidak boleh diakhiri '/'", s)
 	}
 	return nil
-}
-
-func looksLikeBcrypt(h string) bool {
-	if len(h) != 60 {
-		return false
-	}
-	return strings.HasPrefix(h, "$2a$") || strings.HasPrefix(h, "$2b$") || strings.HasPrefix(h, "$2y$")
 }
 
 // joinLines menggabungkan error menjadi satu per baris dengan indentasi.

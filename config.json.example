@@ -28,9 +28,12 @@
   },
   "admin": {
     "enabled": true,
-    "username": "admin",
-    "password_bcrypt": "$2a$10$FCu4N2Hbf06J0yoSrrEd5ukjWw1w/U3I4RxiGQwtHuzwOAm/1IXmy",
-    "token_ttl": "8h"
+    "superadmin": {
+      "name": "Super Admin",
+      "phone": "GANTI-dengan-nomor-HP-superadmin"
+    },
+    "token_ttl": "8h",
+    "otp_message_template": "*{code}* adalah kode masuk ADMIN Photo Annotated. Berlaku {ttl_minutes} menit. Jika Anda tidak sedang masuk, abaikan dan periksa keamanan akun."
   },
   "edit": { "window": "24h" },
   "turnstile": { "enabled": true },

@@ -145,14 +145,6 @@ func run() error {
 		Uploader: upload, MaxUploadBytes: cfg.Limits.MaxUploadBytes, UploadTimeout: cfg.Limits.UploadTimeout.Std(),
 	}
 	if cfg.Admin.Enabled {
-		tokens, err := signer.NewAdminTokens(cfg.Secrets.AdminTokenSecret)
-		if err != nil {
-			return err
-		}
-		deps.Admin = usecase.NewAdminAuth(tokens, usecase.SystemClock{}, usecase.AdminConfig{
-			Username: cfg.Admin.Username, PasswordBcrypt: cfg.Admin.PasswordBcrypt, TokenTTL: cfg.Admin.TokenTTL.Std(),
-		})
-		deps.AdminLoginPerMin = cfg.Limits.RateLimitPerMin.AdminLogin
 		deps.Exporter = usecase.NewExport(postgres.NewExportRepo(pool), urlSigner, usecase.SystemClock{}, usecase.ExportConfig{
 			PublicBaseURL: cfg.App.PublicBaseURL, URLTTL: exportURLTTL, PageSize: exportPageSize,
 		})
@@ -173,7 +165,9 @@ func run() error {
 	defer stop()
 	var jobs sync.WaitGroup
 
-	if cfg.Auth.Mode == config.AuthModeOTP {
+	// OTP WhatsApp dipakai auth.mode=otp dan login admin (di semua mode): dispatcher dan probe
+	// wa-notif berjalan bila salah satunya aktif.
+	if cfg.Auth.Mode == config.AuthModeOTP || cfg.Admin.Enabled {
 		if err := startOTP(ctx, log, cfg, pool, &deps, &jobs); err != nil {
 			return err
 		}
@@ -248,15 +242,12 @@ func run() error {
 	return nil
 }
 
-// startOTP merakit alur OTP (auth.mode = otp): permintaan kode, dispatcher pengiriman, dan probe
-// kanal WhatsApp. Dispatcher dan probe berjalan sampai ctx dibatalkan.
+// startOTP merakit antrean OTP bersama (dispatcher pengiriman dan probe kanal WhatsApp), lalu alur
+// pengguna (auth.mode = otp: registrasi, reset, login password) dan/atau login superadmin
+// (admin.enabled). Dispatcher dan probe berjalan sampai ctx dibatalkan.
 func startOTP(ctx context.Context, log *slog.Logger, cfg *config.Config, pool *pgxpool.Pool, deps *httpapi.Deps, jobs *sync.WaitGroup) error {
 	o := cfg.Auth.OTP
 	codes, err := signer.NewOTPCodes(cfg.Secrets.OTPPepper, o.Length)
-	if err != nil {
-		return err
-	}
-	hasher, err := password.NewBcrypt(password.DefaultCost)
 	if err != nil {
 		return err
 	}
@@ -268,27 +259,46 @@ func startOTP(ctx context.Context, log *slog.Logger, cfg *config.Config, pool *p
 	channel := usecase.NewChannel(channelFailureThreshold)
 	phones := usecase.NewPhoneLimiter(o.ResendCooldown.Std(), o.MaxPerPhonePerHour)
 	dispatcher := usecase.NewOTPDispatcher(otps, wa, codes, channel, phones, usecase.SystemClock{}, usecase.OTPDispatchConfig{
-		CodeTTL: o.TTL.Std(), MessageTemplate: o.MessageTemplate, RetryDelays: otpRetryDelays,
-		StuckAfter: 3 * cfg.WANotif.Timeout.Std(),
+		CodeTTL: o.TTL.Std(), MessageTemplate: o.MessageTemplate, AdminMessageTemplate: cfg.Admin.OTPMessageTemplate,
+		RetryDelays: otpRetryDelays, StuckAfter: 3 * cfg.WANotif.Timeout.Std(),
 	})
-	users := postgres.NewUserRepo(pool)
-	sessions := postgres.NewSessionRepo(pool)
-	requester := usecase.NewOTPRequest(users, otps, codes, hasher, channel, phones, usecase.SystemClock{},
-		usecase.OTPRequestConfig{
-			ResendCooldown: o.ResendCooldown.Std(), MaxQueue: o.MaxQueue, DailyGlobalCap: o.DailyGlobalCap,
-			SendInterval: cfg.WANotif.SendInterval.Std(), CodeTTL: o.TTL.Std(), OnQueued: dispatcher.Wake,
-		})
-	deps.OTPRequester = requester
-	deps.OTPVerifier = usecase.NewOTPVerify(requester, users, otps, sessions, postgres.NewTxManager(pool), codes, hasher, usecase.SystemClock{},
-		usecase.OTPVerifyConfig{MaxAttempts: o.MaxVerifyAttempts, SessionTTL: cfg.Auth.SessionTTL.Std()})
-	deps.Sessions = usecase.NewSessions(sessions, users, usecase.SystemClock{})
-	deps.OTPVerifyPerMin = cfg.Limits.RateLimitPerMin.OTPVerify
-	deps.PasswordLogin = usecase.NewPasswordLogin(users, sessions, hasher, usecase.SystemClock{}, usecase.PasswordLoginConfig{
-		SessionTTL: cfg.Auth.SessionTTL.Std(), AttemptsPerPhone: loginAttemptsPerPhone, Window: loginAttemptWindow,
-	})
-	deps.LoginPerMin = cfg.Limits.RateLimitPerMin.Login
+	requestCfg := usecase.OTPRequestConfig{
+		ResendCooldown: o.ResendCooldown.Std(), MaxQueue: o.MaxQueue, DailyGlobalCap: o.DailyGlobalCap,
+		SendInterval: cfg.WANotif.SendInterval.Std(), CodeTTL: o.TTL.Std(), OnQueued: dispatcher.Wake,
+	}
 	deps.OTPChannel = channel
-	deps.OTPRequestPerMin = cfg.Limits.RateLimitPerMin.OTPRequest
+	deps.OTPVerifyPerMin = cfg.Limits.RateLimitPerMin.OTPVerify
+
+	if cfg.Auth.Mode == config.AuthModeOTP {
+		hasher, err := password.NewBcrypt(password.DefaultCost)
+		if err != nil {
+			return err
+		}
+		users := postgres.NewUserRepo(pool)
+		sessions := postgres.NewSessionRepo(pool)
+		requester := usecase.NewOTPRequest(users, otps, codes, hasher, channel, phones, usecase.SystemClock{}, requestCfg)
+		deps.OTPRequester = requester
+		deps.OTPVerifier = usecase.NewOTPVerify(requester, users, otps, sessions, postgres.NewTxManager(pool), codes, hasher, usecase.SystemClock{},
+			usecase.OTPVerifyConfig{MaxAttempts: o.MaxVerifyAttempts, SessionTTL: cfg.Auth.SessionTTL.Std()})
+		deps.Sessions = usecase.NewSessions(sessions, users, usecase.SystemClock{})
+		deps.PasswordLogin = usecase.NewPasswordLogin(users, sessions, hasher, usecase.SystemClock{}, usecase.PasswordLoginConfig{
+			SessionTTL: cfg.Auth.SessionTTL.Std(), AttemptsPerPhone: loginAttemptsPerPhone, Window: loginAttemptWindow,
+		})
+		deps.LoginPerMin = cfg.Limits.RateLimitPerMin.Login
+		deps.OTPRequestPerMin = cfg.Limits.RateLimitPerMin.OTPRequest
+	}
+	if cfg.Admin.Enabled {
+		sa := cfg.Admin.Superadmin // sudah dinormalisasi saat load
+		tokens, err := signer.NewAdminTokens(cfg.Secrets.AdminTokenSecret, sa.Phone)
+		if err != nil {
+			return err
+		}
+		deps.Admin = usecase.NewAdminLogin(otps, codes, channel, phones, tokens, usecase.SystemClock{}, usecase.AdminLoginConfig{
+			OTP: requestCfg, MaxAttempts: o.MaxVerifyAttempts, TokenTTL: cfg.Admin.TokenTTL.Std(), Name: sa.Name, Phone: sa.Phone,
+		})
+		deps.AdminLoginPerMin = cfg.Limits.RateLimitPerMin.AdminLogin
+		deps.AuthMode = cfg.Auth.Mode
+	}
 
 	jobs.Add(2)
 	go func() {

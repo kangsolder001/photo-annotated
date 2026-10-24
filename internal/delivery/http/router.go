@@ -24,9 +24,9 @@ const (
 	exportPageGrace = 60 * time.Second
 )
 
-// AdminAuth dipenuhi oleh *usecase.AdminAuth: login admin dan verifikasi token admin.
+// AdminAuth dipenuhi oleh *usecase.AdminLogin: login superadmin lewat OTP dan verifikasi token admin.
 type AdminAuth interface {
-	handler.AdminLoginer
+	handler.AdminLoginService
 	middleware.AdminVerifier
 }
 
@@ -68,9 +68,11 @@ type Deps struct {
 	// kali untuk satu submission); nil = tanpa Turnstile.
 	UploadTurnstile usecase.TurnstileVerifier
 
-	// Admin statis (spec §5.9); nil bila admin.enabled = false sehingga /admin/* menjadi 404.
+	// Superadmin (spec-labels-admin §3); nil bila admin.enabled = false sehingga /admin/* menjadi 404.
+	// Login admin memakai OTPChannel, Turnstile, dan OTPVerifyPerMin yang sama dengan auth pengguna.
 	Admin            AdminAuth
-	AdminLoginPerMin int
+	AdminLoginPerMin int    // request + resend OTP admin per IP
+	AuthMode         string // auth.mode, untuk GET /admin/me
 
 	// Export dataset (spec §5.7); hanya aktif bila Admin juga diisi.
 	Exporter handler.Exporter
@@ -181,11 +183,20 @@ func NewRouter(d Deps) *gin.Engine {
 	}
 
 	if d.Admin != nil {
-		if d.AdminLoginPerMin < 1 {
-			panic("httpapi: Deps.AdminLoginPerMin wajib diisi bila Admin diisi")
+		if d.AdminLoginPerMin < 1 || d.OTPVerifyPerMin < 1 || d.OTPChannel == nil {
+			panic("httpapi: Deps.AdminLoginPerMin, OTPVerifyPerMin, dan OTPChannel wajib diisi bila Admin diisi")
 		}
-		admin := handler.NewAdminHandler(d.Admin)
-		api.POST("/admin/login", middleware.RateLimit(middleware.NewRateLimiter(d.AdminLoginPerMin)), admin.Login)
+		adminAuth := handler.NewAdminAuthHandler(handler.AdminAuthDeps{
+			Login: d.Admin, Channel: d.OTPChannel, Turnstile: d.Turnstile, AuthMode: d.AuthMode, Log: d.Logger,
+		})
+		// request dan resend sama-sama memicu pesan WhatsApp: satu limiter per IP (admin_login).
+		adminOTPLimit := middleware.RateLimit(middleware.NewRateLimiter(d.AdminLoginPerMin))
+		api.POST("/admin/otp/request", adminOTPLimit, adminAuth.Request)
+		api.POST("/admin/otp/resend", adminOTPLimit, adminAuth.Resend)
+		api.GET("/admin/otp/:id", adminAuth.Status)
+		api.POST("/admin/otp/verify", middleware.RateLimit(middleware.NewRateLimiter(d.OTPVerifyPerMin)), adminAuth.Verify)
+		api.GET("/admin/channel-status", adminAuth.ChannelStatus)
+		api.GET("/admin/me", authn.Require(middleware.Access{Admin: true}), adminAuth.Me)
 	}
 
 	if d.Admin != nil && d.Exporter != nil {

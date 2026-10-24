@@ -32,6 +32,7 @@ import (
 	"photo-annotated/internal/domain"
 	"photo-annotated/internal/testutil/imgfix"
 	"photo-annotated/internal/testutil/pgtest"
+	"photo-annotated/internal/testutil/wastub"
 	"photo-annotated/internal/usecase"
 )
 
@@ -53,8 +54,9 @@ type stackOpts struct {
 	otpPerMin int
 	// Turnstile presign/submit pada mode none (nil = tanpa)
 	uploadTurnstile usecase.TurnstileVerifier
-	admin           httpapi.AdminAuth
-	adminPerMin     int
+	// superadmin opsional (nil = admin dimatikan: /admin/* 404); dirakit di atas pool milik stack
+	admin       func(*pgxpool.Pool) adminParts
+	adminPerMin int
 	// tujuan log request (nil = dibuang)
 	logOut io.Writer
 	// cooldown kode OTP per nomor di stack auth (0 = 1 menit)
@@ -69,7 +71,16 @@ type otpParts struct {
 	login    handler.PasswordLoginer
 }
 
+// adminParts adalah login superadmin yang dirakit test beserta dispatcher dan stub wa-notif-nya.
+type adminParts struct {
+	login   httpapi.AdminAuth
+	channel handler.ChannelStatus // nil = pakai stackOpts.channel
+	disp    *usecase.OTPDispatcher
+	wa      *wastub.Server
+}
+
 type stack struct {
+	admin  adminParts
 	pool   *pgxpool.Pool
 	srv    *httptest.Server
 	subs   *postgres.SubmissionRepo
@@ -151,6 +162,18 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	if o.otp != nil {
 		otp = o.otp(pool)
 	}
+	var adm adminParts
+	channel := o.channel
+	authMode := "none"
+	if o.otp != nil {
+		authMode = "otp"
+	}
+	if o.admin != nil {
+		adm = o.admin(pool)
+		if adm.channel != nil {
+			channel = adm.channel
+		}
+	}
 	var h http.Handler = httpapi.NewRouter(httpapi.Deps{
 		Logger:         slog.New(slog.NewJSONHandler(logOut, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		TrustedProxies: []netip.Prefix{},
@@ -160,12 +183,12 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		Uploader: upload, MaxUploadBytes: o.maxBytes, UploadTimeout: time.Minute,
 		Submitter: submit, SubmissionsPerMin: 1_000_000,
 		Reader: reader, Editor: editor,
-		OTPRequester: otp.req, OTPVerifier: otp.verify, PasswordLogin: otp.login, LoginPerMin: 1_000_000, Sessions: otp.sessions, OTPVerifyPerMin: 1_000_000, OTPChannel: o.channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin, UploadTurnstile: o.uploadTurnstile, Admin: o.admin, AdminLoginPerMin: o.adminPerMin,
+		OTPRequester: otp.req, OTPVerifier: otp.verify, PasswordLogin: otp.login, LoginPerMin: 1_000_000, Sessions: otp.sessions, OTPVerifyPerMin: 1_000_000, OTPChannel: channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin, UploadTurnstile: o.uploadTurnstile, Admin: adm.login, AdminLoginPerMin: o.adminPerMin, AuthMode: authMode,
 		Exporter: usecase.NewExport(postgres.NewExportRepo(pool), sg, usecase.SystemClock{}, usecase.ExportConfig{PublicBaseURL: srv.URL, URLTTL: time.Hour, PageSize: 2}),
 		NewJSONL: func(w io.Writer) handler.ExportStream { return export.NewJSONL(w) },
 	})
 	inner.Store(&h)
-	return &stack{pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}
+	return &stack{admin: adm, pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}
 }
 
 type presigned struct {

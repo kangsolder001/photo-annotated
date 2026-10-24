@@ -281,10 +281,11 @@ type StatsRepo interface {
 	Counts(ctx context.Context, since time.Time) (StatsCounts, error)
 }
 
-// AdminTokenSigner menerbitkan dan memverifikasi token admin stateless.
+// AdminTokenSigner menerbitkan dan memverifikasi token admin stateless (terikat ke nomor superadmin).
 type AdminTokenSigner interface {
 	Issue(expiresAt time.Time) string
-	Verify(token string, now time.Time) bool
+	// Verify mengembalikan waktu kedaluwarsa token bila sah dan belum kedaluwarsa.
+	Verify(token string, now time.Time) (expiresAt time.Time, ok bool)
 }
 
 // EditTokenSigner menurunkan dan memverifikasi token edit anonim (hanya auth.mode = none).

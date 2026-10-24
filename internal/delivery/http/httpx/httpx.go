@@ -4,6 +4,7 @@ package httpx
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -89,10 +90,19 @@ func Session(c *gin.Context) (userID, sessionID uuid.UUID, ok bool) {
 	return userID, sessionID, ok1 && ok2
 }
 
-const keyAdmin = "auth_admin"
+const (
+	keyAdmin       = "auth_admin"
+	keyAdminExpiry = "auth_admin_expiry"
+)
 
-// SetAdmin menandai request ini diautentikasi sebagai admin.
-func SetAdmin(c *gin.Context) { c.Set(keyAdmin, true) }
+// SetAdmin menandai request ini diautentikasi sebagai admin, dengan waktu kedaluwarsa tokennya.
+func SetAdmin(c *gin.Context, expiresAt time.Time) {
+	c.Set(keyAdmin, true)
+	c.Set(keyAdminExpiry, expiresAt)
+}
 
 // IsAdmin: request diautentikasi sebagai admin.
 func IsAdmin(c *gin.Context) bool { return c.GetBool(keyAdmin) }
+
+// AdminExpiry: waktu kedaluwarsa token admin request ini (nol bila bukan admin).
+func AdminExpiry(c *gin.Context) time.Time { return c.GetTime(keyAdminExpiry) }

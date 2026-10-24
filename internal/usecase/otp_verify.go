@@ -76,13 +76,8 @@ func errOTPInvalid(left int) error {
 // Registrasi: data dari challenge diterapkan dan akun aktif. Reset: password diganti dan semua sesi
 // lama dicabut. Keduanya langsung login.
 func (v *OTPVerify) Verify(ctx context.Context, in VerifyInput) (*LoginResult, error) {
-	if len(in.Code) == 0 || len(in.Code) > 16 {
-		return nil, errOTPBadInput
-	}
-	for _, r := range in.Code {
-		if r < '0' || r > '9' {
-			return nil, errOTPBadInput
-		}
+	if err := validCodeFormat(in.Code); err != nil {
+		return nil, err
 	}
 	if in.NewPassword != "" {
 		if err := domain.ValidatePassword(in.NewPassword); err != nil {
@@ -91,11 +86,14 @@ func (v *OTPVerify) Verify(ctx context.Context, in VerifyInput) (*LoginResult, e
 	}
 	now := v.clock.Now()
 	c, err := v.otps.Get(ctx, in.ChallengeID)
+	if err == nil && c.Purpose == domain.OTPPurposeAdminLogin {
+		err = domain.ErrNotFound // challenge admin hanya bisa dipakai lewat /admin/otp/verify
+	}
 	if errors.Is(err, domain.ErrNotFound) {
 		if d, ok := v.decoys.get(in.ChallengeID); ok && d.purpose == domain.OTPPurposeReset && in.NewPassword == "" {
 			return nil, errPasswordRequired
 		}
-		return nil, v.verifyDecoy(in.ChallengeID, now)
+		return nil, v.decoys.verify(in.ChallengeID, now, v.cfg.MaxAttempts)
 	}
 	if err != nil {
 		return nil, err
@@ -104,33 +102,8 @@ func (v *OTPVerify) Verify(ctx context.Context, in VerifyInput) (*LoginResult, e
 	if c.Purpose == domain.OTPPurposeReset && in.NewPassword == "" {
 		return nil, errPasswordRequired
 	}
-	switch c.Status {
-	case domain.OTPQueued, domain.OTPSending, domain.OTPFailed:
-		return nil, errOTPNotSent
-	case domain.OTPSent:
-	default: // expired, consumed
-		return nil, errOTPExpired
-	}
-	if c.ExpiresAt == nil || !now.Before(*c.ExpiresAt) {
-		_ = v.otps.Expire(ctx, c.ID)
-		return nil, errOTPExpired
-	}
-	n, err := v.otps.IncrementVerifyAttempts(ctx, c.ID)
-	if err != nil {
+	if err := checkCode(ctx, v.otps, v.codes, c, in.Code, v.cfg.MaxAttempts, now); err != nil {
 		return nil, err
-	}
-	if n > v.cfg.MaxAttempts {
-		// Tanpa Expire di sini: percobaan ke-max sudah membatalkan challenge bila salah, atau sedang
-		// memakainya bila benar. Expire dari percobaan berlebih yang berbarengan bisa mendahului Consume
-		// milik percobaan yang sah dan membuat login yang benar gagal.
-		return nil, errOTPTooMany
-	}
-	if !hmac.Equal(v.codes.Hash(c.ID, in.Code), c.CodeHash) {
-		if n >= v.cfg.MaxAttempts {
-			_ = v.otps.Expire(ctx, c.ID) // challenge dibatalkan; user harus meminta kode baru
-			return nil, errOTPTooMany
-		}
-		return nil, errOTPInvalid(v.cfg.MaxAttempts - n)
 	}
 	var newHash string
 	if c.Purpose == domain.OTPPurposeReset {
@@ -188,30 +161,76 @@ func (v *OTPVerify) login(ctx context.Context, c *domain.OTPChallenge, newPasswo
 	return &LoginResult{Token: token, ExpiresAt: s.ExpiresAt, User: user}, nil
 }
 
-// verifyDecoy meniru challenge asli untuk id palsu (nomor tak terdaftar): belum terkirim → 409,
-// lalu salah terus sampai batas percobaan, lalu kedaluwarsa. Id yang sama sekali tidak dikenal
-// dianggap kedaluwarsa (seperti challenge asli yang sudah dibersihkan).
-func (v *OTPVerify) verifyDecoy(id uuid.UUID, now time.Time) error {
-	d, ok := v.decoys.get(id)
-	switch {
-	case !ok, d.burned:
-		return errOTPExpired
-	case now.Before(d.sentAt):
-		return errOTPNotSent
-	case !now.Before(d.sentAt.Add(v.decoyTTL())):
-		return errOTPExpired
+// validCodeFormat: kode hanya angka, panjang wajar. Bentuk salah tidak dihitung sebagai percobaan.
+func validCodeFormat(code string) error {
+	if len(code) == 0 || len(code) > 16 {
+		return errOTPBadInput
 	}
-	n := v.decoys.attempt(id, v.cfg.MaxAttempts)
-	switch {
-	case n > v.cfg.MaxAttempts:
-		return errOTPExpired // challenge asli sudah expired setelah batas tercapai
-	case n == v.cfg.MaxAttempts:
-		return errOTPTooMany
+	for _, r := range code {
+		if r < '0' || r > '9' {
+			return errOTPBadInput
+		}
 	}
-	return errOTPInvalid(v.cfg.MaxAttempts - n)
+	return nil
 }
 
-func (v *OTPVerify) decoyTTL() time.Duration { return v.decoys.ttl }
+// checkCode memeriksa kode untuk challenge asli (dipakai verifikasi pengguna dan login admin).
+// Percobaan dihitung secara atomik sebelum dibandingkan, sehingga tebakan paralel tidak dapat
+// melewati batas. nil berarti kode benar; challenge belum dipakai (Consume tetap tugas pemanggil).
+func checkCode(ctx context.Context, otps OTPRepo, codes OTPCodes, c *domain.OTPChallenge, code string, maxAttempts int, now time.Time) error {
+	switch c.Status {
+	case domain.OTPQueued, domain.OTPSending, domain.OTPFailed:
+		return errOTPNotSent
+	case domain.OTPSent:
+	default: // expired, consumed
+		return errOTPExpired
+	}
+	if c.ExpiresAt == nil || !now.Before(*c.ExpiresAt) {
+		_ = otps.Expire(ctx, c.ID)
+		return errOTPExpired
+	}
+	n, err := otps.IncrementVerifyAttempts(ctx, c.ID)
+	if err != nil {
+		return err
+	}
+	if n > maxAttempts {
+		// Tanpa Expire di sini: percobaan ke-max sudah membatalkan challenge bila salah, atau sedang
+		// memakainya bila benar. Expire dari percobaan berlebih yang berbarengan bisa mendahului Consume
+		// milik percobaan yang sah dan membuat login yang benar gagal.
+		return errOTPTooMany
+	}
+	if !hmac.Equal(codes.Hash(c.ID, code), c.CodeHash) {
+		if n >= maxAttempts {
+			_ = otps.Expire(ctx, c.ID) // challenge dibatalkan; user harus meminta kode baru
+			return errOTPTooMany
+		}
+		return errOTPInvalid(maxAttempts - n)
+	}
+	return nil
+}
+
+// verify meniru challenge asli untuk id palsu (nomor tak terdaftar): belum terkirim → 409,
+// lalu salah terus sampai batas percobaan, lalu kedaluwarsa. Id yang sama sekali tidak dikenal
+// dianggap kedaluwarsa (seperti challenge asli yang sudah dibersihkan).
+func (d *decoys) verify(id uuid.UUID, now time.Time, maxAttempts int) error {
+	v, ok := d.get(id)
+	switch {
+	case !ok, v.burned:
+		return errOTPExpired
+	case now.Before(v.sentAt):
+		return errOTPNotSent
+	case !now.Before(v.sentAt.Add(d.ttl)):
+		return errOTPExpired
+	}
+	n := d.attempt(id, maxAttempts)
+	switch {
+	case n > maxAttempts:
+		return errOTPExpired // challenge asli sudah expired setelah batas tercapai
+	case n == maxAttempts:
+		return errOTPTooMany
+	}
+	return errOTPInvalid(maxAttempts - n)
+}
 
 // newSessionToken membuat token acak 32 byte (base64url) dan hash SHA-256 yang disimpan.
 func newSessionToken() (string, []byte, error) {

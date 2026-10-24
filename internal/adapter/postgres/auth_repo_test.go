@@ -986,3 +986,51 @@ func TestUserPasswordLifecycle(t *testing.T) {
 		}
 	}
 }
+
+// Login admin dan OTP pengguna pada nomor yang sama punya challenge aktif masing-masing (§3.4).
+func TestOTPAdminLoginSeparateFromUserChallenges(t *testing.T) {
+	r := newAuthRig(t)
+	u := r.user(t)
+	userC := newOTP(u)
+	if err := r.otps.Replace(ctx, userC); err != nil {
+		t.Fatal(err)
+	}
+	adminC := &domain.OTPChallenge{ID: uuid.New(), Phone: u.Phone, CodeHash: hash32(3), Status: domain.OTPQueued,
+		Purpose: domain.OTPPurposeAdminLogin, NextAttemptAt: now(), CreatedAt: now()}
+	if err := r.otps.Replace(ctx, adminC); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.otps.Get(ctx, adminC.ID)
+	if err != nil || got.UserID != uuid.Nil || got.Purpose != domain.OTPPurposeAdminLogin || got.Status != domain.OTPQueued {
+		t.Fatalf("challenge admin: %+v %v", got, err)
+	}
+	if gu, _ := r.otps.Get(ctx, userC.ID); gu.Status != domain.OTPQueued {
+		t.Fatalf("challenge pengguna dibatalkan login admin: %s", gu.Status)
+	}
+	// challenge admin baru hanya membatalkan challenge admin lama
+	adminC2 := *adminC
+	adminC2.ID = uuid.New()
+	if err := r.otps.Replace(ctx, &adminC2); err != nil {
+		t.Fatal(err)
+	}
+	ga, _ := r.otps.Get(ctx, adminC.ID)
+	gu, _ := r.otps.Get(ctx, userC.ID)
+	if ga.Status != domain.OTPExpired || gu.Status != domain.OTPQueued {
+		t.Fatalf("admin lama=%s pengguna=%s", ga.Status, gu.Status)
+	}
+	// dispatcher mengklaim challenge admin seperti biasa (antrean yang sama)
+	if _, err := r.otps.ClaimNext(ctx, now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	// constraint: admin tanpa pengguna, pengguna wajib punya pengguna, admin tanpa data registrasi
+	for name, sql := range map[string]string{
+		"admin dengan user_id":         `INSERT INTO otp_challenges (id,user_id,phone,code_hash,status,next_attempt_at,created_at,purpose) VALUES ($1,'` + u.ID.String() + `',$2,$3,'expired',now(),now(),'admin_login')`,
+		"reset tanpa user_id":          `INSERT INTO otp_challenges (id,user_id,phone,code_hash,status,next_attempt_at,created_at,purpose) VALUES ($1,NULL,$2,$3,'expired',now(),now(),'reset')`,
+		"admin dengan data registrasi": `INSERT INTO otp_challenges (id,user_id,phone,code_hash,status,next_attempt_at,created_at,purpose,reg_name) VALUES ($1,NULL,$2,$3,'expired',now(),now(),'admin_login','x')`,
+	} {
+		if _, err := r.pool.Exec(ctx, sql, uuid.New(), u.Phone, hash32(4)); pgCode(err) != "23514" {
+			t.Errorf("%s harus ditolak CHECK: %v", name, err)
+		}
+	}
+}

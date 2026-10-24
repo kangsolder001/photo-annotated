@@ -16,6 +16,8 @@ import (
 type OTPDispatchConfig struct {
 	CodeTTL         time.Duration   // expires_at = sent_at + CodeTTL
 	MessageTemplate string          // memuat {code}; {ttl_minutes} opsional
+	// AdminMessageTemplate: pesan untuk challenge login admin (memuat {code}); kosong = MessageTemplate.
+	AdminMessageTemplate string
 	RetryDelays     []time.Duration // jeda sebelum percobaan ke-2, ke-3, …; total percobaan = len+1
 	// StuckAfter: challenge sending yang diklaim lebih lama dari ini dianggap ditinggal worker yang
 	// mati, lalu diantrekan ulang. Harus melebihi timeout satu pengiriman.
@@ -65,7 +67,8 @@ type OTPDispatcher struct {
 }
 
 func NewOTPDispatcher(otps OTPRepo, sender OTPSender, codes OTPCodes, channel *Channel, phones *PhoneLimiter, clock Clock, cfg OTPDispatchConfig) *OTPDispatcher {
-	if cfg.CodeTTL <= 0 || cfg.StuckAfter <= 0 || !strings.Contains(cfg.MessageTemplate, "{code}") {
+	if cfg.CodeTTL <= 0 || cfg.StuckAfter <= 0 || !strings.Contains(cfg.MessageTemplate, "{code}") ||
+		(cfg.AdminMessageTemplate != "" && !strings.Contains(cfg.AdminMessageTemplate, "{code}")) {
 		panic("usecase: OTPDispatchConfig tidak valid")
 	}
 	return &OTPDispatcher{otps: otps, sender: sender, codes: codes, channel: channel, phones: phones, clock: clock, cfg: cfg,
@@ -82,9 +85,14 @@ func (d *OTPDispatcher) Wake() {
 
 func (d *OTPDispatcher) maxAttempts() int { return len(d.cfg.RetryDelays) + 1 }
 
-func (d *OTPDispatcher) message(code string) string {
+// message menyusun isi pesan; login admin memakai template sendiri agar superadmin tahu itu kode admin.
+func (d *OTPDispatcher) message(code string, purpose domain.OTPPurpose) string {
+	tmpl := d.cfg.MessageTemplate
+	if purpose == domain.OTPPurposeAdminLogin && d.cfg.AdminMessageTemplate != "" {
+		tmpl = d.cfg.AdminMessageTemplate
+	}
 	minutes := int(d.cfg.CodeTTL.Round(time.Minute) / time.Minute)
-	return strings.NewReplacer("{code}", code, "{ttl_minutes}", strconv.Itoa(max(minutes, 1))).Replace(d.cfg.MessageTemplate)
+	return strings.NewReplacer("{code}", code, "{ttl_minutes}", strconv.Itoa(max(minutes, 1))).Replace(tmpl)
 }
 
 // RequeueStuck mengembalikan challenge yang ditinggal worker mati ke antrean. Pesannya mungkin sudah
@@ -109,7 +117,7 @@ func (d *OTPDispatcher) DispatchOnce(ctx context.Context) (DispatchResult, error
 		return d.fail(ctx, c, res, domain.OTPFailWAUnavailable, nil)
 	}
 
-	msgID, sendErr := d.sender.Send(ctx, c.Phone, d.message(d.codes.Code(c.ID)))
+	msgID, sendErr := d.sender.Send(ctx, c.Phone, d.message(d.codes.Code(c.ID), c.Purpose))
 	if sendErr != nil && ctx.Err() != nil {
 		// shutdown: kembalikan ke antrean dengan konteks baru agar proses berikutnya melanjutkan
 		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
