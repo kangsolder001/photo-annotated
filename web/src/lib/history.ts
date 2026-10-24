@@ -27,6 +27,9 @@ export const history = {
     const all = readJSON<HistoryEntry[]>(KEY, []).filter((x) => x.id !== e.id);
     writeJSON(KEY, [e, ...all].slice(0, MAX));
   },
+  remove(id: string) {
+    writeJSON(KEY, readJSON<HistoryEntry[]>(KEY, []).filter((x) => x.id !== id));
+  },
   update(id: string, p: Partial<Pick<HistoryEntry, "photos" | "boxes">>) {
     writeJSON(KEY, readJSON<HistoryEntry[]>(KEY, []).map((x) => (x.id === id ? { ...x, ...p } : x)));
   },

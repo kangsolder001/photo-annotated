@@ -190,3 +190,29 @@ sebagai teks/annotator/tautan, 404), `filters.test.ts`.
 **Verification:** [x] typecheck; [x] `npm test` (363); [x] build (chunk admin 44 kB). [x] Visual
 360/768/1440 × kedua tema; ditemukan & diperbaiki: overlay sampul bergeser pada foto potret
 (`object-fit: contain` membuat SVG lebih besar dari gambar) → wadah mengikuti ukuran gambar.
+
+#### Task 45: FE hapus permanen + pesan "sudah dihapus" di sisi user — **SELESAI**
+**Hasil:**
+- `ui/ConfirmDelete.tsx`: dialog yang menyebut apa yang akan hilang ("2 foto, 3 kotak anotasi milik
+  Budi Santoso"), banner "permanen dan tidak bisa dibatalkan … database dan SSD", tombol bahaya
+  (latar `--danger`) baru aktif setelah mengetik persis `HAPUS` (Enter juga mengirim). Di HP dialog
+  menjadi sheet layar penuh dari bawah.
+- Detail: tombol **Hapus submission** (`DELETE /admin/submissions/{id}` → notifikasi → kembali ke
+  daftar dengan filter terakhir) dan **Hapus foto** per foto (`DELETE /admin/photos/{id}`; foto terakhir
+  diberi tahu bahwa submission ikut terhapus; `submission_deleted: true` → kembali ke daftar, selain itu
+  detail dimuat ulang karena versi naik).
+- Daftar: kotak centang per kartu (desktop/tablet selalu tampil; HP lewat tombol **Pilih**), bar aksi
+  (menempel di atas; di HP menempel di bawah) dengan "Pilih semua yang tampil", jumlah dipilih (maks
+  50), **Hapus terpilih** (`POST /admin/submissions/delete`) → item `deleted`/`cleanup_pending`/
+  `not_found` dibuang dari daftar, ringkasan hasil di notifikasi.
+- `cleanup_pending` → "… dihapus; sebagian file dibersihkan otomatis." (notifikasi waspada).
+- **User:** `GET /submissions/{id}` → 404 untuk laporan yang tercatat di riwayat perangkat →
+  "Laporan ini sudah dihapus…", entri riwayat (`history.remove`) dan drafnya dibuang. Simpan edit
+  yang mendapat 404 → "Laporan ini sudah dihapus." + Muat ulang (lalu jalur yang sama).
+**Keputusan:** teks user memakai "Laporan" (istilah yang dipakai di seluruh layar user) alih-alih
+"Submission" dari spec §7.1. Mode "Pilih" di HP lewat tombol saja; tekan lama belum dibuat.
+**Test:** `delete.test.tsx` (teks dialog, tombol nonaktif sampai `HAPUS` persis, DELETE + redirect;
+hapus foto `cleanup_pending` + muat ulang; hapus massal: body ids, ringkasan, item hilang),
+`SubmissionPage.test.tsx` (404 di riwayat → sudah dihapus + riwayat/draf dibuang; 404 lain → pesan akses).
+**Verification:** [x] typecheck; [x] `npm test` (370); [x] build. [x] Visual: mode Pilih + bar bawah dan
+sheet konfirmasi di 360 px, bar atas + modal di 1440 px.

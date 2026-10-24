@@ -32,9 +32,16 @@ export function SubmissionPage() {
     try {
       setView(await api.getSubmission(id, editToken));
     } catch (e) {
+      if (isCode(e, "NOT_FOUND") && history.get(id, owner)) {
+        // tercatat di riwayat perangkat ini tetapi sudah tidak ada: dihapus admin (spec-labels-admin §5.5)
+        history.remove(id);
+        drafts.clear(id, owner);
+        setError("Laporan ini sudah dihapus. Laporan tersebut juga dihapus dari riwayat di perangkat ini.");
+        return;
+      }
       setError(isCode(e, "NOT_FOUND") ? "Laporan tidak ditemukan, atau perangkat/akun ini tidak punya akses ke laporan tersebut." : errorMessage(e));
     }
-  }, [id, editToken]);
+  }, [id, editToken, owner]);
 
   useEffect(() => {
     void load();

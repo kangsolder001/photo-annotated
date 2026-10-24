@@ -131,6 +131,7 @@ export function EditSubmission(props: {
       setSaving(false);
       if (isCode(e, "VERSION_CONFLICT")) setError({ text: errorMessage(e), reload: true });
       else if (isCode(e, "EDIT_WINDOW_CLOSED")) setError({ text: errorMessage(e), reload: true });
+      else if (isCode(e, "NOT_FOUND")) setError({ text: "Laporan ini sudah dihapus.", reload: true });
       else setError({ text: errorMessage(e) });
       // label diarsipkan/dihapus admin di tengah jalan: muat ulang daftar; efek di atas menandai kotaknya
       if (isCode(e, "INVALID_LABEL", "LABEL_ARCHIVED")) void reloadLabels();

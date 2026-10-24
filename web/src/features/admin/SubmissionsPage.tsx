@@ -1,6 +1,6 @@
 import { faClock } from "@fortawesome/free-regular-svg-icons";
 import {
-  faDownload, faFilter, faMagnifyingGlass, faRotate, faUserSecret, faUserSlash, faXmark,
+  faCheckDouble, faDownload, faFilter, faMagnifyingGlass, faRotate, faTrashCan, faUserSecret, faUserSlash, faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -15,11 +15,14 @@ import { daysUntil, exportFilename, filtersToParams, parseFilters, toQuery, type
 import { listContext } from "./listContext";
 import type { AdminLabel, ReviewStatus, SubmissionListItem } from "./types";
 import { AnnotatedPhoto } from "./ui/AnnotatedPhoto";
+import { ConfirmDelete } from "./ui/ConfirmDelete";
 import { Dialog } from "./ui/Dialog";
 import { useToast } from "./ui/Toasts";
 import { useIsPhone } from "./ui/useMediaQuery";
 
 export const PAGE_SIZE = 24;
+/** Batas aksi massal (hapus/review) per permintaan. */
+export const MAX_BULK = 50;
 
 const REVIEW_OPTIONS: [ReviewStatus | "", string][] = [["", "Semua status"], ["pending", "Menunggu review"], ["accepted", "Diterima"], ["rejected", "Ditolak"]];
 
@@ -35,6 +38,11 @@ export function SubmissionsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string>();
   const [exporting, setExporting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectMode, setSelectMode] = useState(false);
+  const [bulk, setBulk] = useState<"delete" | null>(null);
+  const isPhone = useIsPhone();
+  const toast = useToast();
   const abort = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -63,6 +71,7 @@ export function SubmissionsPage() {
 
   useEffect(() => {
     setItems(undefined);
+    setSelected(new Set());
     void load();
     return () => abort.current?.abort();
   }, [load]);
@@ -79,6 +88,42 @@ export function SubmissionsPage() {
     return m;
   }, [labels, items]);
   const isQueue = filters.review_status === "pending" && filters.sort === "oldest";
+  const selecting = !isPhone || selectMode;
+  const chosen = (items ?? []).filter((i) => selected.has(i.id));
+  const toggle = (id: string) => setSelected((s) => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id);
+    else if (n.size < MAX_BULK) n.add(id);
+    return n;
+  });
+  const allShown = !!items?.length && items.slice(0, MAX_BULK).every((i) => selected.has(i.id));
+  const selectAll = () => setSelected(allShown ? new Set() : new Set((items ?? []).slice(0, MAX_BULK).map((i) => i.id)));
+  const endSelect = () => {
+    setSelected(new Set());
+    setSelectMode(false);
+  };
+  /** Buang item yang sudah tidak ada (dihapus) dari daftar. */
+  const dropItems = (ids: string[]) => {
+    setItems((it) => it?.filter((x) => !ids.includes(x.id)));
+    setSelected((s) => new Set([...s].filter((x) => !ids.includes(x))));
+    listContext.drop(ids);
+  };
+
+  const bulkDelete = async () => {
+    const r = await adminApi.deleteSubmissions(chosen.map((c) => c.id));
+    // yang sudah tidak ada (not_found) juga dibuang dari daftar
+    const gone = r.results.map((x) => x.id);
+    dropItems(gone);
+    const deleted = r.results.filter((x) => x.status === "deleted").length;
+    const pending = r.results.filter((x) => x.status === "cleanup_pending").length;
+    const missing = r.results.filter((x) => x.status === "not_found").length;
+    const parts = [`${deleted + pending} submission dihapus permanen`];
+    if (pending) parts.push(`${pending} di antaranya sebagian filenya dibersihkan otomatis`);
+    if (missing) parts.push(`${missing} sudah tidak ada`);
+    toast(pending || missing ? "warn" : "ok", parts.join("; ") + ".");
+    setBulk(null);
+    endSelect();
+  };
 
   return (
     <div className="admin-page">
@@ -90,6 +135,7 @@ export function SubmissionsPage() {
             <Icon icon={faClock} /> Antrean review
           </button>
           <button type="button" className="btn" onClick={() => setExporting(true)}><Icon icon={faDownload} /> Export JSONL</button>
+          {isPhone && !selectMode && <button type="button" className="btn" onClick={() => setSelectMode(true)}><Icon icon={faCheckDouble} /> Pilih</button>}
         </div>
       </div>
       {isQueue && <p className="muted">Antrean review: submission yang belum direview, paling dekat batas retensi lebih dulu.</p>}
@@ -100,9 +146,23 @@ export function SubmissionsPage() {
       {!items && !error && <Spinner label="Memuat anotasi" />}
       {items?.length === 0 && !error && <div className="card"><p>Tidak ada submission yang cocok dengan filter ini.</p></div>}
 
+      {items && items.length > 0 && selecting && (selected.size > 0 || selectMode) && (
+        <div className={`bulk-bar${isPhone ? " bulk-bar-bottom" : ""}`} role="region" aria-label="Aksi untuk yang dipilih">
+          <label className="check"><input type="checkbox" checked={allShown} onChange={selectAll} /> Pilih semua yang tampil</label>
+          <span className="bulk-count" aria-live="polite">{selected.size} dipilih{selected.size >= MAX_BULK ? ` (maks ${MAX_BULK})` : ""}</span>
+          <div className="row bulk-actions">
+            <button type="button" className="btn btn-danger" disabled={!selected.size} onClick={() => setBulk("delete")}><Icon icon={faTrashCan} /> Hapus terpilih</button>
+            <button type="button" className="btn" onClick={endSelect}><Icon icon={faXmark} /> Batal</button>
+          </div>
+        </div>
+      )}
+
       {items && items.length > 0 && (
         <ul className="sub-grid" aria-label="Daftar submission">
-          {items.map((it) => <SubmissionCard key={it.id} item={it} colors={colors} />)}
+          {items.map((it) => (
+            <SubmissionCard key={it.id} item={it} colors={colors}
+              selectable={selecting} selected={selected.has(it.id)} onToggle={() => toggle(it.id)} />
+          ))}
         </ul>
       )}
       {cursor && items && (
@@ -114,6 +174,10 @@ export function SubmissionsPage() {
       )}
 
       {exporting && <ExportDialog filters={filters} labels={labels} onClose={() => setExporting(false)} />}
+      {bulk === "delete" && (
+        <ConfirmDelete title={`Hapus ${chosen.length} submission?`} confirmLabel="Hapus terpilih" onClose={() => setBulk(null)} onConfirm={bulkDelete}
+          what={`${chosen.length} submission (${chosen.reduce((n, c) => n + c.photo_count, 0)} foto, ${chosen.reduce((n, c) => n + c.annotation_count, 0)} kotak anotasi) dari ${owners(chosen)}`} />
+      )}
     </div>
   );
 }
@@ -128,15 +192,29 @@ export function AnnotatorLine({ a }: { a: SubmissionListItem["annotator"] }) {
   );
 }
 
-function SubmissionCard({ item, colors }: { item: SubmissionListItem; colors: Map<number, string> }) {
+/** "Budi, Siti, dan 3 lainnya" */
+function owners(items: SubmissionListItem[]): string {
+  const names = [...new Set(items.map((i) => i.annotator?.name ?? "Anonim"))];
+  return names.length <= 2 ? names.join(" dan ") : `${names.slice(0, 2).join(", ")}, dan ${names.length - 2} lainnya`;
+}
+
+function SubmissionCard({ item, colors, selectable, selected, onToggle }: {
+  item: SubmissionListItem; colors: Map<number, string>; selectable: boolean; selected: boolean; onToggle(): void;
+}) {
   const c = item.cover;
   return (
-    <li className="card sub-card">
+    <li className={`card sub-card${selected ? " is-selected" : ""}`}>
+      {selectable && (
+        <label className="sub-check" title="Pilih">
+          <input type="checkbox" checked={selected} onChange={onToggle}
+            aria-label={`Pilih submission ${formatDateTime(item.created_at)}${item.annotator ? ` dari ${item.annotator.name}` : ""}`} />
+        </label>
+      )}
       <Link to={`/admin/anotasi/${item.id}`} className="sub-cover" aria-label={`Buka submission ${formatDateTime(item.created_at)}${item.annotator ? ` dari ${item.annotator.name}` : ""}`}>
         {c ? (
           <AnnotatedPhoto display src={c.url} width={c.width} height={c.height} alt="Foto sampul"
             boxes={c.annotations.map((a) => ({ labelId: a.label_id, x: a.x, y: a.y, w: a.w, h: a.h }))} colors={colors} />
-        ) : <div className="sub-cover-empty muted">Tanpa foto</div>}
+        ) : <div className="sub-cover-empty">Tanpa foto</div>}
       </Link>
       <div className="sub-body">
         <AnnotatorLine a={item.annotator} />

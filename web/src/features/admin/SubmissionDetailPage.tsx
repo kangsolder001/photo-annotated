@@ -1,6 +1,6 @@
-import { faArrowLeft, faEnvelope, faImages, faPhone, faRotate, faUser, faUserSecret, faUserSlash } from "@fortawesome/free-solid-svg-icons";
+import { faArrowLeft, faEnvelope, faImages, faPhone, faRotate, faTrashCan, faUser, faUserSecret, faUserSlash } from "@fortawesome/free-solid-svg-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Icon } from "../../components/Icon";
 import { ReviewBadge } from "../../components/ReviewBadge";
 import { Banner, Spinner } from "../../components/ui";
@@ -15,6 +15,8 @@ import { daysUntil } from "./filters";
 import { listContext } from "./listContext";
 import type { AdminPhoto, AdminSubmission } from "./types";
 import { AnnotatedPhoto } from "./ui/AnnotatedPhoto";
+import { ConfirmDelete, deleteResultText } from "./ui/ConfirmDelete";
+import { useToast } from "./ui/Toasts";
 
 /** /admin/anotasi/:id: semua foto + kotak, annotator, waktu, versi (spec-labels-admin §7.2). */
 export function SubmissionDetailPage() {
@@ -24,6 +26,9 @@ export function SubmissionDetailPage() {
   const [sub, setSub] = useState<AdminSubmission>();
   const [error, setError] = useState<{ text: string; gone?: boolean }>();
   const lastRefresh = useRef(0);
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [confirm, setConfirm] = useState<{ kind: "submission" } | { kind: "photo"; photo: AdminPhoto; index: number }>();
 
   const load = useCallback(async () => {
     setError(undefined);
@@ -48,6 +53,25 @@ export function SubmissionDetailPage() {
 
   const back = `/admin/anotasi${listContext.get()?.search ? `?${listContext.get()!.search}` : ""}`;
 
+  const deleteSubmission = async () => {
+    const r = await adminApi.deleteSubmission(id);
+    listContext.drop([id]);
+    toast(r.status === "cleanup_pending" ? "warn" : "ok", deleteResultText(r.status, "Submission"));
+    navigate(back, { replace: true });
+  };
+
+  const deletePhoto = async (photo: AdminPhoto) => {
+    const r = await adminApi.deletePhoto(photo.photo_id);
+    toast(r.status === "cleanup_pending" ? "warn" : "ok", deleteResultText(r.status, r.submission_deleted ? "Foto terakhir dan submission-nya" : "Foto"));
+    setConfirm(undefined);
+    if (r.submission_deleted) {
+      listContext.drop([id]);
+      navigate(back, { replace: true });
+    } else {
+      await load();
+    }
+  };
+
   if (error) {
     return (
       <div className="admin-page">
@@ -69,7 +93,8 @@ export function SubmissionDetailPage() {
       <div className="detail-grid">
         <div className="detail-photos">
           {sub.photos.map((p, i) => (
-            <PhotoCard key={p.photo_id} photo={p} index={i} total={sub.photos.length} onImageError={refreshUrls} />
+            <PhotoCard key={p.photo_id} photo={p} index={i} total={sub.photos.length} onImageError={refreshUrls}
+              onDelete={() => setConfirm({ kind: "photo", photo: p, index: i })} />
           ))}
           {sub.photos.length === 0 && <div className="card"><p>Tidak ada foto.</p></div>}
         </div>
@@ -88,11 +113,31 @@ export function SubmissionDetailPage() {
             </dl>
             {sub.review.reason && <p className="muted">Alasan: {sub.review.reason}</p>}
           </div>
+          <div className="card stack">
+            <h2>Hapus</h2>
+            <p className="muted">Hapus permanen dari database dan SSD. Tidak bisa dibatalkan.</p>
+            <button type="button" className="btn btn-danger" onClick={() => setConfirm({ kind: "submission" })}>
+              <Icon icon={faTrashCan} /> Hapus submission
+            </button>
+          </div>
         </aside>
       </div>
+      {confirm?.kind === "submission" && (
+        <ConfirmDelete title="Hapus submission?" confirmLabel="Hapus submission" onClose={() => setConfirm(undefined)} onConfirm={deleteSubmission}
+          what={`${sub.photos.length} foto, ${countBoxes(sub.photos)} kotak anotasi${sub.annotator ? ` milik ${sub.annotator.name}` : ""}`} />
+      )}
+      {confirm?.kind === "photo" && (
+        <ConfirmDelete title={`Hapus foto ${confirm.index + 1}?`} confirmLabel="Hapus foto" onClose={() => setConfirm(undefined)} onConfirm={() => deletePhoto(confirm.photo)}
+          what={`foto ${confirm.index + 1} dan ${confirm.photo.annotations.length} kotak anotasinya${sub.annotator ? ` (milik ${sub.annotator.name})` : ""}`}>
+          {sub.photos.length === 1 && <p>Ini foto terakhir: submission ikut terhapus.</p>}
+          <p className="muted">Annotator yang sedang membuka submission ini harus memuat ulang sebelum bisa menyimpan.</p>
+        </ConfirmDelete>
+      )}
     </div>
   );
 }
+
+const countBoxes = (photos: AdminPhoto[]) => photos.reduce((n, p) => n + p.annotations.length, 0);
 
 function AnnotatorCard({ sub, showProfile }: { sub: AdminSubmission; showProfile: boolean }) {
   const a = sub.annotator;
@@ -118,13 +163,14 @@ function AnnotatorCard({ sub, showProfile }: { sub: AdminSubmission; showProfile
   );
 }
 
-function PhotoCard({ photo, index, total, onImageError }: { photo: AdminPhoto; index: number; total: number; onImageError(): void }) {
+function PhotoCard({ photo, index, total, onImageError, onDelete }: { photo: AdminPhoto; index: number; total: number; onImageError(): void; onDelete(): void }) {
   const colors = useMemo(() => new Map(photo.annotations.flatMap((a) => (a.label ? [[a.label.id, a.label.color] as const] : []))), [photo]);
   return (
     <section className="card photo-card" aria-label={`Foto ${index + 1}`}>
       <div className="photo-card-head">
         <h2>Foto {index + 1} dari {total}</h2>
         <span className="muted">{photo.width} × {photo.height} px · {photo.annotations.length} kotak</span>
+        <button type="button" className="btn btn-small btn-danger" onClick={onDelete}><Icon icon={faTrashCan} /> Hapus foto</button>
       </div>
       <AnnotatedPhoto src={photo.url} width={photo.width} height={photo.height} alt={`Foto ${index + 1} dengan kotak anotasi`} display
         boxes={photo.annotations.map((a) => ({ labelId: a.label?.id ?? null, x: a.x, y: a.y, w: a.w, h: a.h }))} colors={colors} onImageError={onImageError} />
