@@ -92,6 +92,25 @@ func (r *LabelRepo) ListAll(ctx context.Context) ([]usecase.LabelUsage, error) {
 	return out, rows.Err()
 }
 
+// ForShare membaca label dengan kunci FOR SHARE (dipakai submit/edit di dalam transaksi): label yang
+// sedang diarsipkan/dihapus berbarengan menunggu transaksi ini selesai, dan sebaliknya.
+func (r *LabelRepo) ForShare(ctx context.Context, ids []int) (map[int]domain.Label, error) {
+	rows, err := r.db(ctx).Query(ctx, `SELECT `+labelColumns+` FROM labels WHERE id = ANY($1) ORDER BY id FOR SHARE`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: lock labels for share: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[int]domain.Label, len(ids))
+	for rows.Next() {
+		l, err := scanLabel(rows)
+		if err != nil {
+			return nil, fmt.Errorf("postgres: scan label: %w", err)
+		}
+		out[l.ID] = *l
+	}
+	return out, rows.Err()
+}
+
 func (r *LabelRepo) Get(ctx context.Context, id int) (*domain.Label, error) {
 	l, err := scanLabel(r.db(ctx).QueryRow(ctx, `SELECT `+labelColumns+` FROM labels WHERE id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {

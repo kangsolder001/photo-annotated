@@ -68,10 +68,11 @@ func (r *SubmissionRepo) GetDetail(ctx context.Context, id uuid.UUID) (*domain.S
 		SELECT s.id, s.owner_id, s.client_request_id, s.client_ip, s.version, s.created_at, s.updated_at,
 		       p.id, p.submission_id, p.owner_id, p.position, p.storage_key, p.content_type, p.size_bytes,
 		       p.width, p.height, p.uploaded_at, p.sha256, p.status, p.created_at,
-		       a.text, a.x, a.y, a.w, a.h
+		       a.id, a.label_id, a.text, a.x, a.y, a.w, a.h, l.name, l.color, l.archived_at
 		  FROM submissions s
 		  LEFT JOIN photos p      ON p.submission_id = s.id AND p.status = 'attached'
 		  LEFT JOIN annotations a ON a.photo_id = p.id
+		  LEFT JOIN labels l      ON l.id = a.label_id
 		 WHERE s.id = $1
 		 ORDER BY p.position, p.id, a.id`, id)
 	if err != nil {
@@ -88,12 +89,15 @@ func (r *SubmissionRepo) GetDetail(ctx context.Context, id uuid.UUID) (*domain.S
 			pkey, pct, pstatus  *string
 			puploaded, pcreated *time.Time
 			psha                []byte
-			atext               *string
+			aid                 *int64
+			alabel              *int
+			atext, lname, lcol  *string
 			ax, ay, aw, ah      *float64
+			larchived           *time.Time
 		)
 		if err := rows.Scan(&s.ID, &s.OwnerID, &s.ClientRequestID, &s.ClientIP, &s.Version, &s.CreatedAt, &s.UpdatedAt,
 			&pid, &psub, &powner, &ppos, &pkey, &pct, &psize, &pw, &ph, &puploaded, &psha, &pstatus, &pcreated,
-			&atext, &ax, &ay, &aw, &ah); err != nil {
+			&aid, &alabel, &atext, &ax, &ay, &aw, &ah, &lname, &lcol, &larchived); err != nil {
 			return nil, fmt.Errorf("postgres: scan submission detail: %w", err)
 		}
 		if detail == nil {
@@ -112,9 +116,9 @@ func (r *SubmissionRepo) GetDetail(ctx context.Context, id uuid.UUID) (*domain.S
 				Annotations: []domain.Annotation{},
 			})
 		}
-		if atext != nil {
+		if aid != nil {
 			cur := &detail.Photos[len(detail.Photos)-1]
-			cur.Annotations = append(cur.Annotations, domain.Annotation{Text: *atext, X: *ax, Y: *ay, W: *aw, H: *ah})
+			cur.Annotations = append(cur.Annotations, annotationFrom(alabel, atext, lname, lcol, larchived, *ax, *ay, *aw, *ah))
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -126,14 +130,56 @@ func (r *SubmissionRepo) GetDetail(ctx context.Context, id uuid.UUID) (*domain.S
 	return detail, nil
 }
 
+// annotationFrom menyusun anotasi dari kolom hasil LEFT JOIN labels: berlabel (label terkini) atau
+// baris lama berteks bebas.
+func annotationFrom(labelID *int, text, name, color *string, archivedAt *time.Time, x, y, w, h float64) domain.Annotation {
+	a := domain.Annotation{X: x, Y: y, W: w, H: h}
+	if labelID != nil && name != nil && color != nil {
+		a.LabelID = *labelID
+		a.Label = &domain.Label{ID: *labelID, Name: *name, Color: *color, ArchivedAt: archivedAt}
+	}
+	if text != nil {
+		a.Text = *text
+	}
+	return a
+}
+
+func (r *SubmissionRepo) PhotoLabelIDs(ctx context.Context, photoIDs []uuid.UUID) (map[uuid.UUID]map[int]bool, error) {
+	out := make(map[uuid.UUID]map[int]bool, len(photoIDs))
+	if len(photoIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.db(ctx).Query(ctx,
+		`SELECT DISTINCT photo_id, label_id FROM annotations WHERE photo_id = ANY($1) AND label_id IS NOT NULL`, photoIDs)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: photo label ids: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			pid uuid.UUID
+			lid int
+		)
+		if err := rows.Scan(&pid, &lid); err != nil {
+			return nil, fmt.Errorf("postgres: scan photo label ids: %w", err)
+		}
+		if out[pid] == nil {
+			out[pid] = map[int]bool{}
+		}
+		out[pid][lid] = true
+	}
+	return out, rows.Err()
+}
+
 func (r *SubmissionRepo) AddAnnotations(ctx context.Context, photoID uuid.UUID, anns []domain.Annotation) error {
 	if len(anns) == 0 {
 		return nil
 	}
 	batch := &pgx.Batch{}
 	for _, a := range anns {
-		batch.Queue(`INSERT INTO annotations (photo_id, text, x, y, w, h) VALUES ($1,$2,$3,$4,$5,$6)`,
-			photoID, a.Text, a.X, a.Y, a.W, a.H)
+		// baris baru selalu label_id; text hanya untuk baris lama (tidak pernah ditulis lagi)
+		batch.Queue(`INSERT INTO annotations (photo_id, label_id, x, y, w, h) VALUES ($1,$2,$3,$4,$5,$6)`,
+			photoID, a.LabelID, a.X, a.Y, a.W, a.H)
 	}
 	res := r.db(ctx).SendBatch(ctx, batch)
 	var firstErr error

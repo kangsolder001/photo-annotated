@@ -67,8 +67,8 @@ const (
 	photoB  = "11111111-2222-4333-8444-555555555555"
 	reqID   = "c1f7e0a4-1111-4222-8333-444444444444"
 	goodSub = `{"photos":[{"photo_id":"` + photoA + `","annotations":[` +
-		`{"text":"Kerusakan di sisi kiri paket","x":0.12,"y":0.30,"w":0.25,"h":0.18},` +
-		`{"text":"Label resi","x":0.55,"y":0.10,"w":0.30,"h":0.12}]},` +
+		`{"label_id":3,"x":0.12,"y":0.30,"w":0.25,"h":0.18},` +
+		`{"label_id":4,"x":0.55,"y":0.10,"w":0.30,"h":0.12}]},` +
 		`{"photo_id":"` + photoB + `"}],"client_request_id":"` + reqID + `"}`
 )
 
@@ -96,7 +96,7 @@ func TestSubmissionHandlerCreated(t *testing.T) {
 		t.Fatalf("input: %+v", in)
 	}
 	if in.Photos[0].PhotoID.String() != photoA || len(in.Photos[0].Annotations) != 2 ||
-		in.Photos[0].Annotations[0] != (domain.Annotation{Text: "Kerusakan di sisi kiri paket", X: 0.12, Y: 0.30, W: 0.25, H: 0.18}) {
+		in.Photos[0].Annotations[0] != (domain.Annotation{LabelID: 3, X: 0.12, Y: 0.30, W: 0.25, H: 0.18}) {
 		t.Fatalf("anotasi foto 1: %+v", in.Photos[0])
 	}
 	if in.Photos[1].PhotoID.String() != photoB || in.Photos[1].Annotations == nil || len(in.Photos[1].Annotations) != 0 {
@@ -136,7 +136,7 @@ func TestSubmissionHandlerBadRequests(t *testing.T) {
 		{"field tak dikenal di foto", `{"photos":[{"photo_id":"` + photoA + `","status":"attached"}],"client_request_id":"` + reqID + `"}`, "application/json", 400, "INVALID_JSON"},
 		{"photo_id bukan UUID", `{"photos":[{"photo_id":"abc"}],"client_request_id":"` + reqID + `"}`, "application/json", 400, "INVALID_JSON"},
 		{"client_request_id bukan UUID", `{"photos":[],"client_request_id":"123"}`, "application/json", 400, "INVALID_JSON"},
-		{"koordinat bukan angka", `{"photos":[{"photo_id":"` + photoA + `","annotations":[{"text":"a","x":"0.1","y":0,"w":1,"h":1}]}],"client_request_id":"` + reqID + `"}`, "application/json", 400, "INVALID_JSON"},
+		{"koordinat bukan angka", `{"photos":[{"photo_id":"` + photoA + `","annotations":[{"label_id":1,"x":"0.1","y":0,"w":1,"h":1}]}],"client_request_id":"` + reqID + `"}`, "application/json", 400, "INVALID_JSON"},
 		{"content-type salah", goodSub, "text/plain", 415, "UNSUPPORTED_MEDIA_TYPE"},
 		{"body > 64 KB", big, "application/json", 413, "PAYLOAD_TOO_LARGE"},
 	} {

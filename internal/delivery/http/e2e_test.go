@@ -110,6 +110,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		o.otpPerMin = 1_000_000
 	}
 	pool := pgtest.Pool(t)
+	seedE2ELabels(t, pool)
 	repo := postgres.NewPhotoRepo(pool)
 	dir := t.TempDir()
 	store, err := localfs.New(localfs.Options{Root: dir, MinFreeBytes: o.minFree})
@@ -133,8 +134,9 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	if o.otp != nil {
 		et = nil
 	}
-	submit := usecase.NewSubmit(repo, subs, txm, store, et, usecase.SystemClock{},
-		usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50, MaxAnnotationTextLen: 1000})
+	labelRepo := postgres.NewLabelRepo(pool)
+	submit := usecase.NewSubmit(repo, subs, labelRepo, txm, store, et, usecase.SystemClock{},
+		usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50})
 
 	var inner atomic.Pointer[http.Handler]
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -145,8 +147,8 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	reader := usecase.NewReader(subs, repo, store, sg, et, usecase.SystemClock{}, usecase.ReadConfig{
 		PublicBaseURL: srv.URL, EditWindow: 24 * time.Hour, ViewURLTTL: o.viewTTL,
 	})
-	editor := usecase.NewEdit(repo, subs, txm, store, et, usecase.SystemClock{}, usecase.EditConfig{
-		SubmitConfig: usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50, MaxAnnotationTextLen: 1000},
+	editor := usecase.NewEdit(repo, subs, labelRepo, txm, store, et, usecase.SystemClock{}, usecase.EditConfig{
+		SubmitConfig: usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50},
 		Window:       24 * time.Hour,
 	})
 	presign := usecase.NewPresign(repo, store, sg, usecase.SystemClock{}, usecase.PresignConfig{
@@ -190,6 +192,21 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	})
 	inner.Store(&h)
 	return &stack{admin: adm, pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}
+}
+
+// e2eLabels adalah label aktif yang disiapkan setiap stack: "Label 1".."Label 5" dengan id 1..5
+// (identity di schema baru selalu mulai dari 1).
+const e2eLabels = 5
+
+func seedE2ELabels(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	for i := 1; i <= e2eLabels; i++ {
+		var id int
+		if err := pool.QueryRow(context.Background(), `INSERT INTO labels (name, color, sort_order) VALUES ($1, '#2bb3a3', $2) RETURNING id`,
+			"Label "+itoa(i), i-1).Scan(&id); err != nil || id != i {
+			t.Fatalf("seed label %d: id=%d err=%v", i, id, err)
+		}
+	}
 }
 
 type presigned struct {

@@ -20,6 +20,7 @@ type EditConfig struct {
 type Edit struct {
 	photos PhotoRepo
 	subs   SubmissionRepo
+	labels LabelRepo
 	tx     TxManager
 	gate   photoGate
 	authz  authorizer
@@ -27,9 +28,9 @@ type Edit struct {
 	cfg    EditConfig
 }
 
-func NewEdit(photos PhotoRepo, subs SubmissionRepo, tx TxManager, store PhotoStore, editTokens EditTokenSigner, clock Clock, cfg EditConfig) *Edit {
+func NewEdit(photos PhotoRepo, subs SubmissionRepo, labels LabelRepo, tx TxManager, store PhotoStore, editTokens EditTokenSigner, clock Clock, cfg EditConfig) *Edit {
 	return &Edit{
-		photos: photos, subs: subs, tx: tx, gate: photoGate{photos: photos, store: store},
+		photos: photos, subs: subs, labels: labels, tx: tx, gate: photoGate{photos: photos, store: store},
 		authz: authorizer{editTokens}, clock: clock, cfg: cfg,
 	}
 }
@@ -113,6 +114,21 @@ func (u *Edit) Edit(ctx context.Context, in EditInput) (*EditOutput, error) {
 			return err
 		}
 		newVersion = v
+		// Label arsip tetap boleh untuk kotak pada foto yang di versi sebelumnya sudah memakai label itu
+		// (spec-labels-admin §4.2): pengguna tidak terkunci dari submission miliknya hanya karena admin
+		// mengarsipkan label di tengah jendela edit. Dibaca setelah BumpVersion (baris submission terkunci).
+		kept := make([]uuid.UUID, 0, len(current))
+		for _, p := range current {
+			kept = append(kept, p.ID)
+		}
+		prev, err := u.subs.PhotoLabelIDs(ctx, kept)
+		if err != nil {
+			return err
+		}
+		keepArchived := func(i, labelID int) bool { return prev[in.Photos[i].PhotoID][labelID] }
+		if err := checkLabels(ctx, u.labels, anns, keepArchived); err != nil {
+			return err
+		}
 		// foto yang dibuang: tandai deleted dan hapus anotasinya sekarang (filenya oleh cleanup)
 		for _, p := range current {
 			if _, keep := requested[p.ID]; keep {

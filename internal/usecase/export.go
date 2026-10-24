@@ -15,9 +15,9 @@ type ExportConfig struct {
 	PageSize      int
 }
 
-// ExportQuery adalah filter export. From inklusif, To eksklusif (atas created_at submission).
+// ExportQuery adalah filter export (lihat ExportFilter) ditambah pilihan URL foto.
 type ExportQuery struct {
-	From, To    *time.Time
+	ExportFilter
 	IncludeURLs bool
 }
 
@@ -35,7 +35,10 @@ type ExportItem struct {
 }
 
 // ExportAnnotation memuat kotak dalam dua bentuk agar konsumen tidak perlu tahu aturan normalisasi.
+// Kotak berlabel: LabelID (kelas stabil) + Label (nama saat export). Baris lama: LabelID 0 + Text.
 type ExportAnnotation struct {
+	LabelID  int
+	Label    string
 	Text     string
 	BBoxNorm [4]float64 // [x, y, w, h] 0..1 (nilai asli di DB)
 	BBoxPx   [4]int     // [x, y, w, h] dalam piksel foto hasil proses
@@ -65,7 +68,7 @@ func (e *Export) Run(ctx context.Context, q ExportQuery, enc ExportEncoder, afte
 		if err := ctx.Err(); err != nil {
 			return n, err
 		}
-		page, err := e.repo.ExportPage(ctx, after, q.From, q.To, e.cfg.PageSize)
+		page, err := e.repo.ExportPage(ctx, after, q.ExportFilter, e.cfg.PageSize)
 		if err != nil {
 			return n, err
 		}
@@ -104,9 +107,13 @@ func toExportItem(p *ExportPhoto) *ExportItem {
 	}
 	for i, a := range p.Annotations {
 		item.Annotations[i] = ExportAnnotation{
+			LabelID:  a.LabelID,
 			Text:     a.Text,
 			BBoxNorm: [4]float64{a.X, a.Y, a.W, a.H},
 			BBoxPx:   bboxPx(a.X, a.Y, a.W, a.H, p.Photo.Width, p.Photo.Height),
+		}
+		if a.Label != nil {
+			item.Annotations[i].Label = a.Label.Name
 		}
 	}
 	return item

@@ -30,7 +30,27 @@ type rig struct {
 func newRig(t *testing.T) *rig {
 	t.Helper()
 	pool := pgtest.Pool(t)
+	// label uji: id identity pertama di schema baru selalu 1 (lab1); lab2 untuk membedakan kotak
+	for i, name := range []string{"Retak", "Penyok"} {
+		var id int
+		if err := pool.QueryRow(ctx, `INSERT INTO labels (name, color) VALUES ($1, '#e4572e') RETURNING id`, name).Scan(&id); err != nil || id != i+1 {
+			t.Fatalf("label uji: %d %v", id, err)
+		}
+	}
 	return &rig{pool: pool, photos: postgres.NewPhotoRepo(pool), subs: postgres.NewSubmissionRepo(pool), tx: postgres.NewTxManager(pool)}
+}
+
+const (
+	lab1 = 1 // "Retak"
+	lab2 = 2 // "Penyok"
+)
+
+// sameAnn membandingkan anotasi yang dibaca dengan yang ditulis: label (beserta nama dari JOIN) dan
+// koordinat persis sama.
+func sameAnn(got, want domain.Annotation) bool {
+	names := map[int]string{lab1: "Retak", lab2: "Penyok"}
+	return got.LabelID == want.LabelID && got.Label != nil && got.Label.ID == want.LabelID && got.Label.Name == names[want.LabelID] &&
+		got.Text == "" && got.X == want.X && got.Y == want.Y && got.W == want.W && got.H == want.H
 }
 
 func now() time.Time { return time.Now().UTC().Truncate(time.Microsecond) }
@@ -166,11 +186,11 @@ func TestGetDetailGroupsPhotosAndAnnotationsInOrder(t *testing.T) {
 		}
 	}
 	a1 := []domain.Annotation{
-		{Text: "pertama", X: 0.12, Y: 0.3, W: 0.25, H: 0.18},
-		{Text: "kedua\nbaris", X: 0.55, Y: 0.1, W: 0.3, H: 0.12},
-		{Text: "ketiga 日本語", X: 0, Y: 0, W: 1, H: 1},
+		{LabelID: lab1, X: 0.12, Y: 0.3, W: 0.25, H: 0.18},
+		{LabelID: lab2, X: 0.55, Y: 0.1, W: 0.3, H: 0.12},
+		{LabelID: lab1, X: 0, Y: 0, W: 1, H: 1},
 	}
-	a3 := []domain.Annotation{{Text: "di foto 3", X: 0.5, Y: 0.5, W: 0.5, H: 0.5}}
+	a3 := []domain.Annotation{{LabelID: lab2, X: 0.5, Y: 0.5, W: 0.5, H: 0.5}}
 	if err := r.subs.AddAnnotations(ctx, p1.ID, a1); err != nil {
 		t.Fatal(err)
 	}
@@ -204,13 +224,13 @@ func TestGetDetailGroupsPhotosAndAnnotationsInOrder(t *testing.T) {
 		}
 	}
 	// anotasi: urutan pembuatan dipertahankan, nilai float64 kembali persis sama
-	if got := d.Photos[0].Annotations; len(got) != 3 || got[0] != a1[0] || got[1] != a1[1] || got[2] != a1[2] {
+	if got := d.Photos[0].Annotations; len(got) != 3 || !sameAnn(got[0], a1[0]) || !sameAnn(got[1], a1[1]) || !sameAnn(got[2], a1[2]) {
 		t.Fatalf("anotasi foto 1: %+v", got)
 	}
 	if got := d.Photos[1].Annotations; got == nil || len(got) != 0 {
 		t.Fatalf("foto tanpa anotasi harus slice kosong (bukan nil): %#v", got)
 	}
-	if got := d.Photos[2].Annotations; len(got) != 1 || got[0] != a3[0] {
+	if got := d.Photos[2].Annotations; len(got) != 1 || !sameAnn(got[0], a3[0]) {
 		t.Fatalf("anotasi foto 3: %+v", got)
 	}
 }
@@ -235,12 +255,12 @@ func TestAnnotationsPreserveFloat64Exactly(t *testing.T) {
 	if err := r.photos.Attach(ctx, p.ID, s.ID, 0, nil); err != nil {
 		t.Fatal(err)
 	}
-	in := domain.Annotation{Text: "presisi", X: 0.12, Y: 0.1 + 0.2, W: 1.0 / 3.0, H: 0.005}
+	in := domain.Annotation{LabelID: lab1, X: 0.12, Y: 0.1 + 0.2, W: 1.0 / 3.0, H: 0.005}
 	if err := r.subs.AddAnnotations(ctx, p.ID, []domain.Annotation{in}); err != nil {
 		t.Fatal(err)
 	}
 	d, _ := r.subs.GetDetail(ctx, s.ID)
-	if got := d.Photos[0].Annotations[0]; got != in {
+	if got := d.Photos[0].Annotations[0]; !sameAnn(got, in) {
 		t.Fatalf("float64 harus kembali persis (bukan real): got %+v want %+v", got, in)
 	}
 }
@@ -250,31 +270,24 @@ func TestAnnotationsPreserveFloat64Exactly(t *testing.T) {
 func TestAnnotationConstraints(t *testing.T) {
 	r := newRig(t)
 	p := r.uploadedPhoto(t, nil)
-	long := make([]rune, 1001)
-	for i := range long {
-		long[i] = 'x'
-	}
 	eps := domain.BBoxEpsilon
-	good := domain.Annotation{Text: "ok", X: 0.1, Y: 0.1, W: 0.2, H: 0.2}
+	good := domain.Annotation{LabelID: lab1, X: 0.1, Y: 0.1, W: 0.2, H: 0.2}
 	cases := []struct {
 		name string
 		a    domain.Annotation
 		ok   bool
 	}{
 		{"valid", good, true},
-		{"seluruh foto", domain.Annotation{Text: "a", X: 0, Y: 0, W: 1, H: 1}, true},
-		{"x+w tepat 1+eps/2 (toleransi)", domain.Annotation{Text: "a", X: 0.7, Y: 0, W: 0.3 + eps/2, H: 1}, true},
-		{"x+w melebihi toleransi", domain.Annotation{Text: "a", X: 0.7, Y: 0, W: 0.3 + 10*eps, H: 1}, false},
-		{"y+h melebihi toleransi", domain.Annotation{Text: "a", X: 0, Y: 0.7, W: 1, H: 0.3 + 10*eps}, false},
-		{"x = 1", domain.Annotation{Text: "a", X: 1, Y: 0, W: 0.5, H: 0.5}, false},
-		{"x negatif", domain.Annotation{Text: "a", X: -0.1, Y: 0, W: 0.5, H: 0.5}, false},
-		{"y = 1", domain.Annotation{Text: "a", X: 0, Y: 1, W: 0.5, H: 0.5}, false},
-		{"w di bawah minimum", domain.Annotation{Text: "a", X: 0, Y: 0, W: 0.0049, H: 0.5}, false},
-		{"h di bawah minimum", domain.Annotation{Text: "a", X: 0, Y: 0, W: 0.5, H: 0.0049}, false},
-		{"w > 1", domain.Annotation{Text: "a", X: 0, Y: 0, W: 1.1, H: 0.5}, false},
-		{"teks kosong", domain.Annotation{Text: "", X: 0, Y: 0, W: 0.5, H: 0.5}, false},
-		{"teks 1001 karakter", domain.Annotation{Text: string(long), X: 0, Y: 0, W: 0.5, H: 0.5}, false},
-		{"teks 1000 karakter", domain.Annotation{Text: string(long[:1000]), X: 0, Y: 0, W: 0.5, H: 0.5}, true},
+		{"seluruh foto", domain.Annotation{LabelID: lab1, X: 0, Y: 0, W: 1, H: 1}, true},
+		{"x+w tepat 1+eps/2 (toleransi)", domain.Annotation{LabelID: lab1, X: 0.7, Y: 0, W: 0.3 + eps/2, H: 1}, true},
+		{"x+w melebihi toleransi", domain.Annotation{LabelID: lab1, X: 0.7, Y: 0, W: 0.3 + 10*eps, H: 1}, false},
+		{"y+h melebihi toleransi", domain.Annotation{LabelID: lab1, X: 0, Y: 0.7, W: 1, H: 0.3 + 10*eps}, false},
+		{"x = 1", domain.Annotation{LabelID: lab1, X: 1, Y: 0, W: 0.5, H: 0.5}, false},
+		{"x negatif", domain.Annotation{LabelID: lab1, X: -0.1, Y: 0, W: 0.5, H: 0.5}, false},
+		{"y = 1", domain.Annotation{LabelID: lab1, X: 0, Y: 1, W: 0.5, H: 0.5}, false},
+		{"w di bawah minimum", domain.Annotation{LabelID: lab1, X: 0, Y: 0, W: 0.0049, H: 0.5}, false},
+		{"h di bawah minimum", domain.Annotation{LabelID: lab1, X: 0, Y: 0, W: 0.5, H: 0.0049}, false},
+		{"w > 1", domain.Annotation{LabelID: lab1, X: 0, Y: 0, W: 1.1, H: 0.5}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -287,11 +300,12 @@ func TestAnnotationConstraints(t *testing.T) {
 			}
 		})
 	}
+	// label yang tidak ada ditolak FK
+	if err := r.subs.AddAnnotations(ctx, p.ID, []domain.Annotation{{LabelID: 999, X: 0, Y: 0, W: 0.5, H: 0.5}}); pgCode(err) != "23503" {
+		t.Fatalf("label tidak ada harus ditolak FK (23503): %v", err)
+	}
 	// semua kondisi di atas konsisten dengan validasi domain
 	for _, tc := range cases {
-		if tc.a.Text == "" || len(tc.a.Text) > 1000 {
-			continue
-		}
 		if dom := tc.a.ValidateBBox() == nil; dom != tc.ok {
 			t.Errorf("%s: domain=%v tetapi DB=%v — aturan domain dan CHECK harus selaras", tc.name, dom, tc.ok)
 		}
@@ -300,7 +314,7 @@ func TestAnnotationConstraints(t *testing.T) {
 
 func TestAnnotationRequiresExistingPhoto(t *testing.T) {
 	r := newRig(t)
-	err := r.subs.AddAnnotations(ctx, uuid.New(), []domain.Annotation{{Text: "x", X: 0, Y: 0, W: 0.5, H: 0.5}})
+	err := r.subs.AddAnnotations(ctx, uuid.New(), []domain.Annotation{{LabelID: lab1, X: 0, Y: 0, W: 0.5, H: 0.5}})
 	if pgCode(err) != "23503" {
 		t.Fatalf("FK ke photos harus menolak: %v", err)
 	}
@@ -321,8 +335,8 @@ func TestAddAnnotationsIsAtomicWithinBatch(t *testing.T) {
 	_ = r.photos.Attach(ctx, p.ID, s.ID, 0, nil)
 	err := r.tx.WithTx(ctx, func(ctx context.Context) error {
 		return r.subs.AddAnnotations(ctx, p.ID, []domain.Annotation{
-			{Text: "valid", X: 0, Y: 0, W: 0.5, H: 0.5},
-			{Text: "", X: 0, Y: 0, W: 0.5, H: 0.5}, // melanggar CHECK
+			{LabelID: lab1, X: 0, Y: 0, W: 0.5, H: 0.5},
+			{LabelID: lab1, X: 0.9, Y: 0, W: 0.5, H: 0.5}, // melanggar CHECK
 		})
 	})
 	if pgCode(err) != "23514" {
@@ -342,7 +356,7 @@ func TestCascadeDeletes(t *testing.T) {
 	_ = r.subs.Create(ctx, s)
 	p := r.uploadedPhoto(t, nil)
 	_ = r.photos.Attach(ctx, p.ID, s.ID, 0, nil)
-	_ = r.subs.AddAnnotations(ctx, p.ID, []domain.Annotation{{Text: "x", X: 0, Y: 0, W: 0.5, H: 0.5}})
+	_ = r.subs.AddAnnotations(ctx, p.ID, []domain.Annotation{{LabelID: lab1, X: 0, Y: 0, W: 0.5, H: 0.5}})
 
 	if _, err := r.pool.Exec(ctx, `DELETE FROM submissions WHERE id=$1`, s.ID); err != nil {
 		t.Fatal(err)
@@ -605,15 +619,15 @@ func TestReplaceAnnotations(t *testing.T) {
 	_ = r.subs.Create(ctx, s)
 	p := r.uploadedPhoto(t, nil)
 	_ = r.photos.Attach(ctx, p.ID, s.ID, 0, nil)
-	old := []domain.Annotation{{Text: "lama 1", X: 0, Y: 0, W: 0.5, H: 0.5}, {Text: "lama 2", X: 0.5, Y: 0.5, W: 0.5, H: 0.5}}
-	fresh := []domain.Annotation{{Text: "baru", X: 0.1, Y: 0.1, W: 0.2, H: 0.2}}
+	old := []domain.Annotation{{LabelID: lab1, X: 0, Y: 0, W: 0.5, H: 0.5}, {LabelID: lab2, X: 0.5, Y: 0.5, W: 0.5, H: 0.5}}
+	fresh := []domain.Annotation{{LabelID: lab2, X: 0.1, Y: 0.1, W: 0.2, H: 0.2}}
 	_ = r.subs.AddAnnotations(ctx, p.ID, old)
 
 	if err := r.subs.ReplaceAnnotations(ctx, p.ID, fresh); err != nil {
 		t.Fatal(err)
 	}
 	d, _ := r.subs.GetDetail(ctx, s.ID)
-	if got := d.Photos[0].Annotations; len(got) != 1 || got[0] != fresh[0] {
+	if got := d.Photos[0].Annotations; len(got) != 1 || !sameAnn(got[0], fresh[0]) {
 		t.Fatalf("got %+v", got)
 	}
 	// mengganti dengan kosong menghapus semuanya
@@ -626,12 +640,12 @@ func TestReplaceAnnotations(t *testing.T) {
 	}
 	// penggantian yang gagal (CHECK) tidak boleh menghapus anotasi lama
 	_ = r.subs.AddAnnotations(ctx, p.ID, old)
-	bad := []domain.Annotation{{Text: "ok", X: 0, Y: 0, W: 0.5, H: 0.5}, {Text: "", X: 0, Y: 0, W: 0.5, H: 0.5}}
+	bad := []domain.Annotation{{LabelID: lab1, X: 0, Y: 0, W: 0.5, H: 0.5}, {LabelID: lab1, X: 0.9, Y: 0, W: 0.5, H: 0.5}}
 	if err := r.subs.ReplaceAnnotations(ctx, p.ID, bad); pgCode(err) != "23514" {
 		t.Fatalf("err = %v", err)
 	}
 	d, _ = r.subs.GetDetail(ctx, s.ID)
-	if got := d.Photos[0].Annotations; len(got) != 2 || got[0] != old[0] {
+	if got := d.Photos[0].Annotations; len(got) != 2 || !sameAnn(got[0], old[0]) {
 		t.Fatalf("anotasi lama harus utuh bila penggantian gagal: %+v", got)
 	}
 }
@@ -649,7 +663,7 @@ func TestTxCommitMakesAllWritesVisible(t *testing.T) {
 		if err := r.photos.Attach(ctx, p.ID, s.ID, 0, nil); err != nil {
 			return err
 		}
-		return r.subs.AddAnnotations(ctx, p.ID, []domain.Annotation{{Text: "x", X: 0, Y: 0, W: 0.5, H: 0.5}})
+		return r.subs.AddAnnotations(ctx, p.ID, []domain.Annotation{{LabelID: lab1, X: 0, Y: 0, W: 0.5, H: 0.5}})
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -672,7 +686,7 @@ func TestTxRollbackOnErrorLeavesNothing(t *testing.T) {
 		if err := r.photos.Attach(ctx, p.ID, s.ID, 0, nil); err != nil {
 			return err
 		}
-		if err := r.subs.AddAnnotations(ctx, p.ID, []domain.Annotation{{Text: "x", X: 0, Y: 0, W: 0.5, H: 0.5}}); err != nil {
+		if err := r.subs.AddAnnotations(ctx, p.ID, []domain.Annotation{{LabelID: lab1, X: 0, Y: 0, W: 0.5, H: 0.5}}); err != nil {
 			return err
 		}
 		return boom
@@ -843,5 +857,39 @@ func TestMarkDeletedAndSetPosition(t *testing.T) {
 	}
 	if err := r.photos.MarkDeleted(ctx, uuid.New(), s.ID); codeOf(err) != "PHOTO_NOT_AVAILABLE" {
 		t.Fatalf("foto tak ada: %v", err)
+	}
+}
+
+// Baris lama (teks bebas) dibaca dengan Label nil dan teks aslinya; label arsip tetap tampil
+// dengan nama/warna terkini (spec-labels-admin §4.3).
+func TestGetDetailLegacyTextAndArchivedLabel(t *testing.T) {
+	r := newRig(t)
+	s := newSub(nil)
+	_ = r.subs.Create(ctx, s)
+	p := r.uploadedPhoto(t, nil)
+	_ = r.photos.Attach(ctx, p.ID, s.ID, 0, nil)
+	if err := r.subs.AddAnnotations(ctx, p.ID, []domain.Annotation{{LabelID: lab1, X: 0, Y: 0, W: 0.5, H: 0.5}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.pool.Exec(ctx, `INSERT INTO annotations (photo_id, text, x, y, w, h) VALUES ($1, 'Kerusakan di sisi kiri', 0.1, 0.1, 0.2, 0.2)`, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.pool.Exec(ctx, `UPDATE labels SET name = 'Retak halus', color = '#000000', archived_at = now() WHERE id = $1`, lab1); err != nil {
+		t.Fatal(err)
+	}
+	d, err := r.subs.GetDetail(ctx, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := d.Photos[0].Annotations
+	if len(got) != 2 || got[0].Label == nil || got[0].Label.Name != "Retak halus" || got[0].Label.Color != "#000000" || !got[0].Label.Archived() {
+		t.Fatalf("anotasi berlabel arsip = %+v", got)
+	}
+	if got[1].Label != nil || got[1].LabelID != 0 || got[1].Text != "Kerusakan di sisi kiri" {
+		t.Fatalf("baris lama = %+v", got[1])
+	}
+	ids, err := r.subs.PhotoLabelIDs(ctx, []uuid.UUID{p.ID, uuid.New()})
+	if err != nil || len(ids) != 1 || !ids[p.ID][lab1] || len(ids[p.ID]) != 1 {
+		t.Fatalf("PhotoLabelIDs = %v %v", ids, err)
 	}
 }

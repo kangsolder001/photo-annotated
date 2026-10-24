@@ -37,8 +37,12 @@ type jsonlImage struct {
 	Height     int     `json:"height"`
 }
 
+// jsonlAnnotation: label_id adalah kelas stabil; label = nama saat export. Baris lama (teks bebas):
+// label_id dan label null, text berisi catatannya.
 type jsonlAnnotation struct {
-	Text     string     `json:"text"`
+	LabelID  *int       `json:"label_id"`
+	Label    *string    `json:"label"`
+	Text     *string    `json:"text"`
 	BBoxNorm [4]float64 `json:"bbox_norm"`
 	BBoxPx   [4]int     `json:"bbox_px"`
 }
@@ -61,7 +65,16 @@ func (j *JSONL) Encode(it *usecase.ExportItem) error {
 		row.Image.URL = &it.URL
 	}
 	for i, a := range it.Annotations {
-		row.Annotations[i] = jsonlAnnotation{Text: a.Text, BBoxNorm: a.BBoxNorm, BBoxPx: a.BBoxPx}
+		ja := jsonlAnnotation{BBoxNorm: a.BBoxNorm, BBoxPx: a.BBoxPx}
+		if a.LabelID != 0 {
+			id, name := a.LabelID, a.Label
+			ja.LabelID, ja.Label = &id, &name
+		}
+		if a.Text != "" {
+			text := a.Text
+			ja.Text = &text
+		}
+		row.Annotations[i] = ja
 	}
 	return j.enc.Encode(row) // Encode menambahkan newline
 }

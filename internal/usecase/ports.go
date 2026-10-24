@@ -254,11 +254,18 @@ type ExportPhoto struct {
 	Annotations  []domain.Annotation
 }
 
+// ExportFilter membatasi data export. From inklusif, To eksklusif (atas created_at submission); nil =
+// tanpa batas. LabelID: hanya foto yang punya minimal satu kotak berlabel itu.
+type ExportFilter struct {
+	From, To *time.Time
+	LabelID  *int
+}
+
 // ExportRepo membaca data export per halaman, berurutan menurut ExportCursor.
 type ExportRepo interface {
-	// ExportPage mengembalikan paling banyak limit foto attached setelah after (nil = dari awal),
-	// dengan submission dibuat dalam [from, to) (nil = tanpa batas).
-	ExportPage(ctx context.Context, after *ExportCursor, from, to *time.Time, limit int) ([]ExportPhoto, error)
+	// ExportPage mengembalikan paling banyak limit foto attached setelah after (nil = dari awal) yang
+	// lolos filter. Anotasi memuat nama label terkini (Label) atau teks lama.
+	ExportPage(ctx context.Context, after *ExportCursor, f ExportFilter, limit int) ([]ExportPhoto, error)
 }
 
 // ExportEncoder menulis satu item export dalam format tertentu (mis. JSONL). Format lain (COCO, YOLO)
@@ -311,6 +318,9 @@ type SubmissionRepo interface {
 	GetDetail(ctx context.Context, id uuid.UUID) (*domain.SubmissionDetail, error)
 	// AddAnnotations menambahkan anotasi ke foto, mempertahankan urutan.
 	AddAnnotations(ctx context.Context, photoID uuid.UUID, anns []domain.Annotation) error
+	// PhotoLabelIDs mengembalikan label_id yang saat ini dipakai anotasi tiap foto (baris lama tanpa
+	// label diabaikan).
+	PhotoLabelIDs(ctx context.Context, photoIDs []uuid.UUID) (map[uuid.UUID]map[int]bool, error)
 	// ReplaceAnnotations mengganti seluruh anotasi sebuah foto (hapus lalu tambah).
 	ReplaceAnnotations(ctx context.Context, photoID uuid.UUID, anns []domain.Annotation) error
 	// BumpVersion menaikkan version dan updated_at bila version saat ini == expected.
@@ -353,6 +363,9 @@ type LabelRepo interface {
 	// ListAll: semua label (aktif dulu menurut sort_order, lalu yang diarsipkan) dengan usage_count.
 	ListAll(ctx context.Context) ([]LabelUsage, error)
 	Get(ctx context.Context, id int) (*domain.Label, error)
+	// ForShare membaca label yang ada di ids dengan kunci FOR SHARE (wajib di dalam WithTx); id yang
+	// tidak ada tidak muncul di hasil.
+	ForShare(ctx context.Context, ids []int) (map[int]domain.Label, error)
 	CountActive(ctx context.Context) (int, error)
 	CountAll(ctx context.Context) (int, error)
 	// Create menyimpan label baru di urutan terakhir dan mengisi ID, SortOrder, CreatedAt, UpdatedAt.

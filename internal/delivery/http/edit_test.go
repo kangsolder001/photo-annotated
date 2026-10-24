@@ -66,7 +66,7 @@ func putSubmission(h http.Handler, id, body, token string) *httptest.ResponseRec
 }
 
 const goodEdit = `{"version":2,"photos":[{"photo_id":"` + photoA + `","annotations":[` +
-	`{"text":"diperbarui","x":0.1,"y":0.2,"w":0.3,"h":0.4}]},{"photo_id":"` + photoB + `"}]}`
+	`{"label_id":7,"x":0.1,"y":0.2,"w":0.3,"h":0.4}]},{"photo_id":"` + photoB + `"}]}`
 
 func TestEditHandlerSuccess(t *testing.T) {
 	fe := &fakeEditor{}
@@ -87,7 +87,7 @@ func TestEditHandlerSuccess(t *testing.T) {
 		t.Fatalf("input: %+v", in)
 	}
 	if in.Photos[0].PhotoID.String() != photoA || len(in.Photos[0].Annotations) != 1 ||
-		in.Photos[0].Annotations[0] != (domain.Annotation{Text: "diperbarui", X: 0.1, Y: 0.2, W: 0.3, H: 0.4}) {
+		in.Photos[0].Annotations[0] != (domain.Annotation{LabelID: 7, X: 0.1, Y: 0.2, W: 0.3, H: 0.4}) {
 		t.Fatalf("foto 1: %+v", in.Photos[0])
 	}
 	if in.Photos[1].Annotations == nil || len(in.Photos[1].Annotations) != 0 {

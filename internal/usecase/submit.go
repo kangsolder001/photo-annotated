@@ -16,13 +16,13 @@ import (
 type SubmitConfig struct {
 	MaxPhotos              int
 	MaxAnnotationsPerPhoto int
-	MaxAnnotationTextLen   int
 }
 
 // Submit menyimpan submission baru: foto yang sudah ter-upload + anotasinya (spec §5.2).
 type Submit struct {
 	photos     PhotoRepo
 	subs       SubmissionRepo
+	labels     LabelRepo
 	tx         TxManager
 	store      PhotoStore
 	editTokens EditTokenSigner // nil bila tidak dipakai (auth.mode = otp)
@@ -31,8 +31,8 @@ type Submit struct {
 	newID      func() uuid.UUID
 }
 
-func NewSubmit(photos PhotoRepo, subs SubmissionRepo, tx TxManager, store PhotoStore, editTokens EditTokenSigner, clock Clock, cfg SubmitConfig) *Submit {
-	return &Submit{photos: photos, subs: subs, tx: tx, store: store, editTokens: editTokens, clock: clock, cfg: cfg, newID: newV7}
+func NewSubmit(photos PhotoRepo, subs SubmissionRepo, labels LabelRepo, tx TxManager, store PhotoStore, editTokens EditTokenSigner, clock Clock, cfg SubmitConfig) *Submit {
+	return &Submit{photos: photos, subs: subs, labels: labels, tx: tx, store: store, editTokens: editTokens, clock: clock, cfg: cfg, newID: newV7}
 }
 
 func newV7() uuid.UUID {
@@ -97,6 +97,10 @@ func (u *Submit) Submit(ctx context.Context, in SubmitInput) (*SubmitOutput, err
 		Version: 1, CreatedAt: now, UpdatedAt: now,
 	}
 	err = u.tx.WithTx(ctx, func(ctx context.Context) error {
+		// label dibaca FOR SHARE di transaksi yang sama: arsip/hapus berbarengan tidak bisa lolos
+		if err := checkLabels(ctx, u.labels, anns, nil); err != nil {
+			return err
+		}
 		if err := u.subs.Create(ctx, sub); err != nil {
 			return err
 		}
@@ -163,7 +167,7 @@ func validatePhotos(cfg SubmitConfig, photos []SubmitPhoto) ([][]domain.Annotati
 		}
 		out[i] = make([]domain.Annotation, len(p.Annotations))
 		for j, a := range p.Annotations {
-			v, err := a.Validate(cfg.MaxAnnotationTextLen)
+			v, err := a.Validate()
 			if err != nil {
 				return nil, withPath(err, fmt.Sprintf("photos[%d].annotations[%d]", i, j))
 			}
@@ -171,6 +175,44 @@ func validatePhotos(cfg SubmitConfig, photos []SubmitPhoto) ([][]domain.Annotati
 		}
 	}
 	return out, nil
+}
+
+// checkLabels memastikan setiap kotak memakai label yang ada dan aktif (spec-labels-admin §4.2). Wajib
+// dipanggil di dalam transaksi submit/edit. keepArchived (boleh nil) mengizinkan label arsip untuk kotak
+// pada foto ke-i, dipakai edit agar kotak lama yang labelnya diarsipkan tetap bisa disimpan ulang.
+// Error membawa details label_id + indeks foto/kotak agar FE bisa menandai kotak yang perlu diganti.
+func checkLabels(ctx context.Context, repo LabelRepo, anns [][]domain.Annotation, keepArchived func(photo, labelID int) bool) error {
+	var ids []int
+	seen := map[int]bool{}
+	for _, list := range anns {
+		for _, a := range list {
+			if !seen[a.LabelID] {
+				seen[a.LabelID] = true
+				ids = append(ids, a.LabelID)
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	found, err := repo.ForShare(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for i, list := range anns {
+		for j, a := range list {
+			details := map[string]any{"label_id": a.LabelID, "photo_index": i, "annotation_index": j}
+			path := fmt.Sprintf("photos[%d].annotations[%d]", i, j)
+			l, ok := found[a.LabelID]
+			if !ok {
+				return withPath(domain.Invalid("INVALID_LABEL", "label %d does not exist", a.LabelID).WithDetails(details), path)
+			}
+			if l.Archived() && (keepArchived == nil || !keepArchived(i, a.LabelID)) {
+				return withPath(domain.Invalid("LABEL_ARCHIVED", "label %d is archived; choose another label", a.LabelID).WithDetails(details), path)
+			}
+		}
+	}
+	return nil
 }
 
 // withPath menambahkan lokasi field ke pesan error domain tanpa mengubah Kind/Code.

@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"bytes"
 	"crypto/sha256"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -235,7 +236,12 @@ func TestSessionsRejectBadExpiredAndRevoked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tok := range []string{"", "abc", res.Token + "x", res.Token[:42] + "A", "bukan token sama sekali!!"} {
+	// karakter terakhir diganti dengan karakter lain (token berakhiran "A" tidak boleh "diubah" menjadi dirinya sendiri)
+	last := "A"
+	if strings.HasSuffix(res.Token, "A") {
+		last = "Q"
+	}
+	for _, tok := range []string{"", "abc", res.Token + "x", res.Token[:42] + last, "bukan token sama sekali!!"} {
 		if _, err := r.sess.Authenticate(bg, tok); errCode(err) != "UNAUTHORIZED" {
 			t.Fatalf("%q: %v", tok, err)
 		}

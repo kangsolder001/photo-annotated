@@ -35,6 +35,7 @@ type subRig struct {
 	dir    string
 	clock  *fakeClock
 	edit   *signer.EditTokens
+	labels seedLabels
 }
 
 type rigOpts struct {
@@ -76,8 +77,9 @@ func newSubRig(t *testing.T, o rigOpts) *subRig {
 	if o.noEdit {
 		tok = nil
 	}
-	r.uc = usecase.NewSubmit(pr, r.subs, postgres.NewTxManager(pool), ps, tok, r.clock,
-		usecase.SubmitConfig{MaxPhotos: o.maxPhotos, MaxAnnotationsPerPhoto: 50, MaxAnnotationTextLen: 1000})
+	r.labels = newSeedLabels(t, pool)
+	r.uc = usecase.NewSubmit(pr, r.subs, r.labels, postgres.NewTxManager(pool), ps, tok, r.clock,
+		usecase.SubmitConfig{MaxPhotos: o.maxPhotos, MaxAnnotationsPerPhoto: 50})
 	return r
 }
 
@@ -121,8 +123,74 @@ func (r *subRig) pendingOnly(t *testing.T) *domain.Photo {
 	return p
 }
 
-func ann(text string) domain.Annotation {
-	return domain.Annotation{Text: text, X: 0.1, Y: 0.1, W: 0.2, H: 0.2}
+// Label uji: nama → id tetap (mulai 100001, jauh dari id yang dibuat identity). Rig memasang seedLabels
+// di depan LabelRepo asli sehingga label yang dipakai test sudah ada saat divalidasi; validasi label
+// sendiri (FOR SHARE, ada/aktif, pengecualian arsip saat edit) tetap berjalan pada repo dan transaksi
+// yang asli. Id yang tidak terdaftar (mis. 999999) tidak dibuat, sehingga tetap "tidak ada".
+// Penyemaian memakai satu koneksi khusus (bukan pool): ForShare dipanggil di dalam transaksi yang
+// sudah memegang koneksi, jadi meminjam koneksi lain dari pool bisa macet saat test konkurensi.
+var (
+	testLabelsMu   sync.Mutex
+	testLabelIDs   = map[string]int{}
+	testLabelNames = map[int]string{}
+)
+
+func lbl(name string) int {
+	testLabelsMu.Lock()
+	defer testLabelsMu.Unlock()
+	if id, ok := testLabelIDs[name]; ok {
+		return id
+	}
+	id := 100001 + len(testLabelIDs)
+	testLabelIDs[name], testLabelNames[id] = id, name
+	return id
+}
+
+type seedLabels struct {
+	*postgres.LabelRepo
+	mu   *sync.Mutex
+	conn *pgxpool.Conn
+}
+
+func newSeedLabels(t *testing.T, pool *pgxpool.Pool) seedLabels {
+	t.Helper()
+	conn, err := pool.Acquire(bg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(conn.Release) // berjalan sebelum pool ditutup (Cleanup LIFO)
+	return seedLabels{LabelRepo: postgres.NewLabelRepo(pool), mu: &sync.Mutex{}, conn: conn}
+}
+
+func (s seedLabels) ForShare(ctx context.Context, ids []int) (map[int]domain.Label, error) {
+	s.mu.Lock()
+	for _, id := range ids {
+		testLabelsMu.Lock()
+		name, ok := testLabelNames[id]
+		testLabelsMu.Unlock()
+		if !ok {
+			continue
+		}
+		if _, err := s.conn.Exec(context.WithoutCancel(ctx), `INSERT INTO labels (id, name, color) OVERRIDING SYSTEM VALUE
+			VALUES ($1, $2, '#123456') ON CONFLICT DO NOTHING`, id, name); err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
+	}
+	s.mu.Unlock()
+	return s.LabelRepo.ForShare(ctx, ids)
+}
+
+// labelName: nama label kotak yang dibaca dari DB ("" untuk baris lama tanpa label).
+func labelName(a domain.Annotation) string {
+	if a.Label == nil {
+		return ""
+	}
+	return a.Label.Name
+}
+
+func ann(name string) domain.Annotation {
+	return domain.Annotation{LabelID: lbl(name), X: 0.1, Y: 0.1, W: 0.2, H: 0.2}
 }
 
 func in(photos ...*domain.Photo) usecase.SubmitInput {
@@ -167,8 +235,8 @@ func TestSubmitSuccessSinglePhoto(t *testing.T) {
 	req := usecase.SubmitInput{
 		ClientRequestID: uuid.New(), ClientIP: &ip,
 		Photos: []usecase.SubmitPhoto{{PhotoID: p.ID, Annotations: []domain.Annotation{
-			{Text: "  halo \r\n dunia  ", X: 0.12, Y: 0.3, W: 0.25, H: 0.18},
-			{Text: "kedua", X: 0.55, Y: 0.1, W: 0.3, H: 0.12},
+			{LabelID: lbl("halo dunia"), Text: "diabaikan", X: 0.12, Y: 0.3, W: 0.25, H: 0.18},
+			{LabelID: lbl("kedua"), X: 0.55, Y: 0.1, W: 0.3, H: 0.12},
 		}}},
 	}
 	out, err := r.uc.Submit(bg, req)
@@ -194,8 +262,9 @@ func TestSubmitSuccessSinglePhoto(t *testing.T) {
 		t.Fatalf("foto: %+v", d.Photos)
 	}
 	got := d.Photos[0].Annotations
-	if len(got) != 2 || got[0].Text != "halo \n dunia" || got[0].X != 0.12 || got[1].Text != "kedua" {
-		t.Fatalf("anotasi (teks harus ternormalisasi): %+v", got)
+	if len(got) != 2 || got[0].LabelID != lbl("halo dunia") || labelName(got[0]) != "halo dunia" || got[0].Text != "" ||
+		got[0].X != 0.12 || labelName(got[1]) != "kedua" || got[1].Label.Color != "#123456" || got[1].Label.Archived() {
+		t.Fatalf("anotasi (label lengkap, tanpa teks): %+v", got)
 	}
 }
 
@@ -269,12 +338,11 @@ func TestSubmitShapeValidation(t *testing.T) {
 		{"photo_id nol", mk(func(s *usecase.SubmitInput) { s.Photos[0].PhotoID = uuid.Nil }), "PHOTO_NOT_FOUND", "photos[0]"},
 		{"51 anotasi", mk(func(s *usecase.SubmitInput) { s.Photos[0].Annotations = tooMany }), "TOO_MANY_ANNOTATIONS", "photos[0]"},
 		{"bbox salah", mk(func(s *usecase.SubmitInput) {
-			s.Photos[0].Annotations = []domain.Annotation{ann("ok"), {Text: "x", X: 0.9, Y: 0, W: 0.5, H: 0.5}}
+			s.Photos[0].Annotations = []domain.Annotation{ann("ok"), {LabelID: lbl("x"), X: 0.9, Y: 0, W: 0.5, H: 0.5}}
 		}), "INVALID_BBOX", "photos[0].annotations[1]"},
-		{"teks kosong", mk(func(s *usecase.SubmitInput) { s.Photos[0].Annotations = []domain.Annotation{ann("   ")} }), "INVALID_ANNOTATION_TEXT", "photos[0].annotations[0]"},
-		{"teks 1001 karakter", mk(func(s *usecase.SubmitInput) {
-			s.Photos[0].Annotations = []domain.Annotation{ann(strings.Repeat("x", 1001))}
-		}), "INVALID_ANNOTATION_TEXT", ""},
+		{"tanpa label_id", mk(func(s *usecase.SubmitInput) {
+			s.Photos[0].Annotations = []domain.Annotation{ann("ok"), {Text: "teks bebas", X: 0.1, Y: 0.1, W: 0.2, H: 0.2}}
+		}), "INVALID_LABEL", "photos[0].annotations[1]"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -583,8 +651,8 @@ func TestSubmitIsAtomicWhenALaterStepFails(t *testing.T) {
 	// pasang pembungkus setelah pool tersedia
 	flip = &flipOnSecondAttach{PhotoRepo: r.photos, pool: r.pool}
 	et, _ := signer.NewEditTokens(editSecret)
-	r.uc = usecase.NewSubmit(flip, r.subs, postgres.NewTxManager(r.pool), r.store, et, r.clock,
-		usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50, MaxAnnotationTextLen: 1000})
+	r.uc = usecase.NewSubmit(flip, r.subs, r.labels, postgres.NewTxManager(r.pool), r.store, et, r.clock,
+		usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50})
 
 	a, b := r.uploaded(t, nil), r.uploaded(t, nil)
 	_, err := r.uc.Submit(bg, in(a, b))

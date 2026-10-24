@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"photo-annotated/internal/delivery/http/httpx"
+	"photo-annotated/internal/domain"
 	"photo-annotated/internal/usecase"
 )
 
@@ -36,6 +37,33 @@ func sessionUser(c *gin.Context) *uuid.UUID {
 		return &id
 	}
 	return nil
+}
+
+// labelRefDTO adalah label sebuah kotak, termasuk label yang sudah diarsipkan.
+type labelRefDTO struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	Color    string `json:"color"`
+	Archived bool   `json:"archived"`
+}
+
+// annotationDTO adalah kotak saat dibaca: label lengkap (nama/warna terkini) atau, untuk baris lama
+// dari masa teks bebas, label null dan text berisi catatannya (spec-labels-admin §4.3, §5.1).
+type annotationDTO struct {
+	Label *labelRefDTO `json:"label"`
+	Text  *string      `json:"text"`
+	X     float64      `json:"x"`
+	Y     float64      `json:"y"`
+	W     float64      `json:"w"`
+	H     float64      `json:"h"`
+}
+
+func toAnnotationDTO(a domain.Annotation) annotationDTO {
+	out := annotationDTO{X: a.X, Y: a.Y, W: a.W, H: a.H, Text: optString(a.Text)}
+	if a.Label != nil {
+		out.Label = &labelRefDTO{ID: a.Label.ID, Name: a.Label.Name, Color: a.Label.Color, Archived: a.Label.Archived()}
+	}
+	return out
 }
 
 type photoViewDTO struct {
@@ -84,7 +112,7 @@ func (h *ReadHandler) GetSubmission(c *gin.Context) {
 			Annotations: make([]annotationDTO, len(p.Annotations)),
 		}
 		for j, a := range p.Annotations {
-			pd.Annotations[j] = annotationDTO{Text: a.Text, X: a.X, Y: a.Y, W: a.W, H: a.H}
+			pd.Annotations[j] = toAnnotationDTO(a)
 		}
 		dto.Photos[i] = pd
 	}

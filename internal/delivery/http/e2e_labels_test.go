@@ -1,12 +1,15 @@
 package httpapi_test
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 
 	"photo-annotated/internal/testutil/pgtest"
 )
@@ -48,8 +51,17 @@ func labelList(t *testing.T, m map[string]any) []map[string]any {
 
 func idOf(m map[string]any) string { return strconv.Itoa(int(m["id"].(float64))) }
 
+// clearLabels membuang label bawaan stack (belum dipakai) agar test mulai dari daftar kosong.
+func (s *stack) clearLabels(t *testing.T) {
+	t.Helper()
+	if _, err := s.pool.Exec(context.Background(), `DELETE FROM labels`); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestE2ELabelsAdminCRUD(t *testing.T) {
 	st := newStack(t, stackOpts{admin: testAdmin(t), adminPerMin: 1_000_000})
+	st.clearLabels(t)
 	resp, m := st.getJSON(t, "/api/v1/labels")
 	if resp.StatusCode != 200 || resp.Header.Get("Cache-Control") != "private, max-age=60" || len(labelList(t, m)) != 0 {
 		t.Fatalf("GET /labels kosong: %d %v %v", resp.StatusCode, resp.Header, m)
@@ -155,6 +167,7 @@ func TestE2ELabelsAdminCRUD(t *testing.T) {
 func TestE2ELabelsAccessOTPMode(t *testing.T) {
 	cf := fakeSiteverify(t)
 	s := newAuthStack(t, cf.URL, 0)
+	s.clearLabels(t)
 	admin := s.adminLogin(t)
 	if resp, m := admin.send(t, "POST", "/api/v1/admin/labels", `{"name":"Retak"}`); resp.StatusCode != 201 {
 		t.Fatalf("create: %d %v", resp.StatusCode, m)
@@ -175,5 +188,92 @@ func TestE2ELabelsAccessOTPMode(t *testing.T) {
 	}
 	if resp, _ := user.getJSON(t, "/api/v1/admin/labels"); resp.StatusCode != 401 {
 		t.Fatalf("pengguna membaca admin/labels: %d", resp.StatusCode)
+	}
+}
+
+// AC 6–8, 10–11: kotak memakai label_id, ganti nama langsung terlihat di GET dan export, label arsip
+// ditolak untuk kotak baru tetapi boleh dipertahankan saat edit, dan baris lama tetap terbaca.
+func TestE2EAnnotationsUseLabels(t *testing.T) {
+	st := newStack(t, stackOpts{admin: testAdmin(t), adminPerMin: 1_000_000})
+	admin := st.adminLogin(t)
+	sub := st.submitted(t, 2) // foto 0: kotak label 1 dan 2
+	tok := map[string]string{"X-Edit-Token": sub.Token}
+
+	if resp, m := admin.send(t, "PUT", "/api/v1/admin/labels/1", `{"name":"Retak","color":"#e4572e","archived":false}`); resp.StatusCode != 200 {
+		t.Fatalf("ganti nama: %d %v", resp.StatusCode, m)
+	}
+	_, _, raw := st.get(t, "/api/v1/submissions/"+sub.ID.String(), tok)
+	if !strings.Contains(string(raw), `"label":{"id":1,"name":"Retak","color":"#e4572e","archived":false},"text":null`) {
+		t.Fatalf("ganti nama harus langsung terlihat: %s", raw)
+	}
+	exportRows := func(q string) []map[string]any {
+		t.Helper()
+		code, _, body := admin.get(t, "/api/v1/admin/export"+q, nil)
+		if code != 200 {
+			t.Fatalf("export%s: %d %s", q, code, body)
+		}
+		var rows []map[string]any
+		for _, line := range strings.Split(strings.TrimSpace(string(body)), "\n") {
+			if line == "" {
+				continue
+			}
+			var m map[string]any
+			if err := json.Unmarshal([]byte(line), &m); err != nil {
+				t.Fatal(err)
+			}
+			rows = append(rows, m)
+		}
+		return rows
+	}
+	rows := exportRows("?label_id=1")
+	if len(rows) != 1 {
+		t.Fatalf("export label_id=1: %d baris", len(rows))
+	}
+	a := rows[0]["annotations"].([]any)[0].(map[string]any)
+	if a["label_id"] != 1.0 || a["label"] != "Retak" || a["text"] != nil {
+		t.Fatalf("anotasi export = %v", a)
+	}
+	if code, _, _ := admin.get(t, "/api/v1/admin/export?label_id=satu", nil); code != 422 {
+		t.Fatalf("label_id bukan angka: %d", code)
+	}
+
+	// arsip: kotak baru ditolak, kotak lama di foto yang sama boleh dipertahankan
+	if resp, _ := admin.send(t, "PUT", "/api/v1/admin/labels/1", `{"name":"Retak","color":"#e4572e","archived":true}`); resp.StatusCode != 200 {
+		t.Fatal("arsip gagal")
+	}
+	p := st.uploadedPhoto(t, 0x55)
+	r := st.submit(t, `{"photos":[{"photo_id":"`+p.String()+`","annotations":[{"label_id":1,"x":0.1,"y":0.1,"w":0.2,"h":0.2}]}],"client_request_id":"`+uuid.NewString()+`"}`)
+	if r.Status != 422 || r.Code != "LABEL_ARCHIVED" {
+		t.Fatalf("submit label arsip: %+v", r)
+	}
+	keep := `{"version":1,"photos":[{"photo_id":"` + sub.Photo[0].String() + `","annotations":[{"label_id":1,"x":0.12,"y":0.30,"w":0.25,"h":0.18}]},{"photo_id":"` + sub.Photo[1].String() + `","annotations":[]}]}`
+	moved := `{"version":1,"photos":[{"photo_id":"` + sub.Photo[0].String() + `","annotations":[]},{"photo_id":"` + sub.Photo[1].String() + `","annotations":[{"label_id":1,"x":0.12,"y":0.30,"w":0.25,"h":0.18}]}]}`
+	if e := st.edit(t, sub.ID, sub.Token, moved); e.Status != 422 || e.Code != "LABEL_ARCHIVED" {
+		t.Fatalf("label arsip ke foto lain: %+v", e)
+	}
+	if e := st.edit(t, sub.ID, sub.Token, keep); e.Status != 200 {
+		t.Fatalf("mempertahankan label arsip: %+v", e)
+	}
+	_, _, raw = st.get(t, "/api/v1/submissions/"+sub.ID.String(), tok)
+	if !strings.Contains(string(raw), `"archived":true`) {
+		t.Fatalf("label arsip tetap tampil: %s", raw)
+	}
+
+	// baris lama dari masa teks bebas
+	if _, err := st.pool.Exec(context.Background(), `INSERT INTO annotations (photo_id, text, x, y, w, h) VALUES ($1, 'Kerusakan <kiri> & lama', 0.5, 0.5, 0.1, 0.1)`, sub.Photo[1]); err != nil {
+		t.Fatal(err)
+	}
+	_, _, raw = st.get(t, "/api/v1/submissions/"+sub.ID.String(), tok)
+	if !strings.Contains(string(raw), `"label":null,"text":"Kerusakan \u003ckiri\u003e \u0026 lama"`) {
+		t.Fatalf("baris lama: %s", raw)
+	}
+	var legacy map[string]any
+	for _, row := range exportRows("") {
+		if row["photo_id"] == sub.Photo[1].String() {
+			legacy = row["annotations"].([]any)[0].(map[string]any)
+		}
+	}
+	if legacy["label_id"] != nil || legacy["label"] != nil || legacy["text"] != "Kerusakan <kiri> & lama" {
+		t.Fatalf("baris lama di export: %v", legacy)
 	}
 }

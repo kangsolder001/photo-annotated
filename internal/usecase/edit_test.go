@@ -28,15 +28,15 @@ func newEditRig(t *testing.T, noEdit bool) *editRig {
 	if noEdit {
 		tok = nil
 	}
-	return &editRig{readRig: base, ed: usecase.NewEdit(base.photos, base.subs, postgres.NewTxManager(base.pool), base.store, tok, base.clock,
-		usecase.EditConfig{SubmitConfig: usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50, MaxAnnotationTextLen: 1000}, Window: 24 * time.Hour})}
+	return &editRig{readRig: base, ed: usecase.NewEdit(base.photos, base.subs, base.labels, postgres.NewTxManager(base.pool), base.store, tok, base.clock,
+		usecase.EditConfig{SubmitConfig: usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50}, Window: 24 * time.Hour})}
 }
 
-// ep membuat entri foto untuk request edit, dengan satu anotasi per teks.
+// ep membuat entri foto untuk request edit, dengan satu anotasi per nama label.
 func ep(p *domain.Photo, texts ...string) usecase.SubmitPhoto {
 	sp := usecase.SubmitPhoto{PhotoID: p.ID, Annotations: []domain.Annotation{}}
 	for i, tx := range texts {
-		sp.Annotations = append(sp.Annotations, domain.Annotation{Text: tx, X: 0.01 * float64(i%50), Y: 0.1, W: 0.2, H: 0.2})
+		sp.Annotations = append(sp.Annotations, domain.Annotation{LabelID: lbl(tx), X: 0.01 * float64(i%50), Y: 0.1, W: 0.2, H: 0.2})
 	}
 	return sp
 }
@@ -94,7 +94,7 @@ func TestEditReplacesAnnotationsOnly(t *testing.T) {
 	if d.Submission.Version != 2 || !d.Submission.UpdatedAt.Equal(r.clock.t) || !d.Submission.CreatedAt.Equal(out.CreatedAt) {
 		t.Fatalf("submission: %+v", d.Submission)
 	}
-	if got := d.Photos[0].Annotations; len(got) != 2 || got[0].Text != "diperbarui" || got[1].Text != "tambahan" {
+	if got := d.Photos[0].Annotations; len(got) != 2 || labelName(got[0]) != "diperbarui" || labelName(got[1]) != "tambahan" {
 		t.Fatalf("anotasi foto 1 harus diganti seluruhnya: %+v", got)
 	}
 	if len(d.Photos[1].Annotations) != 0 {
@@ -123,7 +123,7 @@ func TestEditRemoveAddAndReorderTogether(t *testing.T) {
 			t.Fatalf("foto[%d]: %+v", i, ph.Photo)
 		}
 	}
-	if d.Photos[1].Annotations[0].Text != "baru" {
+	if labelName(d.Photos[1].Annotations[0]) != "baru" {
 		t.Fatalf("anotasi foto baru: %+v", d.Photos[1].Annotations)
 	}
 	// foto yang dibuang: deleted, anotasinya hilang, file TETAP ada sampai cleanup
@@ -165,11 +165,11 @@ func TestEditAtLimitsAndNormalization(t *testing.T) {
 	if _, err := r.edit(out, 1, ep(p[0], texts...)); err != nil {
 		t.Fatalf("50 anotasi harus diterima: %v", err)
 	}
-	if _, err := r.edit(out, 2, ep(p[0], "  rapi \r\n dong  ")); err != nil {
+	if _, err := r.edit(out, 2, ep(p[0], "rapi")); err != nil {
 		t.Fatal(err)
 	}
-	if got := r.detail(t, out.SubmissionID).Photos[0].Annotations[0].Text; got != "rapi \n dong" {
-		t.Fatalf("teks harus dinormalisasi: %q", got)
+	if got := labelName(r.detail(t, out.SubmissionID).Photos[0].Annotations[0]); got != "rapi" {
+		t.Fatalf("label = %q", got)
 	}
 }
 
@@ -189,7 +189,7 @@ func TestEditVersionConflictChangesNothing(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	d := r.detail(t, out.SubmissionID)
-	if d.Submission.Version != 2 || d.Photos[0].Annotations[0].Text != "v2" || !sameIDs(ids(d), p...) {
+	if d.Submission.Version != 2 || labelName(d.Photos[0].Annotations[0]) != "v2" || !sameIDs(ids(d), p...) {
 		t.Fatalf("edit basi tidak boleh mengubah apa pun: %+v", d)
 	}
 	if r.photoStatus(t, fresh) != domain.PhotoPending {
@@ -238,7 +238,7 @@ func TestEditConcurrentSameVersionExactlyOneWins(t *testing.T) {
 		t.Fatalf("menang=%d konflik=%d", wins, conflicts)
 	}
 	d := r.detail(t, out.SubmissionID)
-	if d.Submission.Version != 2 || len(d.Photos[0].Annotations) != 1 || !strings.HasPrefix(d.Photos[0].Annotations[0].Text, "dari klien") {
+	if d.Submission.Version != 2 || len(d.Photos[0].Annotations) != 1 || !strings.HasPrefix(labelName(d.Photos[0].Annotations[0]), "dari klien") {
 		t.Fatalf("hanya satu perubahan utuh yang boleh tersimpan: %+v", d.Photos[0].Annotations)
 	}
 }
@@ -266,7 +266,7 @@ func TestEditWindow(t *testing.T) {
 	if _, err := r.edit(out, 2, ep(p[0], "jauh terlambat")); codeOf(err) != "EDIT_WINDOW_CLOSED" {
 		t.Fatalf("err = %v", err)
 	}
-	if d := r.detail(t, out.SubmissionID); d.Photos[0].Annotations[0].Text != "tepat sebelum batas" || d.Submission.Version != 2 {
+	if d := r.detail(t, out.SubmissionID); labelName(d.Photos[0].Annotations[0]) != "tepat sebelum batas" || d.Submission.Version != 2 {
 		t.Fatalf("edit yang ditolak jendela tidak boleh mengubah data: %+v", d.Photos[0].Annotations)
 	}
 }
@@ -358,8 +358,8 @@ func TestEditShapeValidation(t *testing.T) {
 		"melebihi batas foto": {six, "INVALID_PHOTO_COUNT"},
 		"foto kembar":         {[]usecase.SubmitPhoto{ep(p[0]), ep(p[0])}, "DUPLICATE_PHOTO"},
 		"51 anotasi":          {[]usecase.SubmitPhoto{ep(p[0], many...)}, "TOO_MANY_ANNOTATIONS"},
-		"teks kosong":         {[]usecase.SubmitPhoto{ep(p[0], "   ")}, "INVALID_ANNOTATION_TEXT"},
-		"bbox salah":          {[]usecase.SubmitPhoto{{PhotoID: p[0].ID, Annotations: []domain.Annotation{{Text: "x", X: 0.9, Y: 0, W: 0.5, H: 0.5}}}}, "INVALID_BBOX"},
+		"tanpa label_id":      {[]usecase.SubmitPhoto{{PhotoID: p[0].ID, Annotations: []domain.Annotation{{Text: "teks bebas", X: 0.1, Y: 0.1, W: 0.2, H: 0.2}}}}, "INVALID_LABEL"},
+		"bbox salah":          {[]usecase.SubmitPhoto{{PhotoID: p[0].ID, Annotations: []domain.Annotation{{LabelID: lbl("x"), X: 0.9, Y: 0, W: 0.5, H: 0.5}}}}, "INVALID_BBOX"},
 	}
 	for name, c := range cases {
 		_, err := r.edit(out, 1, c.photos...)
@@ -427,8 +427,8 @@ func TestEditIsAtomicWhenALaterStepFails(t *testing.T) {
 	f1, f2 := r.uploaded(t, nil), r.uploaded(t, nil)
 
 	flip := &flipOnSecondAttach{PhotoRepo: r.photos, pool: r.pool}
-	ed := usecase.NewEdit(flip, r.subs, postgres.NewTxManager(r.pool), r.store, r.subRig.edit, r.clock,
-		usecase.EditConfig{SubmitConfig: usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50, MaxAnnotationTextLen: 1000}, Window: 24 * time.Hour})
+	ed := usecase.NewEdit(flip, r.subs, r.labels, postgres.NewTxManager(r.pool), r.store, r.subRig.edit, r.clock,
+		usecase.EditConfig{SubmitConfig: usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50}, Window: 24 * time.Hour})
 
 	// edit besar: buang p[1], ubah p[0], tambah f1 dan f2 (Attach kedua gagal di tengah transaksi)
 	_, err := ed.Edit(bg, usecase.EditInput{SubmissionID: out.SubmissionID, Caller: usecase.Caller{EditToken: out.EditToken}, Version: 1,
@@ -439,7 +439,7 @@ func TestEditIsAtomicWhenALaterStepFails(t *testing.T) {
 	if d.Submission.Version != 1 || !sameIDs(ids(d), p...) {
 		t.Fatalf("rollback harus mengembalikan semuanya: versi %d foto %v", d.Submission.Version, ids(d))
 	}
-	if got := d.Photos[0].Annotations; len(got) != 2 || got[0].Text != "pertama" {
+	if got := d.Photos[0].Annotations; len(got) != 2 || labelName(got[0]) != "pertama" {
 		t.Fatalf("anotasi lama harus utuh: %+v", got)
 	}
 	if r.photoStatus(t, p[1]) != domain.PhotoAttached {
@@ -473,7 +473,107 @@ func TestEditDoesNotTouchIdentityFieldsAndReplayShowsNewVersion(t *testing.T) {
 	if err != nil || !again.Replayed || again.Version != 2 {
 		t.Fatalf("replay: %+v %v", again, err)
 	}
-	if got := r.detail(t, first.SubmissionID).Photos[0].Annotations[0].Text; got != "diedit" {
+	if got := labelName(r.detail(t, first.SubmissionID).Photos[0].Annotations[0]); got != "diedit" {
 		t.Fatalf("replay tidak boleh menimpa hasil edit: %q", got)
+	}
+}
+
+// ---------------------------------------------------------------- label (spec-labels-admin §4.2)
+
+func (r *subRig) archive(t *testing.T, name string) {
+	t.Helper()
+	if _, err := r.pool.Exec(bg, `UPDATE labels SET archived_at = now() WHERE id = $1`, lbl(name)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSubmitRejectsMissingAndArchivedLabels(t *testing.T) {
+	r := newSubRig(t, rigOpts{})
+	// label "dipakai lalu diarsip" dibuat lewat submission pertama, lalu diarsipkan
+	if _, err := r.uc.Submit(bg, usecase.SubmitInput{ClientRequestID: uuid.New(), Photos: []usecase.SubmitPhoto{
+		{PhotoID: r.uploaded(t, nil).ID, Annotations: []domain.Annotation{ann("arsip nanti")}}}}); err != nil {
+		t.Fatal(err)
+	}
+	r.archive(t, "arsip nanti")
+	before := r.count(t, "submissions")
+	p := r.uploaded(t, nil)
+	for _, tc := range []struct {
+		name  string
+		label int
+		code  string
+	}{
+		{"label tidak ada", 999999, "INVALID_LABEL"},
+		{"label diarsipkan", lbl("arsip nanti"), "LABEL_ARCHIVED"},
+	} {
+		req := usecase.SubmitInput{ClientRequestID: uuid.New(), Photos: []usecase.SubmitPhoto{{PhotoID: p.ID, Annotations: []domain.Annotation{
+			ann("aktif"), {LabelID: tc.label, X: 0.5, Y: 0.5, W: 0.1, H: 0.1},
+		}}}}
+		_, err := r.uc.Submit(bg, req)
+		de, ok := domain.AsError(err)
+		if !ok || de.Code != tc.code || de.Kind != domain.KindInvalid || !strings.Contains(de.Message, "photos[0].annotations[1]") ||
+			de.Details["label_id"] != tc.label || de.Details["annotation_index"] != 1 {
+			t.Fatalf("%s: %v %+v", tc.name, err, de)
+		}
+	}
+	if r.count(t, "submissions") != before || r.photoStatus(t, p) != domain.PhotoPending {
+		t.Fatal("submission dengan label salah tidak boleh tersimpan sebagian")
+	}
+}
+
+// Label arsip tetap boleh di foto yang sudah memakainya; tidak boleh di foto lain atau foto baru.
+func TestEditArchivedLabelOnlyWherePreviouslyUsed(t *testing.T) {
+	r := newEditRig(t, false)
+	out, p := r.submitted(t, nil, 2) // foto 0 berlabel "pertama" dan "kedua"
+	r.archive(t, "kedua")
+	fresh := r.uploaded(t, nil)
+
+	for name, photos := range map[string][]usecase.SubmitPhoto{
+		"foto lain": {ep(p[0], "pertama"), ep(p[1], "kedua")},
+		"foto baru": {ep(p[0], "pertama"), ep(p[1]), ep(fresh, "kedua")},
+	} {
+		if _, err := r.edit(out, 1, photos...); codeOf(err) != "LABEL_ARCHIVED" {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	if r.photoStatus(t, fresh) != domain.PhotoPending {
+		t.Fatal("foto baru dari edit yang gagal harus tetap pending")
+	}
+	// kotak yang sudah ada dipertahankan (termasuk kotak tambahan berlabel sama di foto yang sama)
+	if _, err := r.edit(out, 1, ep(p[0], "pertama", "kedua", "kedua"), ep(p[1])); err != nil {
+		t.Fatalf("mempertahankan label arsip: %v", err)
+	}
+	got := r.detail(t, out.SubmissionID).Photos[0].Annotations
+	if len(got) != 3 || labelName(got[1]) != "kedua" || !got[1].Label.Archived() {
+		t.Fatalf("anotasi = %+v", got)
+	}
+	// setelah label arsip dibuang dari foto itu, label tersebut tidak bisa dipakai lagi di sana
+	if _, err := r.edit(out, 2, ep(p[0], "pertama"), ep(p[1])); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.edit(out, 3, ep(p[0], "pertama", "kedua"), ep(p[1])); codeOf(err) != "LABEL_ARCHIVED" {
+		t.Fatalf("label arsip yang sudah dibuang: %v", err)
+	}
+}
+
+// Submission lama (teks bebas) yang diedit wajib memberi label ke setiap kotak (PUT = replace).
+func TestEditLegacyTextSubmissionNeedsLabels(t *testing.T) {
+	r := newEditRig(t, false)
+	out, p := r.submitted(t, nil, 1)
+	if _, err := r.pool.Exec(bg, `UPDATE annotations SET label_id = NULL, text = 'catatan lama' WHERE photo_id = $1`, p[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	d := r.detail(t, out.SubmissionID)
+	if a := d.Photos[0].Annotations[0]; a.Label != nil || a.LabelID != 0 || a.Text != "catatan lama" {
+		t.Fatalf("baris lama dibaca = %+v", a)
+	}
+	bad := usecase.SubmitPhoto{PhotoID: p[0].ID, Annotations: []domain.Annotation{{Text: "catatan lama", X: 0.1, Y: 0.1, W: 0.2, H: 0.2}}}
+	if _, err := r.edit(out, 1, bad); codeOf(err) != "INVALID_LABEL" {
+		t.Fatalf("edit tanpa label: %v", err)
+	}
+	if _, err := r.edit(out, 1, ep(p[0], "pengganti")); err != nil {
+		t.Fatal(err)
+	}
+	if a := r.detail(t, out.SubmissionID).Photos[0].Annotations[0]; labelName(a) != "pengganti" || a.Text != "" {
+		t.Fatalf("setelah edit = %+v", a)
 	}
 }

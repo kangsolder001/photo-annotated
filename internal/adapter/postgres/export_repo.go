@@ -20,7 +20,7 @@ var _ usecase.ExportRepo = (*ExportRepo)(nil)
 
 func NewExportRepo(pool *pgxpool.Pool) *ExportRepo { return &ExportRepo{base{pool}} }
 
-func (r *ExportRepo) ExportPage(ctx context.Context, after *usecase.ExportCursor, from, to *time.Time, limit int) ([]usecase.ExportPhoto, error) {
+func (r *ExportRepo) ExportPage(ctx context.Context, after *usecase.ExportCursor, f usecase.ExportFilter, limit int) ([]usecase.ExportPhoto, error) {
 	var (
 		aCreated *time.Time
 		aSub     *uuid.UUID
@@ -38,8 +38,9 @@ func (r *ExportRepo) ExportPage(ctx context.Context, after *usecase.ExportCursor
 		   AND ($1::timestamptz IS NULL OR s.created_at >= $1)
 		   AND ($2::timestamptz IS NULL OR s.created_at < $2)
 		   AND ($3::timestamptz IS NULL OR (s.created_at, s.id, p.position, p.id) > ($3, $4::uuid, $5::smallint, $6::uuid))
+		   AND ($8::int IS NULL OR EXISTS (SELECT 1 FROM annotations fa WHERE fa.photo_id = p.id AND fa.label_id = $8))
 		 ORDER BY s.created_at, s.id, p.position, p.id
-		 LIMIT $7`, from, to, aCreated, aSub, aPos, aPhoto, limit)
+		 LIMIT $7`, f.From, f.To, aCreated, aSub, aPos, aPhoto, limit, f.LabelID)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: export page: %w", err)
 	}
@@ -72,21 +73,26 @@ func (r *ExportRepo) ExportPage(ctx context.Context, after *usecase.ExportCursor
 		return out, nil
 	}
 	arows, err := r.db(ctx).Query(ctx,
-		`SELECT photo_id, text, x, y, w, h FROM annotations WHERE photo_id = ANY($1) ORDER BY photo_id, id`, ids)
+		`SELECT a.photo_id, a.label_id, a.text, a.x, a.y, a.w, a.h, l.name, l.color, l.archived_at
+		   FROM annotations a LEFT JOIN labels l ON l.id = a.label_id
+		  WHERE a.photo_id = ANY($1) ORDER BY a.photo_id, a.id`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: export annotations: %w", err)
 	}
 	defer arows.Close()
 	for arows.Next() {
 		var (
-			pid uuid.UUID
-			a   domain.Annotation
+			pid               uuid.UUID
+			labelID           *int
+			text, name, color *string
+			archivedAt        *time.Time
+			x, y, w, h        float64
 		)
-		if err := arows.Scan(&pid, &a.Text, &a.X, &a.Y, &a.W, &a.H); err != nil {
+		if err := arows.Scan(&pid, &labelID, &text, &x, &y, &w, &h, &name, &color, &archivedAt); err != nil {
 			return nil, fmt.Errorf("postgres: scan export annotation: %w", err)
 		}
 		i := index[pid]
-		out[i].Annotations = append(out[i].Annotations, a)
+		out[i].Annotations = append(out[i].Annotations, annotationFrom(labelID, text, name, color, archivedAt, x, y, w, h))
 	}
 	if err := arows.Err(); err != nil {
 		return nil, fmt.Errorf("postgres: export annotations rows: %w", err)

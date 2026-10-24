@@ -50,13 +50,13 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 	user := s.with(map[string]string{"Authorization": "Bearer " + token})
 
 	pid := user.uploadedPhoto(t, 0x31)
-	body := `{"photos":[{"photo_id":"` + pid.String() + `","annotations":[{"text":"TEKS-ANOTASI-RAHASIA","x":0.1,"y":0.1,"w":0.2,"h":0.2}]}],"client_request_id":"` + uuid.NewString() + `"}`
+	body := `{"photos":[{"photo_id":"` + pid.String() + `","annotations":[{"label_id":1,"x":0.1,"y":0.1,"w":0.2,"h":0.2}]}],"client_request_id":"` + uuid.NewString() + `"}`
 	sub := user.submit(t, body)
 	if sub.Status != 201 {
 		t.Fatalf("submit: %d %s", sub.Status, sub.Raw)
 	}
 	user.edit(t, sub.SubmissionID, "", strings.Replace(body, `"client_request_id":"`, `"x":"`, 1)) // 400, body tidak dicatat
-	user.edit(t, sub.SubmissionID, "", `{"version":1,"photos":[{"photo_id":"`+pid.String()+`","annotations":[{"text":"EDIT-RAHASIA","x":0.1,"y":0.1,"w":0.2,"h":0.2}]}]}`)
+	user.edit(t, sub.SubmissionID, "", `{"version":1,"photos":[{"photo_id":"`+pid.String()+`","annotations":[{"label_id":2,"x":0.1,"y":0.1,"w":0.2,"h":0.2}]}]}`)
 	_, _, urlBody := user.get(t, "/api/v1/photos/"+pid.String()+"/url", nil)
 	var pu struct{ URL string }
 	_ = json.Unmarshal(urlBody, &pu)
@@ -71,7 +71,12 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 	adminCode := s.wa.LastCodeFor(testSuperadmin)
 	_, lbl := admin.send(t, "POST", "/api/v1/admin/labels", `{"name":"Retak","description":"DESKRIPSI-LABEL"}`)
 	admin.send(t, "PUT", "/api/v1/admin/labels/"+idOf(lbl), `{"name":"Retak halus","color":"#000000","archived":true}`)
-	admin.send(t, "PUT", "/api/v1/admin/labels/order", `{"ids":[]}`)
+	_, active := admin.getJSON(t, "/api/v1/labels")
+	var order []string
+	for _, l := range labelList(t, active) {
+		order = append([]string{idOf(l)}, order...) // dibalik
+	}
+	admin.send(t, "PUT", "/api/v1/admin/labels/order", `{"ids":[`+strings.Join(order, ",")+`]}`)
 	admin.send(t, "DELETE", "/api/v1/admin/labels/"+idOf(lbl), "")
 	admin.get(t, "/api/v1/admin/me", nil)
 	_, fake := s.postJSON(t, "/api/v1/admin/otp/request", `{"phone":"0813-5555-6666","turnstile_token":"human"}`)
@@ -92,7 +97,7 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 	secrets := map[string]string{
 		"kode OTP": code, "token sesi": token, "token admin": strings.TrimPrefix(adminTok, "Bearer "),
 		"nomor utuh": "6281277771234", "nomor input": "0812-7777-1234", "nama": "Rahasia Namanya",
-		"email": "surel.rahasia", "teks anotasi": "TEKS-ANOTASI-RAHASIA", "teks edit": "EDIT-RAHASIA",
+		"email":          "surel.rahasia",
 		"kode OTP admin": adminCode, "deskripsi label": "DESKRIPSI-LABEL", "nomor superadmin": testSuperadmin, "nomor superadmin input": testSuperadminInput,
 		"nomor lain di login admin": "6281355556666", "kode admin salah": "424242",
 		"password daftar": "PASSWORD-RAHASIA-1", "token palsu": "token-palsu-rahasia", "tanda tangan URL": "sig=",

@@ -122,11 +122,11 @@ func run() error {
 	submitCfg := usecase.SubmitConfig{
 		MaxPhotos:              cfg.Limits.MaxPhotosPerSubmission,
 		MaxAnnotationsPerPhoto: cfg.Limits.MaxAnnotationsPerPhoto,
-		MaxAnnotationTextLen:   cfg.Limits.MaxAnnotationTextLen,
 	}
 	txm := postgres.NewTxManager(pool)
-	submit := usecase.NewSubmit(photos, subs, txm, store, editTokens, usecase.SystemClock{}, submitCfg)
-	editor := usecase.NewEdit(photos, subs, txm, store, editTokens, usecase.SystemClock{},
+	labelRepo := postgres.NewLabelRepo(pool)
+	submit := usecase.NewSubmit(photos, subs, labelRepo, txm, store, editTokens, usecase.SystemClock{}, submitCfg)
+	editor := usecase.NewEdit(photos, subs, labelRepo, txm, store, editTokens, usecase.SystemClock{},
 		usecase.EditConfig{SubmitConfig: submitCfg, Window: cfg.Edit.Window.Std()})
 	reader := usecase.NewReader(subs, photos, store, urlSigner, editTokens, usecase.SystemClock{}, usecase.ReadConfig{
 		PublicBaseURL: cfg.App.PublicBaseURL,
@@ -136,7 +136,7 @@ func run() error {
 	upload := usecase.NewUpload(photos, store, urlSigner, imagecheck.Inspector{}, usecase.SystemClock{},
 		usecase.UploadConfig{MaxConcurrent: cfg.Limits.MaxConcurrentUploads})
 
-	labels := usecase.NewLabels(postgres.NewLabelRepo(pool), txm, usecase.SystemClock{}, usecase.LabelsConfig{MaxActive: cfg.Limits.MaxLabels})
+	labels := usecase.NewLabels(labelRepo, txm, usecase.SystemClock{}, usecase.LabelsConfig{MaxActive: cfg.Limits.MaxLabels})
 
 	deps := httpapi.Deps{
 		Labels: labels,

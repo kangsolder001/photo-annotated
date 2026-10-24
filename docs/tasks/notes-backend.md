@@ -16,6 +16,11 @@ Tidak ada penyimpangan dari bentuk JSON spec. Detail yang spec tidak sebutkan da
   dikirim dianggap `false` (replace), jadi FE harus selalu mengirim nilai `archived` saat mengubah label arsip.
 - Warna huruf besar (`#E4572E`) diterima dan disimpan huruf kecil.
 - `GET /admin/labels` diurutkan: label aktif menurut `sort_order`, lalu label arsip.
+- `422 INVALID_LABEL` / `LABEL_ARCHIVED` dari submit/edit membawa `details: { "label_id", "photo_index",
+  "annotation_index" }` (tambahan) agar FE bisa langsung menandai kotak yang perlu dipilih ulang. Pesan juga memuat
+  lokasi `photos[i].annotations[j]` seperti error validasi lain.
+- `label_id` yang bukan bilangan bulat (mis. `"1"`) → `400 INVALID_JSON`; `label_id` tidak dikirim / `0` →
+  `422 INVALID_LABEL`.
 
 ## Perubahan config untuk deploy
 
@@ -24,6 +29,7 @@ Tidak ada penyimpangan dari bentuk JSON spec. Detail yang spec tidak sebutkan da
 - `admin.superadmin: { "name": "...", "phone": "08…" }` wajib bila `admin.enabled`.
 - `admin.otp_message_template` opsional (default memuat kata ADMIN; wajib berisi `{code}`).
 - `limits.max_labels` (opsional, default 200).
+- `limits.max_annotation_text_len` **dihapus**; bila masih ada, API menolak start ("hapus field ini").
 - `admin.enabled = true` kini mewajibkan `wa_notif.base_url`, `secrets.wa_notif_token`, `secrets.otp_pepper`,
   `secrets.admin_token_secret` di **semua** `auth.mode` (juga `none`).
 
@@ -84,3 +90,36 @@ memakai `MigrateUpUnlocked` (schema uji sudah terisolasi); `cmd/migrate` tetap m
 tanpa beda huruf, RESTRICT, Down ditolak bila terpakai; usecase: palet, batas, arsip/buka arsip, urutan basi/duplikat,
 hapus terpakai + usage_count, id tidak dipakai ulang, create paralel; e2e: CRUD lengkap, 401 tanpa token/token
 pengguna, mode otp, preflight DELETE, log hygiene mencakup kelola label)
+
+#### Task 39: Anotasi memakai label — **SELESAI**
+**Hasil:** `POST /submissions` dan `PUT /submissions/{id}` menerima kotak `{label_id, x, y, w, h}`; `text` ditolak
+`400`. Label divalidasi di dalam transaksi submit/edit (`SELECT … FOR SHARE`): tidak ada → `422 INVALID_LABEL`,
+diarsipkan → `422 LABEL_ARCHIVED`. `GET /submissions/{id}` memuat `label {id, name, color, archived}` + `text`
+(`null` untuk kotak berlabel; baris lama: `label: null` + teks aslinya). Export JSONL memuat `label_id`, `label`
+(nama saat export), `text`; query baru `label_id`. Config `limits.max_annotation_text_len` dihapus; validasi teks
+anotasi (`NormalizeAnnotationText`) dibuang karena tidak ada lagi jalur tulis teks.
+**Keputusan:**
+- Pengecualian arsip saat edit dihitung per **foto + label**: label arsip diterima pada foto yang di versi
+  sebelumnya sudah punya kotak berlabel itu (kotak tidak punya identitas, jadi "kotak yang sama" tidak bisa
+  dibedakan dari kotak tambahan berlabel sama di foto itu). Di foto lain atau foto baru → `LABEL_ARCHIVED`.
+  Label yang sudah dibuang dari foto itu tidak bisa dipakai lagi di sana. Daftar label lama dibaca setelah
+  `BumpVersion` (baris submission terkunci) sehingga konsisten dengan versi yang diedit.
+- Kunci `FOR SHARE` membuat arsip/hapus/ubah label berbarengan menunggu submit yang sedang berjalan (dan
+  sebaliknya); FK `RESTRICT` tetap pagar terakhir untuk hapus.
+- Submission lama (teks bebas) yang diedit wajib memberi label ke setiap kotak (PUT = replace; kotak tanpa
+  `label_id` → `INVALID_LABEL`).
+**Temuan:**
+- Test memori export (`TestExportTenThousandPhotosStableMemory`) gagal karena halaman pertama terukur +10 MB.
+  Profil heap menunjukkan penyebabnya buffer parser migrasi goose (±16 MB) yang tertahan di `sync.Pool` dari
+  penyiapan schema test, bukan export: heap per halaman tetap datar. Test kini menjalankan GC dua kali sebelum
+  mengukur (sync.Pool baru dilepas pada GC kedua); ambang tidak diubah, hasil 1,06 MB.
+- `TestSessionsRejectBadExpiredAndRevoked` gagal acak (±25%): token "diubah" dengan mengganti karakter terakhir
+  menjadi `A`, padahal karakter terakhir token base64 32 byte hanya salah satu dari `A/Q/g/w`. Diperbaiki agar
+  selalu memakai karakter yang berbeda.
+- Test usecase memakai label uji ber-id tetap (≥ 100001) yang disemai lewat satu koneksi khusus: penyemaian lewat
+  pool dari dalam transaksi membuat test konkurensi macet (pool habis).
+**Verification:** [x] `go vet`, `go build ./cmd/...`, `go test ./... -race` (domain: label wajib; repo: label JOIN,
+baris lama, label arsip, `PhotoLabelIDs`, FK label; usecase: label tidak ada/arsip saat submit (tanpa sisa data),
+pengecualian arsip saat edit, edit submission lama, export berlabel + filter + nama terkini; e2e: `text` → 400,
+tanpa/tidak ada label → 422, GET memuat label lengkap, ganti nama langsung terlihat di GET dan export, arsip
+ditolak untuk kotak baru tetapi boleh dipertahankan, baris lama di GET dan export, log hygiene)

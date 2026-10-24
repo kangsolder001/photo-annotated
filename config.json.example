@@ -53,7 +53,6 @@
     "max_photos_per_submission": 5,
     "max_annotations_per_photo": 50,
     "max_labels": 200,
-    "max_annotation_text_len": 1000,
     "max_concurrent_uploads": 200,
     "upload_timeout": "60s",
     "rate_limit_per_min": { "presign": 30, "submissions": 10, "otp_request": 5, "otp_verify": 20, "admin_login": 5, "login": 10 }

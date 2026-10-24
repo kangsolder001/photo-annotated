@@ -56,7 +56,7 @@ func (s *stack) submitted(t testing.TB, n int) e2eSubmission {
 		out.Body = append(out.Body, imgfix.WebP(1920, 1440, 8000, fill))
 		ann := ""
 		if i == 0 {
-			ann = `{"text":"kotak pertama","x":0.12,"y":0.30,"w":0.25,"h":0.18},{"text":"kotak kedua","x":0.55,"y":0.10,"w":0.30,"h":0.12}`
+			ann = `{"label_id":1,"x":0.12,"y":0.30,"w":0.25,"h":0.18},{"label_id":2,"x":0.55,"y":0.10,"w":0.30,"h":0.12}`
 		}
 		ps = append(ps, `{"photo_id":"`+id.String()+`","annotations":[`+ann+`]}`)
 	}
@@ -89,7 +89,13 @@ func TestE2EReadSubmissionAndViewPhotos(t *testing.T) {
 			Position    int       `json:"position"`
 			Width       int       `json:"width"`
 			Annotations []struct {
-				Text string  `json:"text"`
+				Label *struct {
+					ID       int    `json:"id"`
+					Name     string `json:"name"`
+					Color    string `json:"color"`
+					Archived bool   `json:"archived"`
+				} `json:"label"`
+				Text *string `json:"text"`
 				X    float64 `json:"x"`
 			} `json:"annotations"`
 		} `json:"photos"`
@@ -103,7 +109,8 @@ func TestE2EReadSubmissionAndViewPhotos(t *testing.T) {
 	if len(v.Photos) != 2 || v.Photos[0].PhotoID != sub.Photo[0] || v.Photos[1].PhotoID != sub.Photo[1] || v.Photos[0].Width != 1920 {
 		t.Fatalf("foto: %s", raw)
 	}
-	if len(v.Photos[0].Annotations) != 2 || v.Photos[0].Annotations[0].Text != "kotak pertama" || v.Photos[0].Annotations[0].X != 0.12 ||
+	if a := v.Photos[0].Annotations; len(a) != 2 || a[0].Label == nil || a[0].Label.ID != 1 || a[0].Label.Name != "Label 1" ||
+		a[0].Label.Color != "#2bb3a3" || a[0].Label.Archived || a[0].Text != nil || a[0].X != 0.12 || a[1].Label.Name != "Label 2" ||
 		len(v.Photos[1].Annotations) != 0 {
 		t.Fatalf("anotasi: %s", raw)
 	}

@@ -28,9 +28,6 @@ const (
 	StorageDriverLocal = "local"
 
 	minSecretLen = 32
-
-	// maxAnnotationTextLenDB adalah batas CHECK kolom annotations.text di database (migrasi 0003).
-	maxAnnotationTextLenDB = 1000
 )
 
 // Duration adalah time.Duration yang di-JSON sebagai string ("10m", "720h").
@@ -152,14 +149,16 @@ type StorageLocal struct {
 }
 
 type Limits struct {
-	MaxUploadBytes         int64      `json:"max_upload_bytes"`
-	MaxPhotosPerSubmission int        `json:"max_photos_per_submission"`
-	MaxAnnotationsPerPhoto int        `json:"max_annotations_per_photo"`
-	MaxLabels              int        `json:"max_labels"` // label aktif maksimal (spec-labels-admin §4.1)
-	MaxAnnotationTextLen   int        `json:"max_annotation_text_len"`
-	MaxConcurrentUploads   int        `json:"max_concurrent_uploads"`
-	UploadTimeout          Duration   `json:"upload_timeout"`
-	RateLimitPerMin        RateLimits `json:"rate_limit_per_min"`
+	MaxUploadBytes         int64 `json:"max_upload_bytes"`
+	MaxPhotosPerSubmission int   `json:"max_photos_per_submission"`
+	MaxAnnotationsPerPhoto int   `json:"max_annotations_per_photo"`
+	MaxLabels              int   `json:"max_labels"` // label aktif maksimal (spec-labels-admin §4.1)
+	// MaxAnnotationTextLen dihapus (anotasi kini memakai label). Tetap dikenali hanya untuk ditolak
+	// dengan pesan yang jelas.
+	MaxAnnotationTextLen int        `json:"max_annotation_text_len"`
+	MaxConcurrentUploads int        `json:"max_concurrent_uploads"`
+	UploadTimeout        Duration   `json:"upload_timeout"`
+	RateLimitPerMin      RateLimits `json:"rate_limit_per_min"`
 }
 
 type RateLimits struct {
@@ -259,7 +258,6 @@ func Defaults() Config {
 			MaxPhotosPerSubmission: 5,
 			MaxAnnotationsPerPhoto: 50,
 			MaxLabels:              200,
-			MaxAnnotationTextLen:   1000,
 			MaxConcurrentUploads:   200,
 			UploadTimeout:          Duration(60 * time.Second),
 			RateLimitPerMin:        RateLimits{Presign: 30, Submissions: 10, OTPRequest: 5, OTPVerify: 20, AdminLogin: 5, Login: 10},
@@ -480,11 +478,11 @@ func (c *Config) Validate() error {
 	if l.MaxUploadBytes < 1 {
 		bad("limits.max_upload_bytes", "harus > 0")
 	}
-	if l.MaxPhotosPerSubmission < 1 || l.MaxAnnotationsPerPhoto < 1 || l.MaxAnnotationTextLen < 1 || l.MaxConcurrentUploads < 1 || l.MaxLabels < 1 {
-		bad("limits", "max_photos_per_submission, max_annotations_per_photo, max_annotation_text_len, max_concurrent_uploads, max_labels harus >= 1")
+	if l.MaxPhotosPerSubmission < 1 || l.MaxAnnotationsPerPhoto < 1 || l.MaxConcurrentUploads < 1 || l.MaxLabels < 1 {
+		bad("limits", "max_photos_per_submission, max_annotations_per_photo, max_concurrent_uploads, max_labels harus >= 1")
 	}
-	if l.MaxAnnotationTextLen > maxAnnotationTextLenDB {
-		bad("limits.max_annotation_text_len", "tidak boleh > %d (batas CHECK di database)", maxAnnotationTextLenDB)
+	if l.MaxAnnotationTextLen != 0 {
+		bad("limits.max_annotation_text_len", "dihapus: anotasi kini memakai label, bukan teks bebas; hapus field ini")
 	}
 	if l.UploadTimeout <= 0 {
 		bad("limits.upload_timeout", "harus > 0")

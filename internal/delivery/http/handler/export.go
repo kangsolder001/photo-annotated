@@ -57,6 +57,13 @@ func parseExportQuery(c *gin.Context) (usecase.ExportQuery, error) {
 	if q.From != nil && q.To != nil && !q.From.Before(*q.To) {
 		return q, domain.Invalid("INVALID_QUERY", "from must be before to")
 	}
+	if v := c.Query("label_id"); v != "" {
+		id, err := strconv.Atoi(v)
+		if err != nil || id < 1 {
+			return q, domain.Invalid("INVALID_QUERY", "label_id must be a positive integer")
+		}
+		q.LabelID = &id
+	}
 	if v := c.Query("include_urls"); v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {

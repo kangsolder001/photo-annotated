@@ -697,8 +697,8 @@ func TestNewCleanupPanicsOnInvalidBatch(t *testing.T) {
 func newEditRigFrom(t *testing.T, base *subRig) *editRig {
 	t.Helper()
 	rd := &readRig{subRig: base}
-	return &editRig{readRig: rd, ed: usecase.NewEdit(base.photos, base.subs, postgres.NewTxManager(base.pool), base.store, base.edit, base.clock,
-		usecase.EditConfig{SubmitConfig: usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50, MaxAnnotationTextLen: 1000}, Window: 24 * time.Hour})}
+	return &editRig{readRig: rd, ed: usecase.NewEdit(base.photos, base.subs, base.labels, postgres.NewTxManager(base.pool), base.store, base.edit, base.clock,
+		usecase.EditConfig{SubmitConfig: usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50}, Window: 24 * time.Hour})}
 }
 
 func (r *cleanRig) submittedVia(t *testing.T, ed *editRig, n int) (*usecase.SubmitOutput, []*domain.Photo) {
