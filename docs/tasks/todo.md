@@ -74,7 +74,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 
 ## Phase 7: Frontend (`web/`) — paralel setelah Checkpoint 3
 - [x] Framework FE: React + Vite + TypeScript (keputusan Anda, 24 Okt)
-- [ ] **T26** FE: skeleton + proses foto + upload dengan progres
+- [x] **T26** FE: skeleton + proses foto + upload dengan progres
 - [ ] **T27** FE: anotasi (Annotorious) + submit
 - [ ] **T28** FE: edit + draft + sisa waktu edit
 - [ ] **T29** FE: registrasi/login OTP + banner kanal

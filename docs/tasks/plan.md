@@ -371,7 +371,8 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 
 > Framework FE belum diputuskan (spec: React/Svelte + Vite). Rekomendasi: **React + Vite + TypeScript** — Annotorious punya dukungan React yang matang. Konfirmasi sebelum T26.
 
-#### Task 26: FE skeleton + proses foto + upload
+#### Task 26: FE skeleton + proses foto + upload — **SELESAI**
+**Hasil:** `web/` (React 19.3 + Vite 8.3 + TypeScript 7.0 strict, React Router 7; Node 24/npm 11 karena npm 10.9 gagal memasang vitest). Struktur: `src/api` (klien + satu fungsi per endpoint + tipe kontrak), `src/lib` (logika murni yang diuji: `image`, `upload`, `errors`, `session`, `storage`, `turnstile`), `src/features/<fitur>` (halaman + hook), `src/components` (UI bersama). `image.ts`: orientasi EXIF diterapkan, sisi ≤ 1920, WebP→JPEG fallback, kualitas lalu dimensi diturunkan sampai ≤ 2 MB; encode ulang membuang EXIF/GPS. `upload.ts`: PUT via XHR dengan progres, retry ≤ 3× hanya untuk jaringan/408/`UPLOAD_BUSY`/`UPLOAD_IN_PROGRESS`/`SIZE_MISMATCH` dengan `Retry-After`, `URL_EXPIRED` → presign ulang sekali. Maks 2 upload paralel. Build menghasilkan `_headers` (CSP ketat: hanya origin API + Turnstile) dan `_redirects` untuk Cloudflare Pages. 22 unit test.
 **Description:** Vite + TS, ambil foto (kamera belakang), resize ≤ 1920 px, WebP dengan fallback JPEG, turunkan kualitas bila > 2 MB, presign + PUT dengan progres dan retry/backoff (hormati `Retry-After`).
 **Acceptance criteria:**
 - [ ] Foto HP 4000×3000 menjadi ≤ 2 MB, sisi ≤ 1920, EXIF/GPS hilang
