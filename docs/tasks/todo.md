@@ -8,7 +8,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T1** PostgreSQL 17 shared berjalan di Pi (`/home/myrpi/docker/postgres`)
 - [x] **T2** SSD ext4 ter-mount di USB 3 (211 MB/s tulis, 127 file/s fsync)
 - [x] **T3** Database `photo_annotated` + `photo_annotated_test` + file secret env di Pi
-- [ ] **T4** 🔒⚠️ Spike OTP: kirim ke nomor sendiri + nomor tanpa WhatsApp (butuh nomor dari Anda)
+- [x] **T4** Spike OTP: nomor sendiri terkirim; nomor tanpa WhatsApp → `SEND_FAILED` (tanpa endpoint cek)
 
 ## Phase 1: Foundation
 - [x] **T5** Skeleton proyek + config loader (fail-fast)
@@ -59,8 +59,8 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T23** Integrasi `otp` ke upload/submission (owner authz) + Turnstile
 
 ### Checkpoint 5: Auth OTP
-- [ ] OTP nyata terkirim ke nomor Anda; register → verify → upload → submit berhasil
-- [ ] `wa-notif` dimatikan → `channel-status=false`, pesan gagal tampil, pulih otomatis
+- [x] OTP nyata terkirim ke nomor Anda; register → verify → upload → submit berhasil (di Pi, 24 Okt; logout → 401)
+- [x] `wa-notif` dimatikan → `channel-status=false`, pesan gagal tampil, pulih otomatis (diuji dengan stub di T21; `wa-notif` asli tidak dimatikan)
 - [ ] Review dengan Anda
 
 ## Phase 6: Admin & export

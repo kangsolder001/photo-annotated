@@ -80,13 +80,14 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [x] koneksi pgx ke kedua database: PostgreSQL 17.11, bukan superuser
 **Dependencies:** 1 · **Scope:** XS (operasional)
 
-#### Task 4: Spike OTP via wa-notif (butuh input Anda)
+#### Task 4: Spike OTP via wa-notif — **SELESAI** (24 Okt 2026, lewat API di Pi)
 **Description:** Kirim satu pesan lewat `POST /api/v1/messages/send` ke nomor Anda sendiri, dan satu ke nomor yang **tidak memakai WhatsApp**, untuk menjawab open question #2. Catat respons/error aktual.
 **Acceptance criteria:**
-- [ ] Pesan ke nomor sendiri diterima; waktu respons tercatat
-- [ ] Perilaku untuk nomor tanpa WhatsApp tercatat (error code, `SENT` atau tidak) di spec §14.2
-- [ ] Putusan: perlu endpoint cek nomor di `wa-notif` atau tidak
-**Verification:** [ ] curl dari Pi; hasil ditulis ke `docs/spec.md` §9.5/§14.2
+- [x] Pesan ke nomor sendiri (…949) diterima (dikonfirmasi user); terkirim < 1 detik setelah diantrekan
+- [x] Nomor tanpa WhatsApp (…7460): `500 SEND_FAILED` konsisten di 3 percobaan → `failed` ±14 detik; kanal tetap tersedia (spec §14.2 #2)
+- [x] Putusan: endpoint cek nomor **tidak** diperlukan
+**Catatan:** sebelum uji, `wa-notif` di-restart (izin user) karena sesi DISCONNECTED sejak 20 Okt; tersambung lagi tanpa QR.
+**Verification:** [x] curl dari Pi; hasil ditulis ke `docs/spec.md` §14.2
 **Dependencies:** None · **Scope:** XS · **Butuh:** nomor tanpa WhatsApp dari Anda
 
 ### Phase 1: Foundation
