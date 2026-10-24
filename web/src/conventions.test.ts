@@ -20,7 +20,7 @@ function files(dir: string): string[] {
 // berkas ini sendiri berisi contoh emoji untuk menguji pemindai
 const all = [...files(SRC), join(WEB, "index.html")].filter((f) => !f.endsWith("conventions.test.ts"));
 // test dan alat bantunya (src/test) tidak dikirim ke browser
-const shipped = all.filter((f) => !/\.test\.tsx?$/.test(f) && !f.includes("/src/test/"));
+const shipped = all.filter((f) => !/\.test\.tsx?$|\/src\/test\/|\/(testUtils|fixtures)\.tsx?$/.test(f));
 
 /** Buang komentar (blok, baris, HTML). `//` setelah `:` (URL) tidak dianggap komentar. */
 function stripComments(src: string): string {

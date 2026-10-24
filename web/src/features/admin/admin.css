@@ -137,3 +137,50 @@ fieldset.field legend { font-weight: 600; padding: 0; margin-bottom: 0.3rem; }
 .toast-error > svg { color: var(--danger); }
 @media (max-width: 767px) { .toasts { left: 1rem; right: 1rem; bottom: 5.5rem; max-width: none; } }
 .nowrap { white-space: nowrap; }
+
+/* ---- daftar anotasi */
+.filters { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+.filters > .card { margin-bottom: 0; }
+.filter-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.75rem; align-items: end; }
+.filter-bar .filter-q { grid-column: span 2; }
+@media (max-width: 767px) { .filter-bar { grid-template-columns: 1fr; } .filter-bar .filter-q { grid-column: auto; } }
+.nowrap-row { flex-wrap: nowrap; }
+.nowrap-row input { flex: 1; min-width: 0; }
+.chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.chip { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.15rem 0.6rem; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); font-size: 0.85rem; max-width: 100%; overflow-wrap: anywhere; }
+.chip-x { display: inline-grid; place-items: center; min-width: 32px; min-height: 32px; margin: -0.3rem -0.45rem -0.3rem 0; border: 0; border-radius: 999px; background: none; color: var(--muted); cursor: pointer; }
+.chip-x:hover { color: var(--danger); }
+.filter-chips { align-items: center; }
+
+.sub-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+@media (min-width: 1024px) { .sub-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); } }
+@media (min-width: 768px) and (max-width: 1023px) { .sub-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 767px) { .sub-grid { grid-template-columns: minmax(0, 1fr); } }
+.sub-card { margin: 0; padding: 0; overflow: hidden; display: flex; flex-direction: column; position: relative; }
+.sub-cover { display: flex; align-items: center; justify-content: center; background: #000; height: 240px; overflow: hidden; }
+.sub-cover-empty { height: 100%; display: grid; place-items: center; }
+/* foto mengecil sesuai ruang tanpa mengubah rasio; overlay SVG mengikuti ukuran gambar persis */
+.sub-cover .box-editor, .photo-card .box-editor { width: fit-content; max-width: 100%; margin: 0 auto; border-radius: 0; }
+.sub-cover .box-editor img { width: auto; max-width: 100%; height: auto; max-height: 240px; }
+.photo-card .box-editor img { width: auto; max-width: 100%; height: auto; max-height: 75vh; }
+.sub-body { padding: 0.75rem; display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
+.sub-who { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; overflow-wrap: anywhere; }
+.sub-reason { margin: 0; font-size: 0.88rem; overflow-wrap: anywhere; }
+.load-more { display: flex; justify-content: center; margin: 1.25rem 0; }
+
+/* ---- detail */
+.detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 1rem; align-items: start; }
+@media (max-width: 1023px) { .detail-grid { grid-template-columns: minmax(0, 1fr); } }
+.detail-panel { display: flex; flex-direction: column; gap: 0; position: sticky; top: 1rem; }
+@media (max-width: 1023px) { .detail-panel { position: static; } }
+.detail-panel h2 { display: flex; gap: 0.5rem; align-items: center; }
+.photo-card { padding: 0.75rem; }
+.photo-card-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem; }
+.photo-card-head h2 { margin: 0; }
+.box-list { list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.5rem; }
+.box-list li { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.4rem; border: 1px solid var(--border); border-radius: 10px; min-width: 0; }
+.box-list .ann-num { margin-top: 0.1rem; }
+.meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.35rem 0.75rem; margin: 0; }
+.meta dt { color: var(--muted); }
+.meta dd { margin: 0; overflow-wrap: anywhere; }
+.contact { display: flex; gap: 0.5rem; align-items: center; overflow-wrap: anywhere; min-height: 32px; }

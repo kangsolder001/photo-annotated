@@ -3,6 +3,8 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AdminLayout } from "./AdminLayout";
 import { HomePage } from "./HomePage";
 import { LabelsPage } from "./LabelsPage";
+import { SubmissionDetailPage } from "./SubmissionDetailPage";
+import { SubmissionsPage } from "./SubmissionsPage";
 import { AdminLoginPage } from "./LoginPage";
 import { adminSession } from "./session";
 import "./admin.css";
@@ -29,6 +31,8 @@ export default function AdminApp() {
       <Route element={<RequireAdmin><AdminLayout /></RequireAdmin>}>
         <Route index element={<HomePage />} />
         <Route path="label" element={<LabelsPage />} />
+        <Route path="anotasi" element={<SubmissionsPage />} />
+        <Route path="anotasi/:id" element={<SubmissionDetailPage />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Route>
     </Routes>

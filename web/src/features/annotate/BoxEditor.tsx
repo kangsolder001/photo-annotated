@@ -27,6 +27,10 @@ interface Props {
   onCreate?(id: string): void;
   /** Gambar gagal dimuat (mis. URL bertanda tangan kedaluwarsa). */
   onImageError?(): void;
+  /** Hanya gambar (kartu daftar dashboard): tanpa interaksi dan tanpa tab stop. */
+  display?: boolean;
+  /** Muat gambar saat mendekati layar. */
+  lazy?: boolean;
 }
 
 type Gesture =
@@ -148,20 +152,20 @@ export function BoxEditor(p: Props) {
 
   return (
     <div className="box-editor">
-      <img src={p.src} alt={p.alt} draggable={false} onError={p.onImageError} />
+      <img src={p.src} alt={p.display ? "" : p.alt} draggable={false} onError={p.onImageError} loading={p.lazy ? "lazy" : undefined} width={p.width} height={p.height} />
       <svg
         ref={svg}
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
-        style={{ touchAction: editable ? "none" : "pan-x pan-y pinch-zoom", cursor: editable ? "crosshair" : "default" }}
-        onPointerDown={onBackgroundDown}
+        style={{ touchAction: editable ? "none" : "pan-x pan-y pinch-zoom", cursor: editable ? "crosshair" : "default", pointerEvents: p.display ? "none" : undefined }}
+        onPointerDown={p.display ? undefined : onBackgroundDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerCancel={onUp}
         onKeyDown={onKey}
-        tabIndex={0}
-        role="application"
-        aria-label={p.readOnly ? "Foto dengan kotak anotasi" : "Area menggambar kotak. Seret untuk membuat kotak; panah untuk menggeser kotak terpilih; Delete untuk menghapus."}
+        tabIndex={p.display ? undefined : 0}
+        role={p.display ? "img" : "application"}
+        aria-label={p.display ? p.alt : p.readOnly ? "Foto dengan kotak anotasi" : "Area menggambar kotak. Seret untuk membuat kotak; panah untuk menggeser kotak terpilih; Delete untuk menghapus."}
       >
         {p.boxes.map((b, i) => {
           const sel = b.id === p.selectedId;

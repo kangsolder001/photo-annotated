@@ -152,3 +152,41 @@ hapus + `LABEL_IN_USE`, tampilan kartu HP + menu).
 **Verification:** [x] typecheck; [x] `npm test` (335); [x] build + cek bundle. [x] Visual 360/768/1440 ×
 terang/gelap (`/admin/label`, `/admin/masuk`): tanpa scroll horizontal; ditemukan & diperbaiki: `main`
 global (maks 760 px) ikut membatasi dashboard, pilihan tema terpotong di sidebar 240 px.
+
+#### Task 43: FE admin — daftar & detail anotasi, export — **SELESAI**
+**Hasil:**
+- **`/admin/anotasi`:** kartu per submission: foto sampul + overlay kotak berwarna label (komponen
+  render yang sama dengan tampilan baca user: `BoxEditor` mode `display` — tanpa interaksi/tab stop,
+  `loading="lazy"`, rasio asli dipertahankan sehingga overlay pas juga untuk foto potret), nama +
+  nomor HP utuh annotator (Anonim dengan ikon `user-secret`; lencana Diblokir `user-slash`), waktu,
+  jumlah foto/kotak, chip label + jumlah, lencana status review, "N catatan lama", "terhapus dalam N
+  hari", alasan penolakan. Grid 3–4 kolom desktop, 2 kolom tablet, 1 kolom HP. "Muat lagi" (cursor).
+- **Filter di URL** (`filters.ts`): tanggal dari/sampai (tanggal lokal inklusif → `from` = awal hari,
+  `to` = awal hari berikutnya, RFC 3339), label (termasuk arsip), status review, cari annotator (nama
+  / nomor, dikirim saat tekan cari), "Masih ada catatan lama" (`unlabeled=true`), `user_id` (dari
+  tautan "Semua dari annotator ini"), `sort`. Pintasan **Antrean review** = `review_status=pending&
+  sort=oldest`. Di HP filter di panel "Filter (n)" yang bisa dibuka-tutup; filter aktif selalu tampil
+  sebagai chip yang bisa dihapus + "Hapus semua filter". Ukuran halaman 24 (habis dibagi 2/3/4 kolom).
+- **`/admin/anotasi/:id`:** semua foto dengan overlay bernomor + daftar kotak (label, tanda
+  "diarsipkan", ukuran px; baris lama: "catatan lama" + teks apa adanya), kartu annotator (nama,
+  email `mailto:`, nomor `tel:`, "Semua dari annotator ini", Profil bila mode otp), waktu dibuat/diubah,
+  versi, status review, kapan terhapus retensi. Desktop: foto kiri, panel kanan (sticky); < 1024 px
+  bertumpuk. URL foto kedaluwarsa → detail dimuat ulang (maks 1×/10 detik). 404 → "tidak ditemukan atau
+  sudah dihapus". Urutan daftar terakhir disimpan per tab (`listContext`) untuk navigasi J/K (T49).
+- **Export JSONL:** dialog (rentang tanggal dari filter aktif, status review default **Diterima**,
+  opsi "hanya foto berlabel X" bila filter label aktif) → `fetch` dengan `Authorization` →
+  `photo-annotated-<from>-<to>.jsonl` ("awal"/"sekarang" bila kosong) → notifikasi jumlah baris.
+**Keputusan:** trailer `X-Export-Complete` tidak bisa dibaca `fetch`; FE memakai header itu bila ada
+(proxy bisa mengubah trailer jadi header) dan selain itu memeriksa badan: harus diakhiri baris baru
+dan baris terakhir JSON utuh; bila tidak → "Export tidak lengkap". Export dibaca penuh ke memori
+(`res.text()`) lalu disimpan sebagai Blob: cukup untuk ukuran dataset sekarang (satu baris per foto,
+tanpa URL), dicatat sebagai batas.
+**Asumsi kontrak:** `cover.annotations[].label_id` boleh `null` (baris lama); `next_cursor` kosong/
+`null` = habis; detail admin memuat `photos[].url` dan `annotations[].label` seperti §5.1.
+**Test:** `SubmissionsPage.test.tsx` (kartu, Anonim, overlay, tautan detail, filter → query API +
+URL, chip, cursor, antrean review, `INVALID_QUERY`, export: header Authorization + default
+`accepted` + nama berkas, export terpotong, `checkJSONL`; detail: foto/kotak/ukuran/arsip/catatan lama
+sebagai teks/annotator/tautan, 404), `filters.test.ts`.
+**Verification:** [x] typecheck; [x] `npm test` (363); [x] build (chunk admin 44 kB). [x] Visual
+360/768/1440 × kedua tema; ditemukan & diperbaiki: overlay sampul bergeser pada foto potret
+(`object-fit: contain` membuat SVG lebih besar dari gambar) → wadah mengikuti ukuran gambar.
