@@ -71,13 +71,13 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Catatan:** jika SSD dicabut dan dipasang lagi, pastikan di port biru; periksa dengan `lsusb -t`.
 **Dependencies:** None · **Scope:** XS (operasional)
 
-#### Task 3: Database `photo_annotated` + secret env
+#### Task 3: Database `photo_annotated` + secret env — **SELESAI**
 **Description:** Buat database dan role (`create-service-db.sh photo_annotated` dan `photo_annotated_test`), lalu siapkan file env di Pi (mode 600, di luar git) berisi `DATABASE_URL`, `STORAGE_SIGNING_SECRET`, `EDIT_TOKEN_SECRET`, `OTP_PEPPER`, `ADMIN_TOKEN_SECRET`, `WA_NOTIF_TOKEN`.
 **Acceptance criteria:**
-- [ ] Dua database ada, masing-masing dengan role sendiri (bukan superuser)
-- [ ] File env mode 600; semua secret acak ≥ 32 byte; tidak ada secret di repo
-- [ ] Tes koneksi dari mesin dev lewat SSH tunnel berhasil
-**Verification:** [ ] `psql "$DATABASE_URL" -c 'select 1'`; [ ] `git grep -i secret` tidak menemukan nilai nyata
+- [x] Dua database ada, masing-masing dengan role sendiri (bukan superuser)
+- [x] File env mode 600 di Pi (`/home/myrpi/docker/photo-annotated/.env`); secret acak 48 karakter; tidak ada secret di repo (`.env.local` di-gitignore). `WA_NOTIF_TOKEN` dan `TURNSTILE_SECRET` diisi saat T4/T23
+- [x] Tes koneksi dari mesin dev lewat SSH tunnel (`scripts/db-tunnel.sh`, port 15432) berhasil
+**Verification:** [x] koneksi pgx ke kedua database: PostgreSQL 17.11, bukan superuser
 **Dependencies:** 1 · **Scope:** XS (operasional)
 
 #### Task 4: Spike OTP via wa-notif (butuh input Anda)

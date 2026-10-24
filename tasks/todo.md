@@ -7,7 +7,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 ## Phase 0: Infrastruktur
 - [x] **T1** PostgreSQL 17 shared berjalan di Pi (`/home/myrpi/docker/postgres`)
 - [x] **T2** SSD ext4 ter-mount di USB 3 (211 MB/s tulis, 127 file/s fsync)
-- [ ] **T3** Database `photo_annotated` + `photo_annotated_test` + file secret env di Pi
+- [x] **T3** Database `photo_annotated` + `photo_annotated_test` + file secret env di Pi
 - [ ] **T4** 🔒⚠️ Spike OTP: kirim ke nomor sendiri + nomor tanpa WhatsApp (butuh nomor dari Anda)
 
 ## Phase 1: Foundation
