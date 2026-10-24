@@ -76,7 +76,7 @@ export function NewSubmissionPage() {
         id: res.submission_id, createdAt: res.created_at, photos: items.length, boxes: totalBoxes,
         owner: currentOwner(), editToken: res.edit_token,
       });
-      navigate(`/riwayat?baru=${res.submission_id}`, { replace: true });
+      navigate(`/s/${res.submission_id}?baru=1`, { replace: true });
     } catch (e) {
       setError(errorMessage(e));
       setSubmitting(false);

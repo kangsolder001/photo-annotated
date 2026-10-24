@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { HistoryPage } from "./features/history/HistoryPage";
 import { NewSubmissionPage } from "./features/submit/NewSubmissionPage";
+import { SubmissionPage } from "./features/submission/SubmissionPage";
 
 export function App() {
   return (
@@ -9,6 +10,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<NewSubmissionPage />} />
         <Route path="/riwayat" element={<HistoryPage />} />
+        <Route path="/s/:id" element={<SubmissionPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

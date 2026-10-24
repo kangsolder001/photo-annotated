@@ -14,6 +14,7 @@ export function PhotoAnnotator(props: {
   readOnly?: boolean;
   showErrors?: boolean;
   onChange?(boxes: Box[]): void;
+  onImageError?(): void;
 }) {
   const [selectedId, setSelectedId] = useState<string>();
   const [focusId, setFocusId] = useState<string>();
@@ -44,6 +45,7 @@ export function PhotoAnnotator(props: {
         onChange={props.onChange}
         onSelect={setSelectedId}
         onCreate={setFocusId}
+        onImageError={props.onImageError}
       />
       <AnnotationList
         boxes={props.boxes}

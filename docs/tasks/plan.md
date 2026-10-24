@@ -390,7 +390,8 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [ ] test validasi; [ ] manual end-to-end di HP terhadap Pi
 **Dependencies:** 26 · **Files:** `web/src/pages/Annotate.tsx`, `web/src/lib/annotation.ts`, test · **Scope:** M
 
-#### Task 28: FE edit + draft
+#### Task 28: FE edit + draft — **SELESAI**
+**Hasil:** `/s/:id` membaca laporan (foto lewat URL bertanda tangan; URL yang kedaluwarsa diminta ulang otomatis saat gambar gagal dimuat), menampilkan "bisa diedit sampai … (sisa …)" dan menjadi baca-saja setelah 24 jam. Edit memakai editor yang sama: ubah kotak/catatan, hapus foto, tambah foto baru (upload sama seperti laporan baru). Draf disimpan otomatis per laporan **dan per versi** (`lib/draft.ts`): pulih setelah reload dengan tombol "Buang perubahan"; draf versi lama dibuang agar tidak menimpa perubahan dari tempat lain. `409 VERSION_CONFLICT` / `403 EDIT_WINDOW_CLOSED` menampilkan pesan + tombol "Muat ulang". Mode none: laporan dari perangkat lain (tanpa `edit_token`) tidak bisa dibuka.
 **Description:** Muat submission, ubah anotasi/foto, `version`, sisa waktu edit dari `editable_until` (baca-saja setelahnya), draft di `localStorage`, tangani `409`.
 **Acceptance criteria:**
 - [ ] Setelah 24 jam layar baca-saja; `409` menawarkan muat ulang; draft pulih setelah reload

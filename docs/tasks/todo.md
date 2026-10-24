@@ -76,7 +76,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] Framework FE: React + Vite + TypeScript (keputusan Anda, 24 Okt)
 - [x] **T26** FE: skeleton + proses foto + upload dengan progres
 - [x] **T27** FE: anotasi (Annotorious) + submit
-- [ ] **T28** FE: edit + draft + sisa waktu edit
+- [x] **T28** FE: edit + draft + sisa waktu edit
 - [ ] **T29** FE: registrasi/login OTP + banner kanal
 - [ ] **T30** 🔒 Deploy FE ke Cloudflare Pages (butuh domain/akun)
 

@@ -20,6 +20,8 @@ interface Props {
   onSelect?(id: string | undefined): void;
   /** Dipanggil setelah kotak baru selesai digambar (mis. untuk memfokuskan isian catatannya). */
   onCreate?(id: string): void;
+  /** Gambar gagal dimuat (mis. URL bertanda tangan kedaluwarsa). */
+  onImageError?(): void;
 }
 
 type Gesture =
@@ -139,7 +141,7 @@ export function BoxEditor(p: Props) {
 
   return (
     <div className="box-editor">
-      <img src={p.src} alt={p.alt} draggable={false} />
+      <img src={p.src} alt={p.alt} draggable={false} onError={p.onImageError} />
       <svg
         ref={svg}
         viewBox={`0 0 ${W} ${H}`}
