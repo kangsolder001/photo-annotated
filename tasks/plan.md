@@ -240,10 +240,10 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Dependencies:** 15 · **Files:** `usecase/edit.go`, `handler/submission_put.go` + test · **Scope:** M
 
 ### Checkpoint 3: Alur anonim end-to-end
-- [ ] Skrip e2e (curl atau Go test): presign → PUT → submit → get → edit → lihat foto berhasil
-- [ ] `go test ./... -race` hijau; tidak ada memory growth saat 200 upload paralel
-- [ ] **Kontrak API stabil**: FE boleh mulai (Phase 7)
-- [ ] Review dengan Anda
+- [x] e2e (Go test HTTP asli) dan `curl` di Pi: presign → PUT → submit → replay → get → lihat foto → edit berhasil
+- [x] `go test ./... -race` hijau; memori stabil saat 200 upload paralel (heap +12–15 MB)
+- [x] **Kontrak API stabil**: FE boleh mulai (Phase 7)
+- [ ] Review dengan Anda (pekerjaan dilanjutkan; review dapat dilakukan kapan saja)
 
 ### Phase 4: Retensi
 

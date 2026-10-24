@@ -39,9 +39,9 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T16** `PUT /submissions/{id}` (edit, versi, jendela 24 jam)
 
 ### Checkpoint 3: Alur anonim end-to-end
-- [ ] Skrip e2e: presign → PUT → submit → get → edit → lihat foto
-- [ ] `go test ./... -race` hijau; memori stabil saat 200 upload paralel
-- [ ] Kontrak API stabil → FE boleh mulai
+- [x] e2e: presign → PUT → submit → replay → get → lihat foto → edit (Go, HTTP asli) dan `curl` di Pi
+- [x] `go test ./... -race` hijau; memori stabil saat 200 upload paralel (heap +12–15 MB)
+- [x] Kontrak API stabil → FE boleh mulai
 - [ ] Review dengan Anda
 
 ## Phase 4: Retensi
