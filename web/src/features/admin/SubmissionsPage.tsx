@@ -1,6 +1,6 @@
 import { faClock } from "@fortawesome/free-regular-svg-icons";
 import {
-  faCheckDouble, faDownload, faFilter, faMagnifyingGlass, faRotate, faTrashCan, faUserSecret, faUserSlash, faXmark,
+  faCheck, faCheckDouble, faDownload, faFilter, faMagnifyingGlass, faRotate, faTrashCan, faUserSecret, faUserSlash, faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -17,6 +17,7 @@ import type { AdminLabel, ReviewStatus, SubmissionListItem } from "./types";
 import { AnnotatedPhoto } from "./ui/AnnotatedPhoto";
 import { ConfirmDelete } from "./ui/ConfirmDelete";
 import { Dialog } from "./ui/Dialog";
+import { ReasonDialog } from "./ui/ReasonDialog";
 import { useToast } from "./ui/Toasts";
 import { useIsPhone } from "./ui/useMediaQuery";
 
@@ -40,7 +41,8 @@ export function SubmissionsPage() {
   const [exporting, setExporting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
-  const [bulk, setBulk] = useState<"delete" | null>(null);
+  const [bulk, setBulk] = useState<"delete" | "reject" | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const isPhone = useIsPhone();
   const toast = useToast();
   const abort = useRef<AbortController | null>(null);
@@ -109,6 +111,34 @@ export function SubmissionsPage() {
     listContext.drop(ids);
   };
 
+  /** Terima/tolak terpilih (satu alasan untuk semua); hasil per item. */
+  const bulkReview = async (status: ReviewStatus, reason: string | null) => {
+    setBulkBusy(true);
+    try {
+      const r = await adminApi.reviewMany(chosen.map((c) => ({ id: c.id, version: c.version })), status, reason);
+      const ok = new Set(r.results.filter((x) => x.result === "ok").map((x) => x.id));
+      const missing = r.results.filter((x) => x.result === "not_found").map((x) => x.id);
+      const conflicts = r.results.filter((x) => x.result === "version_conflict").length;
+      // yang statusnya tidak lagi cocok dengan filter status (mis. antrean "menunggu") keluar dari daftar
+      const leaves = filters.review_status && filters.review_status !== status;
+      setItems((it) => it
+        ?.filter((x) => !missing.includes(x.id) && !(leaves && ok.has(x.id)))
+        .map((x) => (ok.has(x.id) ? { ...x, review: { status, reason, reviewed_at: new Date().toISOString() }, retention_deletes_at: status === "accepted" ? null : x.retention_deletes_at } : x)));
+      if (missing.length) listContext.drop(missing);
+      const parts = [`${ok.size} submission ${status === "accepted" ? "diterima" : "ditolak"}`];
+      if (conflicts) parts.push(`${conflicts} baru diubah annotator (buka untuk melihat isi terbaru)`);
+      if (missing.length) parts.push(`${missing.length} sudah tidak ada`);
+      toast(conflicts || missing.length ? "warn" : "ok", parts.join("; ") + ".");
+      setBulk(null);
+      endSelect();
+    } catch (e) {
+      toast("error", adminErrorMessage(e));
+      if (status === "rejected") throw e;
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const bulkDelete = async () => {
     const r = await adminApi.deleteSubmissions(chosen.map((c) => c.id));
     // yang sudah tidak ada (not_found) juga dibuang dari daftar
@@ -151,6 +181,8 @@ export function SubmissionsPage() {
           <label className="check"><input type="checkbox" checked={allShown} onChange={selectAll} /> Pilih semua yang tampil</label>
           <span className="bulk-count" aria-live="polite">{selected.size} dipilih{selected.size >= MAX_BULK ? ` (maks ${MAX_BULK})` : ""}</span>
           <div className="row bulk-actions">
+            <button type="button" className="btn btn-primary" disabled={!selected.size || bulkBusy} onClick={() => void bulkReview("accepted", null)}><Icon icon={faCheck} /> Terima terpilih</button>
+            <button type="button" className="btn" disabled={!selected.size || bulkBusy} onClick={() => setBulk("reject")}><Icon icon={faXmark} /> Tolak terpilih</button>
             <button type="button" className="btn btn-danger" disabled={!selected.size} onClick={() => setBulk("delete")}><Icon icon={faTrashCan} /> Hapus terpilih</button>
             <button type="button" className="btn" onClick={endSelect}><Icon icon={faXmark} /> Batal</button>
           </div>
@@ -174,6 +206,10 @@ export function SubmissionsPage() {
       )}
 
       {exporting && <ExportDialog filters={filters} labels={labels} onClose={() => setExporting(false)} />}
+      {bulk === "reject" && (
+        <ReasonDialog title={`Tolak ${chosen.length} submission?`} label="Alasan penolakan (sama untuk semua, dibaca annotator)" danger
+          confirmLabel={<><Icon icon={faXmark} /> Tolak terpilih</>} onClose={() => setBulk(null)} onConfirm={(r) => bulkReview("rejected", r)} />
+      )}
       {bulk === "delete" && (
         <ConfirmDelete title={`Hapus ${chosen.length} submission?`} confirmLabel="Hapus terpilih" onClose={() => setBulk(null)} onConfirm={bulkDelete}
           what={`${chosen.length} submission (${chosen.reduce((n, c) => n + c.photo_count, 0)} foto, ${chosen.reduce((n, c) => n + c.annotation_count, 0)} kotak anotasi) dari ${owners(chosen)}`} />

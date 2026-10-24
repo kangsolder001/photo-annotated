@@ -212,3 +212,13 @@ select {
 .ann-legacy { margin: 0.2rem 0 0; font-size: 0.92rem; }
 .ann-legacy .ann-text { margin: 0; }
 .legacy-tag { display: inline-block; padding: 0 0.4rem; border-radius: 6px; background: var(--warn-soft); color: var(--warn); font-size: 0.8rem; font-weight: 600; }
+
+/* ---- lencana (status review, label arsip…) */
+.badge { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.82rem; font-weight: 600; white-space: nowrap; }
+.badge-ok { background: var(--primary-soft); color: var(--ok); }
+.badge-warn { background: var(--warn-soft); color: var(--warn); }
+.badge-danger { background: var(--danger-soft); color: var(--danger); }
+.badge-muted { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+
+.review-reason { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.history-item .row { margin-top: 0.3rem; }

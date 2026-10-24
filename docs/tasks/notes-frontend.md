@@ -216,3 +216,37 @@ hapus foto `cleanup_pending` + muat ulang; hapus massal: body ids, ringkasan, it
 `SubmissionPage.test.tsx` (404 di riwayat → sudah dihapus + riwayat/draf dibuang; 404 lain → pesan akses).
 **Verification:** [x] typecheck; [x] `npm test` (370); [x] build. [x] Visual: mode Pilih + bar bawah dan
 sheet konfirmasi di 360 px, bar atas + modal di 1440 px.
+
+#### Task 49: FE review — panel + antrean + aksi massal; lencana review user; akun diblokir — **SELESAI**
+**Hasil (admin):**
+- `ReviewPanel` di detail: lencana status + waktu review + alasan, **Terima** / **Tolak** (dialog
+  alasan wajib 1–500 karakter, aturan teks backend) / **Batalkan review** (→ `pending`), pintas
+  **Terima lalu berikutnya** / **Tolak lalu berikutnya** dan Sebelumnya/Berikutnya mengikuti urutan
+  daftar terakhir (antrean review = `pending` + terlama dulu). `PUT /admin/submissions/{id}/review`
+  selalu membawa `version` yang sedang dilihat; `409 VERSION_CONFLICT` → "baru saja diubah annotator…"
+  + **Muat ulang** (admin tidak pernah menerima isi yang belum dilihat).
+- Pintasan keyboard: `A` terima, `R` tolak (membuka isian alasan), `J`/`K` berikutnya/sebelumnya;
+  tidak aktif saat fokus di isian teks/select atau saat dialog terbuka; tertulis di tooltip tombol dan
+  petunjuk di panel (desktop). Di HP tombol Terima/Tolak menempel di bawah layar.
+- Membatalkan penerimaan submission yang dibuat > 90 hari lalu → dialog peringatan "terhapus
+  permanen pada putaran cleanup berikutnya (paling lama 1 jam)" sebelum dikirim.
+- Daftar: **Terima terpilih** / **Tolak terpilih** (satu alasan untuk semua) di bar aksi massal →
+  `POST /admin/submissions/review` dengan `{ id, version }` per item; hasil per item: `ok` → status
+  kartu diperbarui (atau keluar dari daftar bila tidak cocok lagi dengan filter status, mis. antrean),
+  `version_conflict` dan `not_found` dilaporkan di notifikasi.
+**Hasil (user):** `GET /submissions/{id}` → `review` ditampilkan sebagai lencana (Menunggu review /
+Diterima / Ditolak, ikon + teks) + alasan penolakan; ditolak dan masih bisa diedit → tombol
+**Perbaiki** (menggantikan Edit) + penjelasan bahwa perbaikan kembali menunggu review. Riwayat
+memperbarui status review 20 laporan terbaru (4 permintaan paralel) dan menyimpannya di entri riwayat,
+menampilkan lencana + alasan; laporan yang 404 (dihapus admin) dibuang dari riwayat. Login
+`403 ACCOUNT_BLOCKED` → "Akun Anda diblokir. Hubungi admin." Gaya `.badge` dipindah ke CSS global.
+**Keputusan:** batas 90 hari untuk peringatan diambil dari default `retention.days` (FE tidak tahu
+nilai config server; `retention_deletes_at` bernilai `null` saat diterima). Riwayat hanya
+memperbarui 20 laporan terbaru agar membuka riwayat tidak membuat 100 request.
+**Asumsi kontrak:** `GET /submissions/{id}` untuk user memuat `review: { status, reason }`; review
+massal membalas 200 dengan `results[].result`.
+**Test:** `review.test.tsx` (terima + versi, tolak + validasi alasan + body, `VERSION_CONFLICT` + muat
+ulang, pintasan A/J/K dan tidak aktif saat mengetik, terima lalu berikutnya, peringatan > 90 hari,
+review massal + hasil per item), `HistoryPage.test.tsx`, `LoginPage.test.tsx` (`ACCOUNT_BLOCKED`).
+**Verification:** [x] typecheck; [x] `npm test` (387); [x] build. [x] Visual 360 px (tombol review
+menempel di bawah, bar aksi massal 4 tombol) dan 1440 px.

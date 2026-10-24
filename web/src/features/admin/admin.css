@@ -82,12 +82,6 @@
 .label-card-head .label-name { flex: 1; min-width: 0; }
 .label-card.is-archived { opacity: 0.85; }
 
-.badge { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.82rem; font-weight: 600; white-space: nowrap; }
-.badge-ok { background: var(--primary-soft); color: var(--ok); }
-.badge-warn { background: var(--warn-soft); color: var(--warn); }
-.badge-danger { background: var(--danger-soft); color: var(--danger); }
-.badge-muted { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
-
 .btn-danger-solid { background: var(--danger); border-color: var(--danger); color: var(--surface); }
 .btn-danger-solid:disabled { opacity: 0.45; }
 
@@ -195,3 +189,17 @@ fieldset.field legend { font-weight: 600; padding: 0; margin-bottom: 0.3rem; }
 .bulk-bar-bottom { position: fixed; top: auto; left: 0; right: 0; bottom: 0; margin: 0; border-radius: var(--radius) var(--radius) 0 0; padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
 .bulk-bar-bottom .bulk-actions { margin-left: 0; width: 100%; }
 .bulk-bar-bottom .bulk-actions .btn { flex: 1; }
+
+/* ---- review */
+.review-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.review-actions .btn { flex: 1 1 auto; }
+.review-sticky {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 14; margin: 0; flex-wrap: nowrap;
+  padding: 0.6rem 0.75rem; padding-bottom: max(0.6rem, env(safe-area-inset-bottom));
+  background: var(--surface); border-top: 1px solid var(--border-strong); box-shadow: 0 -4px 12px rgb(0 0 0 / 12%);
+}
+.review-sticky .btn { padding-left: 0.5rem; padding-right: 0.5rem; }
+.review-nav { justify-content: space-between; }
+.kbd-hint { margin: 0; font-size: 0.85rem; }
+kbd { font: inherit; font-family: ui-monospace, monospace; font-size: 0.85em; padding: 0 0.35em; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg); }
+.bulk-bar-bottom .bulk-actions { flex-wrap: wrap; } .bulk-bar-bottom .bulk-actions .btn { flex: 1 1 40%; }

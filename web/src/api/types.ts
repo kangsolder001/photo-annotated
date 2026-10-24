@@ -78,6 +78,8 @@ export interface SubmissionView {
   editable_until: string;
   editable: boolean;
   photos: PhotoView[];
+  /** Status review admin (spec-labels-admin §5.7); tanpa reviewed_at untuk user. */
+  review?: { status: "pending" | "accepted" | "rejected"; reason: string | null };
 }
 
 export interface PhotoURL {

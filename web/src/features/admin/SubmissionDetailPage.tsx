@@ -2,7 +2,6 @@ import { faArrowLeft, faEnvelope, faImages, faPhone, faRotate, faTrashCan, faUse
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Icon } from "../../components/Icon";
-import { ReviewBadge } from "../../components/ReviewBadge";
 import { Banner, Spinner } from "../../components/ui";
 import { textOn } from "../../lib/color";
 import { isCode } from "../../lib/errors";
@@ -13,6 +12,7 @@ import { useAdmin, usePageTitle } from "./context";
 import { adminErrorMessage } from "./errors";
 import { daysUntil } from "./filters";
 import { listContext } from "./listContext";
+import { ReviewPanel } from "./ReviewPanel";
 import type { AdminPhoto, AdminSubmission } from "./types";
 import { AnnotatedPhoto } from "./ui/AnnotatedPhoto";
 import { ConfirmDelete, deleteResultText } from "./ui/ConfirmDelete";
@@ -99,6 +99,7 @@ export function SubmissionDetailPage() {
           {sub.photos.length === 0 && <div className="card"><p>Tidak ada foto.</p></div>}
         </div>
         <aside className="detail-panel" aria-label="Info submission">
+          <ReviewPanel sub={sub} onUpdated={setSub} onReload={() => void load()} />
           <AnnotatorCard sub={sub} showProfile={authMode === "otp"} />
           <div className="card stack">
             <h2>Submission</h2>
@@ -107,11 +108,9 @@ export function SubmissionDetailPage() {
               <dt>Diubah</dt><dd>{formatDateTime(sub.updated_at)}</dd>
               <dt>Versi</dt><dd>{sub.version}</dd>
               <dt>Foto / kotak</dt><dd>{sub.photos.length} / {sub.photos.reduce((n, p) => n + p.annotations.length, 0)}</dd>
-              <dt>Review</dt><dd><ReviewBadge status={sub.review.status} /></dd>
               <dt>Retensi</dt>
               <dd>{sub.retention_deletes_at ? `Terhapus otomatis ${formatDateTime(sub.retention_deletes_at)} (${daysUntil(sub.retention_deletes_at)} hari lagi)` : "Disimpan tanpa batas (diterima)"}</dd>
             </dl>
-            {sub.review.reason && <p className="muted">Alasan: {sub.review.reason}</p>}
           </div>
           <div className="card stack">
             <h2>Hapus</h2>
