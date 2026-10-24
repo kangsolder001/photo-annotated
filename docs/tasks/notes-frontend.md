@@ -250,3 +250,24 @@ ulang, pintasan A/J/K dan tidak aktif saat mengetik, terima lalu berikutnya, per
 review massal + hasil per item), `HistoryPage.test.tsx`, `LoginPage.test.tsx` (`ACCOUNT_BLOCKED`).
 **Verification:** [x] typecheck; [x] `npm test` (387); [x] build. [x] Visual 360 px (tombol review
 menempel di bawah, bar aksi massal 4 tombol) dan 1440 px.
+
+#### Task 50: FE admin — halaman annotator — **SELESAI**
+**Hasil:**
+- **`/admin/annotator`** (menu hanya pada `auth_mode: "otp"`; pada mode `none` halaman memberi tahu
+  tidak ada akun annotator dan **tidak** memanggil `/admin/users`, yang 404 di mode itu): tabel nama
+  (tautan profil), nomor HP utuh, email, submission / kotak / diterima / ditolak, aktivitas terakhir
+  (submission terakhir, atau login terakhir), status (Aktif / Diblokir `user-slash`). Tablet
+  menyembunyikan email, kotak, aktivitas; HP daftar kartu. Cari nama/nomor (`q`) dan filter
+  `status` di URL; "Muat lagi" (cursor).
+- **`/admin/annotator/:id`:** profil (nama, email, nomor, terdaftar, login/submission terakhir,
+  status blokir + waktu + alasan), kotak statistik, "Lihat submission-nya" (`/admin/anotasi?user_id=`).
+  **Blokir** (alasan wajib, dialog menjelaskan efeknya: sesi dicabut, login/daftar ulang/lupa password
+  ditolak) → `POST …/block`; **Buka blokir** (konfirmasi) → `POST …/unblock`; **Hapus data annotator**
+  → `ConfirmDelete` (ketik `HAPUS`) dengan kotak centang "Ikut hapus submission yang sudah diterima"
+  (default tidak; teks konfirmasi menyebut jumlah yang dihapus vs dipertahankan) →
+  `POST …/delete-data { include_accepted }` → notifikasi jumlah submission/foto/kotak, file
+  dibersihkan otomatis.
+**Keputusan:** daftar annotator menunggu `GET /admin/me` (mode) sebelum meminta data.
+**Test:** `annotators.test.tsx` (kolom + status, cari & filter → query, mode none tanpa request, blokir
+dengan alasan wajib → body, buka blokir, hapus data default/ikut diterima + `HAPUS` + body).
+**Verification:** [x] typecheck; [x] `npm test` (396); [x] build. [x] Visual 360/768/1440 × kedua tema.

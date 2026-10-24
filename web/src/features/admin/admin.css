@@ -203,3 +203,12 @@ fieldset.field legend { font-weight: 600; padding: 0; margin-bottom: 0.3rem; }
 .kbd-hint { margin: 0; font-size: 0.85rem; }
 kbd { font: inherit; font-family: ui-monospace, monospace; font-size: 0.85em; padding: 0 0.35em; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg); }
 .bulk-bar-bottom .bulk-actions { flex-wrap: wrap; } .bulk-bar-bottom .bulk-actions .btn { flex: 1 1 40%; }
+
+/* ---- annotator */
+.user-card { display: flex; flex-direction: column; gap: 0.25rem; color: var(--text); text-decoration: none; margin: 0; }
+.profile-name { font-size: 1.35rem; margin: 0; }
+@media (max-width: 767px) { .admin-page .profile-name { display: block; } }
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.75rem; }
+.stat-tile { display: flex; flex-direction: column; gap: 0.1rem; margin: 0; }
+.stat-value { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.detail-grid > .stack > .card { margin-bottom: 0; }
