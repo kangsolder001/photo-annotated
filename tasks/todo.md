@@ -28,8 +28,8 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T12** ⚠️ `PUT /uploads/{photo_id}` (streaming + validasi isi)
 
 ### Checkpoint 2: Upload
-- [ ] presign → PUT → file di SSD berjalan di Pi
-- [ ] File palsu ditolak; SSD dilepas → `503 STORAGE_UNAVAILABLE`
+- [x] presign → PUT → file di SSD berjalan di Pi (±100 foto/s, 16 paralel)
+- [x] File palsu ditolak; SSD dilepas → `503 STORAGE_UNAVAILABLE`
 - [ ] Review dengan Anda
 
 ## Phase 3: Submission (mode `none`)

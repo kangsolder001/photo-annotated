@@ -184,9 +184,9 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Dependencies:** 11 · **Files:** `usecase/upload.go`, `handler/upload_put.go`, `domain/imagecheck.go` + test · **Scope:** M
 
 ### Checkpoint 2: Upload
-- [ ] Alur presign → PUT → file di SSD berjalan di Pi dengan SSD asli
-- [ ] File palsu ditolak; mount SSD dicabut → presign `503 STORAGE_UNAVAILABLE`
-- [ ] Review dengan Anda sebelum Phase 3
+- [x] Alur presign → PUT → file di SSD berjalan di Pi dengan SSD asli
+- [x] File palsu ditolak; mount SSD dicabut → presign `503 STORAGE_UNAVAILABLE` (diuji T11 dan T12)
+- [ ] Review dengan Anda sebelum Phase 3 (pekerjaan dilanjutkan; review dapat dilakukan kapan saja)
 
 ### Phase 3: Submission (mode `none`, `edit_token`)
 
