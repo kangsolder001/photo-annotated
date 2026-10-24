@@ -22,9 +22,10 @@ type fakeClock struct{ t time.Time }
 func (f *fakeClock) Now() time.Time { return f.t }
 
 type memPhotoRepo struct {
-	mu        sync.Mutex
-	photos    map[uuid.UUID]*domain.Photo
-	createErr error
+	mu         sync.Mutex
+	photos     map[uuid.UUID]*domain.Photo
+	createErr  error
+	beforeMark func(*domain.Photo) // dipanggil di dalam MarkUploaded (untuk mensimulasikan balapan)
 }
 
 func newMemRepo() *memPhotoRepo { return &memPhotoRepo{photos: map[uuid.UUID]*domain.Photo{}} }
@@ -48,6 +49,29 @@ func (r *memPhotoRepo) Get(_ context.Context, id uuid.UUID) (*domain.Photo, erro
 		return &cp, nil
 	}
 	return nil, domain.ErrNotFound
+}
+
+func (r *memPhotoRepo) MarkUploaded(_ context.Context, id uuid.UUID, at time.Time, sha []byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.beforeMark != nil {
+		r.beforeMark(r.photos[id])
+	}
+	p, ok := r.photos[id]
+	if !ok || p.Status != domain.PhotoPending {
+		return domain.Conflict("PHOTO_NOT_AVAILABLE", "photo is no longer pending")
+	}
+	p.UploadedAt, p.SHA256 = &at, append([]byte(nil), sha...)
+	return nil
+}
+
+func (r *memPhotoRepo) MarkRejected(_ context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if p, ok := r.photos[id]; ok && p.Status == domain.PhotoPending {
+		p.Status = domain.PhotoRejected
+	}
+	return nil
 }
 
 func (r *memPhotoRepo) count() int { r.mu.Lock(); defer r.mu.Unlock(); return len(r.photos) }

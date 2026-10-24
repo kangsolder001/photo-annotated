@@ -173,7 +173,7 @@ Catatan kapasitas: `wa-notif` mengirim pesan **satu per satu dengan jeda 1,5 det
 10. Pada `auth.mode = none`, response berisi `edit_token` yang disimpan FE di `localStorage` untuk edit di kemudian hari (§4.4).
 
 ### 4.2 Upload gagal / user batal
-- Jika PUT gagal (termasuk `503 UPLOAD_BUSY`; hormati `Retry-After`), FE retry maksimal 3 kali dengan exponential backoff. PUT ulang pada foto yang masih `pending` aman: file ditimpa secara atomik. Jika URL expired, FE meminta presign baru. `503 STORAGE_FULL` / `STORAGE_UNAVAILABLE` tidak di-retry; FE menampilkan pesan bahwa layanan sedang penuh/bermasalah.
+- Jika PUT gagal, FE retry maksimal 3 kali dengan exponential backoff untuk kegagalan jaringan, `408`, `503 UPLOAD_BUSY`, `409 UPLOAD_IN_PROGRESS`, dan `422 SIZE_MISMATCH` (hormati `Retry-After`). Tidak diulang: `403`, `410` (minta presign baru), `413`, `422 INVALID_IMAGE`/`INVALID_CONTENT_TYPE`, `409 PHOTO_NOT_AVAILABLE`. PUT ulang pada foto yang masih `pending` aman: file ditimpa secara atomik. Jika URL expired, FE meminta presign baru. `503 STORAGE_FULL` / `STORAGE_UNAVAILABLE` tidak di-retry; FE menampilkan pesan bahwa layanan sedang penuh/bermasalah.
 - Foto yang tetap `pending` lebih dari 24 jam dihapus oleh cleanup job (§8.3).
 
 ### 4.3 Melihat submission
@@ -236,16 +236,20 @@ Catatan:
 
 Menerima **byte foto mentah** (bukan multipart). Tidak memakai header `Authorization`: otorisasi ada pada tanda tangan URL, yang hanya diterbitkan setelah pengecekan auth/Turnstile di presign.
 
-Header wajib: `Content-Type` sama dengan deklarasi dan `Content-Length` sama dengan `size_bytes` (tanpa `Content-Length`/chunked → `411`).
+Header wajib: `Content-Type` **persis** sama dengan deklarasi (tanpa parameter, huruf kecil) dan `Content-Length` sama dengan `size_bytes`. Body chunked (tanpa `Content-Length`) ditolak `411 LENGTH_REQUIRED`.
 
-Pemrosesan di server:
-1. Verifikasi `exp` belum lewat dan `sig` valid (constant-time); foto harus `pending`. Tidak valid → `403 INVALID_SIGNATURE`, kedaluwarsa → `410 URL_EXPIRED`, status bukan `pending` → `409`.
-2. Ambil slot upload (`limits.max_concurrent_uploads`, default 200). Penuh → `503 UPLOAD_BUSY` + `Retry-After`.
-3. Body dibungkus `http.MaxBytesReader(size_bytes)` dengan deadline baca total `limits.upload_timeout` (60 detik), lalu di-stream ke `tmp/{photo_id}.part` memakai buffer tetap 32 KB sambil menghitung SHA-256. Jumlah byte aktual ≠ `size_bytes` → `422 SIZE_MISMATCH`, file sementara dihapus.
-4. Validasi isi tanpa decode piksel: magic bytes JPEG (`FF D8 FF`) atau WebP (`RIFF….WEBP`) harus cocok dengan `Content-Type`; header gambar dibaca (`image.DecodeConfig`) dan dimensinya harus sama dengan `width`/`height` yang dideklarasikan. Gagal → `422 INVALID_IMAGE`, file dihapus, foto ditandai `rejected`.
-5. `fsync` file, `rename` atomik ke lokasi akhir, `fsync` direktori, lalu update `photos` (`uploaded_at`, `sha256`). Response `204`.
+Pemrosesan di server, berurutan:
+1. **Otorisasi lebih dulu.** `sig` tidak valid, `exp`/`sig` hilang atau cacat, **dan id foto yang tidak dikenal** semuanya dijawab sama: `403 INVALID_SIGNATURE`, supaya keberadaan foto tidak bisa ditebak. Tanda tangan sah tetapi `now > exp` → `410 URL_EXPIRED` (diperiksa setelah tanda tangan, supaya kedaluwarsa tidak jadi oracle). Foto bukan `pending` → `409 PHOTO_NOT_AVAILABLE`.
+2. Header: `Content-Type` salah → `422 INVALID_CONTENT_TYPE`; `Content-Length` ≠ `size_bytes` → `422 SIZE_MISMATCH`. `Content-Length` yang jelas melebihi `limits.max_upload_bytes` ditolak `413 PAYLOAD_TOO_LARGE` sebelum DB disentuh atau body dibaca.
+3. **Slot upload** (`limits.max_concurrent_uploads`, default 200), tanpa antrean. Penuh → `503 UPLOAD_BUSY` + `Retry-After: 2`.
+4. **Satu upload per foto pada satu waktu** (menjaga hash di DB selalu cocok dengan file di disk). Upload kedua pada foto yang sedang diunggah → `409 UPLOAD_IN_PROGRESS` + `Retry-After: 2`; FE memperlakukannya sebagai dapat diulang.
+5. Penyimpanan siap (`503 STORAGE_UNAVAILABLE` / `STORAGE_FULL`).
+6. Body di-stream ke `tmp/` dengan buffer tetap 32 KB sambil menghitung SHA-256 (nama file sementara memuat bagian acak, sehingga dua upload tidak bertabrakan). Jumlah byte aktual ≠ `size_bytes` (lebih atau kurang, termasuk koneksi putus di tengah) → `422 SIZE_MISMATCH`; deadline baca total `limits.upload_timeout` (60 detik) terlewati → `408 UPLOAD_TIMEOUT`. Pada kedua kasus file sementara dihapus dan **foto tetap `pending`** sehingga bisa diulang.
+7. Validasi isi tanpa decode piksel: magic bytes JPEG (`FF D8 FF`) atau WebP (`RIFF….WEBP`) harus cocok dengan `Content-Type`, header gambar dibaca (`jpeg.DecodeConfig` / `webp.DecodeConfig`), dan dimensinya harus sama dengan `width`/`height` yang dideklarasikan. Gagal → `422 INVALID_IMAGE`, file dihapus, foto menjadi **`rejected`** (klien harus presign ulang; PUT berikutnya pada foto itu → `409`).
+8. `fsync` file, `rename` atomik ke lokasi akhir, `fsync` direktori, lalu catat `uploaded_at` + `sha256` di DB. Respons `204`. Tahap akhir ini tidak ikut dibatalkan bila klien memutus koneksi. Urutannya sengaja file dulu baru DB: bila proses mati di antaranya, yang tersisa hanya file yatim (disapu cleanup), bukan baris DB tanpa file.
+9. PUT ulang pada foto `pending` menimpa file sebelumnya secara atomik dan memperbarui `sha256`/`uploaded_at`. Jika PUT ulang itu gagal, isi lama tetap utuh.
 
-Catatan: FE membaca progres dari event upload XHR. Request lintas-origin dengan `Content-Type` memicu preflight `OPTIONS` yang harus diizinkan CORS (§9.4).
+Catatan: FE membaca progres dari event upload XHR. Request lintas-origin dengan `Content-Type` memicu preflight `OPTIONS` yang harus diizinkan CORS (§9.4). Respons `PUT` memuat header CORS dan mengekspos `Retry-After` agar FE bisa melakukan backoff.
 
 ### 5.2 `POST /submissions`
 

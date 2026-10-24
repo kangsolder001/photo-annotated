@@ -170,15 +170,17 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [x] test signer, usecase (fake), repo + constraint (DB nyata), handler, e2e (Postgres + localfs + signer); [x] di Pi sebagai UID 65532 dengan SSD & DB asli: presign 201, validasi 422, tanpa penanda API menolak start, penanda dihapus saat jalan → 503 `STORAGE_UNAVAILABLE` lalu pulih sendiri; log tanpa `sig`/secret
 **Dependencies:** 7, 8, 9, 10 · **Files:** `migrations/0002_photos.sql`, `adapter/postgres/photo_repo.go`, `adapter/signer/signer.go`, `usecase/presign.go`, `delivery/http/handler/upload.go` · **Scope:** M
 
-#### Task 12: `PUT /uploads/{photo_id}` (streaming)
+#### Task 12: `PUT /uploads/{photo_id}` (streaming) — **SELESAI**
 **Description:** Verifikasi `exp`/`sig`, slot upload (`max_concurrent_uploads`), stream ke `tmp` dengan buffer 32 KB + SHA-256, validasi magic bytes dan dimensi (`image.DecodeConfig`, WebP via `x/image/webp`), simpan, isi `uploaded_at` + `sha256`, respons 204. Deadline baca 60 detik per-route.
 **Acceptance criteria:**
-- [ ] Alur sukses: file ada di SSD, `sha256` benar, `uploaded_at` terisi
-- [ ] `Content-Length` ≠ deklarasi / byte aktual ≠ deklarasi → `422 SIZE_MISMATCH`; file non-gambar atau dimensi salah → `422 INVALID_IMAGE` dan foto `rejected`
-- [ ] `sig` salah → 403; `exp` lewat → 410; foto bukan `pending` → 409; slot penuh → `503 UPLOAD_BUSY` + `Retry-After`
-- [ ] PUT ulang pada foto `pending` menimpa file secara atomik
-- [ ] 200 upload paralel tidak menaikkan memori proses secara berarti (memori per upload konstan)
-**Verification:** [ ] `go test ./internal/usecase/... ./internal/delivery/... -race`; [ ] skrip curl presign→PUT; [ ] di Pi: 400 KB ×100 file ≥ 30 file/s
+- [x] Alur sukses: file ada di SSD, `sha256` benar, `uploaded_at` terisi, `tmp/` bersih (JPEG asli dan WebP)
+- [x] `Content-Length` ≠ deklarasi / byte aktual lebih atau kurang → `422 SIZE_MISMATCH` (foto tetap `pending`, bisa diulang); tanpa `Content-Length` → `411`; non-gambar, magic bytes tak cocok, atau dimensi salah → `422 INVALID_IMAGE` dan foto `rejected`, tak ada file terbit
+- [x] `sig` salah, id tak dikenal, `exp`/`sig` hilang atau cacat → 403 `INVALID_SIGNATURE` (jawaban sama, keberadaan foto tak bocor); `exp` lewat → 410 (hanya bila tanda tangan sah); bukan `pending` → 409; slot penuh → `503 UPLOAD_BUSY` + `Retry-After`; upload ganda pada foto yang sama → `409 UPLOAD_IN_PROGRESS`; klien lambat → `408`; body > batas → `413` sebelum dibaca
+- [x] PUT ulang pada foto `pending` menimpa file secara atomik dan memperbarui hash; slot dan kunci selalu dilepas (sukses, gagal, klien putus)
+- [x] Memori konstan: 200 upload × 400 KB serentak lewat HTTP asli menaikkan heap hanya 12–15 MB (naif ≥ 80 MB), diuji otomatis
+- [x] Temuan test: `ParseInt` overflow pada `exp` mengembalikan `MaxInt64`; kini diperlakukan sebagai 0
+**Verification:** [x] `go test ./... -race` (usecase diulang 20×); [x] di Pi (UID 65532, SSD & DB asli, alat `cmd/uploadbench`): **99.6 foto/s** (16 paralel) dan **168 foto/s** (32 paralel) @ 400 KB, p95 PUT 153–267 ms, 21 foto/s sekuensial, RSS API 23.5 MB, suhu 52 °C tanpa throttling; 950 baris DB = 950 file, tmp kosong; target ≥ 30 foto/s tercapai ±3–5×
+**Catatan:** uji dari mesin dev lewat LAN hanya 60 Mbps (18 foto/s) dan tidak berubah saat ukuran file digandakan, jadi dibatasi tautan mesin dev ke Pi, bukan server.
 **Dependencies:** 11 · **Files:** `usecase/upload.go`, `handler/upload_put.go`, `domain/imagecheck.go` + test · **Scope:** M
 
 ### Checkpoint 2: Upload

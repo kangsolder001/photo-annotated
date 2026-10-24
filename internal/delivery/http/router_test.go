@@ -24,17 +24,27 @@ func newTestRouter(t *testing.T) (http.Handler, *bytes.Buffer) {
 	return newTestRouterDB(t, fakeDB{})
 }
 
-func newTestRouterDB(t *testing.T, db fakeDB) (http.Handler, *bytes.Buffer) {
-	t.Helper()
-	var buf bytes.Buffer
-	return httpapi.NewRouter(httpapi.Deps{
-		Logger:         slog.New(slog.NewJSONHandler(&buf, nil)),
+// baseDeps mengisi semua dependensi router dengan fake; test mengubah yang perlu.
+func baseDeps(buf *bytes.Buffer) httpapi.Deps {
+	return httpapi.Deps{
+		Logger:         slog.New(slog.NewJSONHandler(buf, nil)),
 		TrustedProxies: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")},
-		DB:             db,
+		DB:             fakeDB{},
 		AllowedOrigins: []string{"https://app.example.com"},
 		Presigner:      &fakePresigner{},
 		PresignPerMin:  1000,
-	}), &buf
+		Uploader:       &fakeUploader{},
+		MaxUploadBytes: 2 << 20,
+		UploadTimeout:  60 * time.Second,
+	}
+}
+
+func newTestRouterDB(t *testing.T, db fakeDB) (http.Handler, *bytes.Buffer) {
+	t.Helper()
+	var buf bytes.Buffer
+	d := baseDeps(&buf)
+	d.DB = db
+	return httpapi.NewRouter(d), &buf
 }
 
 func TestReadyz(t *testing.T) {
@@ -146,3 +156,6 @@ func TestNewServerHasNoGlobalReadWriteTimeout(t *testing.T) {
 		t.Fatalf("timeout server salah: %v %v", s.ReadHeaderTimeout, s.IdleTimeout)
 	}
 }
+
+// httpapi_NewRouter menghindari impor ganda di file test lain.
+func httpapi_NewRouter(d httpapi.Deps) http.Handler { return httpapi.NewRouter(d) }

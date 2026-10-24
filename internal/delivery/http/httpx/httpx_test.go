@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -29,6 +30,8 @@ func TestWriteErrorMapsEveryKind(t *testing.T) {
 		{domain.Gone("F", "m"), http.StatusGone},
 		{domain.Unavailable("G", "m"), http.StatusServiceUnavailable},
 		{domain.RateLimited("H", "m"), http.StatusTooManyRequests},
+		{domain.LengthRequired("I", "m"), http.StatusLengthRequired},
+		{domain.Timeout("J", "m"), http.StatusRequestTimeout},
 	}
 	for _, tc := range cases {
 		t.Run(tc.err.Code, func(t *testing.T) {
@@ -43,6 +46,24 @@ func TestWriteErrorMapsEveryKind(t *testing.T) {
 				t.Fatalf("body: %s (%v)", w.Body.String(), err)
 			}
 		})
+	}
+}
+
+func TestWriteErrorSetsRetryAfter(t *testing.T) {
+	for _, tc := range []struct {
+		d    time.Duration
+		want string
+	}{{2 * time.Second, "2"}, {1500 * time.Millisecond, "2"}, {200 * time.Millisecond, "1"}, {0, ""}} {
+		w := write(domain.Unavailable("UPLOAD_BUSY", "busy").WithRetryAfter(tc.d))
+		if got := w.Header().Get("Retry-After"); got != tc.want {
+			t.Errorf("RetryAfter %v → header %q, want %q", tc.d, got, tc.want)
+		}
+	}
+	// WithRetryAfter tidak boleh mengubah sentinel/error asli
+	base := domain.Unavailable("X", "m")
+	_ = base.WithRetryAfter(time.Minute)
+	if base.RetryAfter != 0 {
+		t.Fatal("WithRetryAfter harus mengembalikan salinan")
 	}
 }
 

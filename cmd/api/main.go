@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"photo-annotated/internal/adapter/imagecheck"
 	"photo-annotated/internal/adapter/localfs"
 	"photo-annotated/internal/adapter/postgres"
 	"photo-annotated/internal/adapter/signer"
@@ -76,9 +77,14 @@ func run() error {
 		UploadURLTTL:   cfg.Storage.UploadURLTTL.Std(),
 	})
 
+	photos := postgres.NewPhotoRepo(pool)
+	upload := usecase.NewUpload(photos, store, urlSigner, imagecheck.Inspector{}, usecase.SystemClock{},
+		usecase.UploadConfig{MaxConcurrent: cfg.Limits.MaxConcurrentUploads})
+
 	router := httpapi.NewRouter(httpapi.Deps{
 		Logger: log, TrustedProxies: trusted, DB: pool, AllowedOrigins: cfg.App.AllowedOrigins,
 		Presigner: presign, PresignPerMin: cfg.Limits.RateLimitPerMin.Presign,
+		Uploader: upload, MaxUploadBytes: cfg.Limits.MaxUploadBytes, UploadTimeout: cfg.Limits.UploadTimeout.Std(),
 	})
 	srv := httpapi.NewServer(cfg.App.HTTPAddr, router)
 

@@ -5,10 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"net/netip"
 	"strings"
 	"sync"
 	"testing"
@@ -49,14 +47,9 @@ func (f *fakePresigner) Presign(_ context.Context, in usecase.PresignInput) (*us
 func routerWith(t *testing.T, p *fakePresigner, perMin int) (http.Handler, *bytes.Buffer) {
 	t.Helper()
 	var buf bytes.Buffer
-	return httpapi.NewRouter(httpapi.Deps{
-		Logger:         slog.New(slog.NewJSONHandler(&buf, nil)),
-		TrustedProxies: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")},
-		DB:             fakeDB{},
-		AllowedOrigins: []string{"https://app.example.com"},
-		Presigner:      p,
-		PresignPerMin:  perMin,
-	}), &buf
+	d := baseDeps(&buf)
+	d.Presigner, d.PresignPerMin = p, perMin
+	return httpapi.NewRouter(d), &buf
 }
 
 func postPresign(h http.Handler, body, contentType string) *httptest.ResponseRecorder {

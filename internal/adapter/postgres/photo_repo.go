@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -44,6 +45,25 @@ func (r *PhotoRepo) Get(ctx context.Context, id uuid.UUID) (*domain.Photo, error
 		return nil, fmt.Errorf("postgres: get photo: %w", err)
 	}
 	return p, nil
+}
+
+func (r *PhotoRepo) MarkUploaded(ctx context.Context, id uuid.UUID, at time.Time, sha256 []byte) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE photos SET uploaded_at = $2, sha256 = $3 WHERE id = $1 AND status = 'pending'`, id, at, sha256)
+	if err != nil {
+		return fmt.Errorf("postgres: mark uploaded: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.Conflict("PHOTO_NOT_AVAILABLE", "photo %s is no longer pending", id)
+	}
+	return nil
+}
+
+func (r *PhotoRepo) MarkRejected(ctx context.Context, id uuid.UUID) error {
+	if _, err := r.pool.Exec(ctx, `UPDATE photos SET status = 'rejected' WHERE id = $1 AND status = 'pending'`, id); err != nil {
+		return fmt.Errorf("postgres: mark rejected: %w", err)
+	}
+	return nil
 }
 
 func scanPhoto(row pgx.Row) (*domain.Photo, error) {

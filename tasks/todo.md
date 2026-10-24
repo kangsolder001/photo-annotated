@@ -25,7 +25,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T9** Domain: aturan foto & anotasi
 - [x] **T10** ⚠️ Adapter `localfs` (PhotoStore) + penjagaan mount
 - [x] **T11** `POST /uploads/presign`
-- [ ] **T12** ⚠️ `PUT /uploads/{photo_id}` (streaming + validasi isi)
+- [x] **T12** ⚠️ `PUT /uploads/{photo_id}` (streaming + validasi isi)
 
 ### Checkpoint 2: Upload
 - [ ] presign → PUT → file di SSD berjalan di Pi

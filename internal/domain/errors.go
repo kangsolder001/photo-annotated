@@ -5,6 +5,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 // Kind mengelompokkan error domain. Lapisan delivery memetakan Kind ke status HTTP di satu
@@ -12,14 +13,16 @@ import (
 type Kind int
 
 const (
-	KindInvalid      Kind = iota + 1 // input tidak memenuhi aturan (→ 422)
-	KindNotFound                     // resource tidak ada atau bukan milik pemanggil (→ 404)
-	KindUnauthorized                 // kredensial tidak ada/tidak valid (→ 401)
-	KindForbidden                    // dikenali tetapi tidak boleh (→ 403)
-	KindConflict                     // bentrok dengan keadaan saat ini (→ 409)
-	KindGone                         // dulu ada/berlaku, kini kedaluwarsa (→ 410)
-	KindUnavailable                  // layanan/penyimpanan sementara tidak tersedia (→ 503)
-	KindRateLimited                  // melebihi batas pemakaian (→ 429)
+	KindInvalid        Kind = iota + 1 // input tidak memenuhi aturan (→ 422)
+	KindNotFound                       // resource tidak ada atau bukan milik pemanggil (→ 404)
+	KindUnauthorized                   // kredensial tidak ada/tidak valid (→ 401)
+	KindForbidden                      // dikenali tetapi tidak boleh (→ 403)
+	KindConflict                       // bentrok dengan keadaan saat ini (→ 409)
+	KindGone                           // dulu ada/berlaku, kini kedaluwarsa (→ 410)
+	KindUnavailable                    // layanan/penyimpanan sementara tidak tersedia (→ 503)
+	KindRateLimited                    // melebihi batas pemakaian (→ 429)
+	KindLengthRequired                 // Content-Length wajib ada (→ 411)
+	KindTimeout                        // klien terlalu lambat mengirim (→ 408)
 )
 
 // Error adalah error domain: Kind menentukan kelas, Code stabil untuk klien (mis.
@@ -28,6 +31,15 @@ type Error struct {
 	Kind    Kind
 	Code    string
 	Message string
+	// RetryAfter, bila > 0, menyarankan klien menunggu sebelum mengulang (→ header Retry-After).
+	RetryAfter time.Duration
+}
+
+// WithRetryAfter mengembalikan salinan error dengan saran waktu tunggu.
+func (e *Error) WithRetryAfter(d time.Duration) *Error {
+	c := *e
+	c.RetryAfter = d
+	return &c
 }
 
 func (e *Error) Error() string { return e.Code + ": " + e.Message }
@@ -42,21 +54,44 @@ func newErr(k Kind, code, format string, a ...any) *Error {
 	return &Error{Kind: k, Code: code, Message: fmt.Sprintf(format, a...)}
 }
 
-func Invalid(code, format string, a ...any) *Error  { return newErr(KindInvalid, code, format, a...) }
-func NotFound(code, format string, a ...any) *Error { return newErr(KindNotFound, code, format, a...) }
+func Invalid(code, format string, a ...any) *Error {
+	return newErr(KindInvalid, code, format, a...)
+}
+
+func NotFound(code, format string, a ...any) *Error {
+	return newErr(KindNotFound, code, format, a...)
+}
+
 func Unauthorized(code, format string, a ...any) *Error {
 	return newErr(KindUnauthorized, code, format, a...)
 }
+
 func Forbidden(code, format string, a ...any) *Error {
 	return newErr(KindForbidden, code, format, a...)
 }
-func Conflict(code, format string, a ...any) *Error { return newErr(KindConflict, code, format, a...) }
-func Gone(code, format string, a ...any) *Error     { return newErr(KindGone, code, format, a...) }
+
+func Conflict(code, format string, a ...any) *Error {
+	return newErr(KindConflict, code, format, a...)
+}
+
+func Gone(code, format string, a ...any) *Error {
+	return newErr(KindGone, code, format, a...)
+}
+
 func Unavailable(code, format string, a ...any) *Error {
 	return newErr(KindUnavailable, code, format, a...)
 }
+
 func RateLimited(code, format string, a ...any) *Error {
 	return newErr(KindRateLimited, code, format, a...)
+}
+
+func LengthRequired(code, format string, a ...any) *Error {
+	return newErr(KindLengthRequired, code, format, a...)
+}
+
+func Timeout(code, format string, a ...any) *Error {
+	return newErr(KindTimeout, code, format, a...)
 }
 
 // Sentinel umum; pakai errors.Is untuk memeriksanya.

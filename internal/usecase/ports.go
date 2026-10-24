@@ -72,6 +72,20 @@ type PhotoRepo interface {
 	Create(ctx context.Context, p *domain.Photo) error
 	// Get mengembalikan foto, atau error yang cocok dengan domain.ErrNotFound.
 	Get(ctx context.Context, id uuid.UUID) (*domain.Photo, error)
+	// MarkUploaded mencatat upload sukses (uploaded_at + sha256) pada foto yang masih pending.
+	// Jika foto sudah tidak pending, mengembalikan domain.Conflict PHOTO_NOT_AVAILABLE.
+	MarkUploaded(ctx context.Context, id uuid.UUID, at time.Time, sha256 []byte) error
+	// MarkRejected menandai foto pending sebagai rejected. Foto yang sudah bukan pending diabaikan.
+	MarkRejected(ctx context.Context, id uuid.UUID) error
+}
+
+// ImageInfo adalah hasil pemeriksaan header gambar.
+type ImageInfo struct{ Width, Height int }
+
+// ImageInspector memeriksa isi file sesuai content-type yang dideklarasikan tanpa men-decode
+// piksel (magic bytes + header). Ketidakcocokan → *domain.Error INVALID_IMAGE.
+type ImageInspector interface {
+	Inspect(r io.Reader, contentType string) (ImageInfo, error)
 }
 
 // URLSigner menandatangani dan memverifikasi URL upload/lihat foto. Setiap tujuan memakai

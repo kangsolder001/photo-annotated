@@ -1,7 +1,9 @@
 package httpx
 
 import (
+	"math"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -27,6 +29,10 @@ func statusOf(k domain.Kind) int {
 		return http.StatusServiceUnavailable
 	case domain.KindRateLimited:
 		return http.StatusTooManyRequests
+	case domain.KindLengthRequired:
+		return http.StatusLengthRequired
+	case domain.KindTimeout:
+		return http.StatusRequestTimeout
 	}
 	return http.StatusInternalServerError
 }
@@ -37,6 +43,10 @@ func statusOf(k domain.Kind) int {
 func WriteError(c *gin.Context, err error) {
 	_ = c.Error(err)
 	if de, ok := domain.AsError(err); ok {
+		if de.RetryAfter > 0 {
+			secs := int(math.Ceil(de.RetryAfter.Seconds()))
+			c.Header("Retry-After", strconv.Itoa(max(secs, 1)))
+		}
 		AbortError(c, statusOf(de.Kind), de.Code, de.Message)
 		return
 	}
