@@ -24,7 +24,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 ## Phase 2: Upload foto (mode `none`)
 - [x] **T9** Domain: aturan foto & anotasi
 - [x] **T10** ⚠️ Adapter `localfs` (PhotoStore) + penjagaan mount
-- [ ] **T11** `POST /uploads/presign`
+- [x] **T11** `POST /uploads/presign`
 - [ ] **T12** ⚠️ `PUT /uploads/{photo_id}` (streaming + validasi isi)
 
 ### Checkpoint 2: Upload

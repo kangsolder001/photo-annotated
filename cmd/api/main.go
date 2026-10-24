@@ -13,9 +13,12 @@ import (
 	"syscall"
 	"time"
 
+	"photo-annotated/internal/adapter/localfs"
 	"photo-annotated/internal/adapter/postgres"
+	"photo-annotated/internal/adapter/signer"
 	"photo-annotated/internal/config"
 	httpapi "photo-annotated/internal/delivery/http"
+	"photo-annotated/internal/usecase"
 )
 
 const shutdownTimeout = 15 * time.Second
@@ -53,7 +56,30 @@ func run() error {
 	}
 	defer pool.Close()
 
-	router := httpapi.NewRouter(httpapi.Deps{Logger: log, TrustedProxies: trusted, DB: pool, AllowedOrigins: cfg.App.AllowedOrigins})
+	store, err := localfs.New(localfs.Options{
+		Root:          cfg.Storage.Local.Root,
+		RequireMarker: cfg.Storage.Local.RequireMarker,
+		MinFreeBytes:  cfg.Storage.Local.MinFreeBytes,
+	})
+	if err != nil {
+		return err // mis. SSD belum ter-mount (penanda hilang): gagal cepat
+	}
+	defer store.Close()
+
+	urlSigner, err := signer.New(cfg.Secrets.StorageSigningSecret)
+	if err != nil {
+		return err
+	}
+	presign := usecase.NewPresign(postgres.NewPhotoRepo(pool), store, urlSigner, usecase.SystemClock{}, usecase.PresignConfig{
+		PublicBaseURL:  cfg.App.PublicBaseURL,
+		MaxUploadBytes: cfg.Limits.MaxUploadBytes,
+		UploadURLTTL:   cfg.Storage.UploadURLTTL.Std(),
+	})
+
+	router := httpapi.NewRouter(httpapi.Deps{
+		Logger: log, TrustedProxies: trusted, DB: pool, AllowedOrigins: cfg.App.AllowedOrigins,
+		Presigner: presign, PresignPerMin: cfg.Limits.RateLimitPerMin.Presign,
+	})
 	srv := httpapi.NewServer(cfg.App.HTTPAddr, router)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

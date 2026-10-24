@@ -158,14 +158,16 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Catatan:** penanda `/mnt/ssd/photo-annotated/photos/.photo-annotated-store` sudah dibuat di Pi (pemilik UID 65532, mode 640).
 **Dependencies:** 2, 5 · **Files:** `internal/adapter/localfs/{store,mountcheck}.go` + test, `usecase/ports.go` · **Scope:** M
 
-#### Task 11: `POST /uploads/presign`
+#### Task 11: `POST /uploads/presign` — **SELESAI**
 **Description:** Migrasi tabel `photos`, `PhotoRepo` postgres, `URLSigner` HMAC (pesan berawalan `upload`), usecase presign, handler. Menolak `503 STORAGE_FULL/UNAVAILABLE`.
 **Acceptance criteria:**
-- [ ] Respons sesuai spec §5.1 (URL absolut dari `public_base_url`, `exp`, `sig`)
-- [ ] Validasi §5.1 (tipe, ukuran, dimensi) mengembalikan `422` dengan kode yang benar
-- [ ] `storage_key` dibuat server `{yyyy}/{mm}/{dd}/{uuid}.{ext}`; baris `photos` berstatus `pending`
-- [ ] Mengubah `size_bytes`/`content_type` membuat `sig` tidak valid
-**Verification:** [ ] unit test signer + usecase (fake repo); [ ] integrasi repo ke `photo_annotated_test`; [ ] `curl -X POST …/presign`
+- [x] Respons sesuai spec §5.1 (URL absolut dari `public_base_url`, `exp`, `sig`; `expires_at` selalu UTC `Z`)
+- [x] Validasi §5.1 mengembalikan `422` dengan kode yang benar; validasi mendahului cek penyimpanan dan tidak menyentuh DB
+- [x] `storage_key` dibuat server `{yyyy}/{mm}/{dd}/{uuid}.{ext}` (UUIDv7); baris `photos` berstatus `pending`; penyimpanan tidak siap → `503 STORAGE_FULL/UNAVAILABLE` **tanpa** membuat baris
+- [x] Mengubah ukuran/content-type/id/exp membuat `sig` tidak valid; sig cacat (padding, base64 standar, panjang salah) ditolak
+- [x] Rate limit per IP dari `limits.rate_limit_per_min.presign`; pemetaan error domain→HTTP terpusat (`httpx.WriteError`); error internal tidak bocor ke klien tetapi tercatat di log
+- [x] Migrasi `0002_photos` dengan CHECK constraint (tipe, ukuran, dimensi, status, panjang sha256, `uploaded_at`⇔`sha256`, `attached`⇒submission). FK ke `submissions`/`users` ditambahkan di migrasi T13/T18
+**Verification:** [x] test signer, usecase (fake), repo + constraint (DB nyata), handler, e2e (Postgres + localfs + signer); [x] di Pi sebagai UID 65532 dengan SSD & DB asli: presign 201, validasi 422, tanpa penanda API menolak start, penanda dihapus saat jalan → 503 `STORAGE_UNAVAILABLE` lalu pulih sendiri; log tanpa `sig`/secret
 **Dependencies:** 7, 8, 9, 10 · **Files:** `migrations/0002_photos.sql`, `adapter/postgres/photo_repo.go`, `adapter/signer/signer.go`, `usecase/presign.go`, `delivery/http/handler/upload.go` · **Scope:** M
 
 #### Task 12: `PUT /uploads/{photo_id}` (streaming)

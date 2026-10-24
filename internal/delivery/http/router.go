@@ -26,12 +26,15 @@ type Deps struct {
 	TrustedProxies []netip.Prefix
 	DB             handler.Pinger // untuk /readyz
 	AllowedOrigins []string       // origin FE yang diizinkan CORS
+
+	Presigner     handler.Presigner // usecase presign (spec §5.1)
+	PresignPerMin int               // batas rate limit presign per IP
 }
 
 // NewRouter membuat engine dengan middleware dasar dan route operasional.
 func NewRouter(d Deps) *gin.Engine {
-	if d.Logger == nil || d.DB == nil {
-		panic("httpapi: Deps.Logger dan Deps.DB wajib diisi")
+	if d.Logger == nil || d.DB == nil || d.Presigner == nil || d.PresignPerMin < 1 {
+		panic("httpapi: Deps.Logger, DB, Presigner, dan PresignPerMin wajib diisi")
 	}
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -57,6 +60,10 @@ func NewRouter(d Deps) *gin.Engine {
 	ops := r.Group("", middleware.Deadlines(jsonReadDeadline, jsonWriteDeadline), middleware.BodyLimit(middleware.JSONBodyLimit))
 	ops.GET("/healthz", handler.Healthz)
 	ops.GET("/readyz", handler.Readyz(d.DB))
+
+	api := ops.Group("/api/v1")
+	uploads := handler.NewUploadHandler(d.Presigner)
+	api.POST("/uploads/presign", middleware.RateLimit(middleware.NewRateLimiter(d.PresignPerMin)), uploads.Presign)
 
 	return r
 }

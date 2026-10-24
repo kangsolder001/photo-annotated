@@ -32,6 +32,8 @@ func newTestRouterDB(t *testing.T, db fakeDB) (http.Handler, *bytes.Buffer) {
 		TrustedProxies: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")},
 		DB:             db,
 		AllowedOrigins: []string{"https://app.example.com"},
+		Presigner:      &fakePresigner{},
+		PresignPerMin:  1000,
 	}), &buf
 }
 
