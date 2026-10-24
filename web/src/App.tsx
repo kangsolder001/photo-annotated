@@ -1,5 +1,7 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Layout } from "./components/Layout";
+import { Spinner } from "./components/ui";
 import { config } from "./config";
 import { ForgotPage } from "./features/auth/ForgotPage";
 import { LoginPage } from "./features/auth/LoginPage";
@@ -9,7 +11,10 @@ import { HistoryPage } from "./features/history/HistoryPage";
 import { NewSubmissionPage } from "./features/submit/NewSubmissionPage";
 import { SubmissionPage } from "./features/submission/SubmissionPage";
 
-export function App() {
+// Dashboard admin dimuat terpisah (chunk sendiri): bundle user tidak memuat kode admin.
+const AdminApp = lazy(() => import("./features/admin/AdminApp"));
+
+function UserApp() {
   return (
     <Layout>
       <Routes>
@@ -22,5 +27,21 @@ export function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
+  );
+}
+
+export function App() {
+  return (
+    <Routes>
+      <Route
+        path="/admin/*"
+        element={
+          <Suspense fallback={<div className="page-loading"><Spinner label="Memuat dashboard" /></div>}>
+            <AdminApp />
+          </Suspense>
+        }
+      />
+      <Route path="*" element={<UserApp />} />
+    </Routes>
   );
 }

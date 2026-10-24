@@ -31,6 +31,9 @@ const MESSAGES: Record<string, string> = {
   INVALID_CREDENTIALS: "Nomor HP atau password salah.",
   INVALID_PASSWORD: "Password minimal 8 karakter (maksimal 72 byte) dan tidak boleh hanya spasi.",
   PASSWORD_REQUIRED: "Masukkan password baru.",
+  ACCOUNT_BLOCKED: "Akun Anda diblokir. Hubungi admin.",
+  INVALID_LABEL: "Ada label yang sudah tidak tersedia. Pilih ulang label pada kotak yang ditandai.",
+  LABEL_ARCHIVED: "Ada label yang sudah diarsipkan admin. Pilih ulang label pada kotak yang ditandai.",
 };
 
 export function errorMessage(e: unknown): string {

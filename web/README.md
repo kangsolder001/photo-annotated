@@ -15,13 +15,17 @@ src/
     submit/     laporan baru: pilih foto, upload, kirim
     annotate/   editor kotak (SVG + Pointer Events) dan daftar catatan
     submission/ lihat & edit laporan, draf
-    history/    riwayat laporan di perangkat ini
+    history/    riwayat laporan di perangkat ini (+ status review)
+    admin/      dashboard /admin (chunk lazy terpisah): login OTP, label, anotasi, review, hapus,
+                annotator, statistik, status sistem; token admin di sessionStorage
   components/   UI bersama (layout, banner, progres, Turnstile)
-  styles/       CSS global (variabel warna, mode gelap, mobile-first)
+  styles/       CSS global (token tema terang hangat/gelap, mobile-first; kontras dicek test)
 ```
 
 Aturan: komponen tidak memanggil `fetch` langsung (lewat `api/endpoints.ts`); logika yang bisa
-diuji tanpa DOM diletakkan di `lib/`.
+diuji tanpa DOM diletakkan di `lib/`. Ikon: Font Awesome Free lewat `components/Icon.tsx`, di-import
+per berkas (`@fortawesome/free-solid-svg-icons/faCamera`) agar ikon dashboard tidak masuk bundle user;
+tanpa emoji di teks UI (dicek `src/conventions.test.ts`).
 
 ## Konfigurasi (`.env.local`, lihat `.env.example`)
 
@@ -41,8 +45,10 @@ npx -y npm@11 install
 npm run dev        # http://localhost:5173
 npm test           # unit + komponen (vitest, jsdom)
 npm run typecheck
-npm run build      # dist/ + _headers (CSP) + _redirects (SPA)
+npm run build      # dist/ + _headers (CSP) + _redirects (SPA); lalu scripts/check-bundle.mjs
+                   # memastikan bundle user tidak memuat kode dashboard admin
 npm run e2e -- <folder>   # uji end-to-end di Chrome, lihat komentar di e2e/flow.mjs
+                          # (ADMIN_PHONE/ADMIN_CANON = nomor superadmin di config API)
 ```
 
 ## Deploy ke Cloudflare Pages

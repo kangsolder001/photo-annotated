@@ -14,6 +14,8 @@ export interface HistoryEntry {
   /** Pemilik: id pengguna (mode otp) atau "anon". */
   owner: string;
   editToken?: string;
+  /** Status review terakhir yang diketahui (diperbarui saat riwayat/laporan dibuka). */
+  review?: { status: "pending" | "accepted" | "rejected"; reason: string | null };
 }
 
 export const history = {
@@ -27,7 +29,10 @@ export const history = {
     const all = readJSON<HistoryEntry[]>(KEY, []).filter((x) => x.id !== e.id);
     writeJSON(KEY, [e, ...all].slice(0, MAX));
   },
-  update(id: string, p: Partial<Pick<HistoryEntry, "photos" | "boxes">>) {
+  remove(id: string) {
+    writeJSON(KEY, readJSON<HistoryEntry[]>(KEY, []).filter((x) => x.id !== id));
+  },
+  update(id: string, p: Partial<Pick<HistoryEntry, "photos" | "boxes" | "review">>) {
     writeJSON(KEY, readJSON<HistoryEntry[]>(KEY, []).map((x) => (x.id === id ? { ...x, ...p } : x)));
   },
 };

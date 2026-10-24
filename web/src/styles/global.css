@@ -1,23 +1,30 @@
-/* Gaya dasar: mobile-first, sederhana, target sentuh ≥ 44 px, kontras cukup, mendukung mode gelap. */
+/* Gaya dasar: mobile-first, sederhana, target sentuh >= 44 px, kontras AA (dicek test atas token ini).
+   Tema: atribut data-theme di <html> dipasang skrip kecil di index.html sebelum CSS dimuat (tanpa kedip);
+   pilihan Sistem/Terang/Gelap di lib/theme.ts. Terang = hangat (krem, teks cokelat), gelap = tema lama. */
 :root {
-  --bg: #f6f7f9;
-  --surface: #ffffff;
-  --text: #1c2024;
-  --muted: #5b6470;
-  --border: #dde1e6;
-  --primary: #0f766e;
-  --primary-text: #ffffff;
-  --primary-soft: #e6f4f2;
-  --danger: #b42318;
-  --danger-soft: #fdecea;
-  --warn: #8a5a00;
-  --warn-soft: #fff6e0;
-  --ok: #157f3b;
+  /* terang hangat */
+  --bg: #f5ecdd;
+  --surface: #fcf6ec;
+  --text: #2e2419;
+  --muted: #6b5a47;
+  --border: #e2d3bc;         /* pemisah dekoratif saja */
+  --border-strong: #8f785c;  /* tepi isian, dropdown, kotak centang, tombol */
+  --primary: #1f6b5c;
+  --primary-text: #fffaf1;
+  --primary-soft: #e3ecdc;
+  --danger: #a33a22;
+  --danger-soft: #f8e1d6;
+  --warn: #8a5300;
+  --warn-soft: #f9e8c4;
+  --ok: #377026;
+  --focus: #0b5fa5;
+  --shadow: 0 1px 2px rgb(60 40 20 / 8%), 0 4px 12px rgb(60 40 20 / 8%);
+  color-scheme: light;
+  /* sama di kedua tema: warna kotak adalah identitas, bukan bagian tema */
   --box: #f59e0b;
   --box-selected: #0ea5e9;
+  --box-empty: #8a8f98;
   --radius: 12px;
-  --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 4px 12px rgb(0 0 0 / 6%);
-  color-scheme: light dark;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 16px;
   line-height: 1.5;
@@ -25,23 +32,24 @@
   background: var(--bg);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #111416;
-    --surface: #1b1f22;
-    --text: #e8eaed;
-    --muted: #9aa3ad;
-    --border: #2f353a;
-    --primary: #2bb3a3;
-    --primary-text: #062b27;
-    --primary-soft: #12302c;
-    --danger: #f97066;
-    --danger-soft: #3a1714;
-    --warn: #f5c451;
-    --warn-soft: #33290f;
-    --ok: #4ade80;
-    --shadow: none;
-  }
+:root[data-theme="dark"] {
+  --bg: #111416;
+  --surface: #1b1f22;
+  --text: #e8eaed;
+  --muted: #9aa3ad;
+  --border: #2f353a;
+  --border-strong: #6b737c;
+  --primary: #2bb3a3;
+  --primary-text: #062b27;
+  --primary-soft: #12302c;
+  --danger: #f97066;
+  --danger-soft: #3a1714;
+  --warn: #f5c451;
+  --warn-soft: #33290f;
+  --ok: #4ade80;
+  --focus: #5cc8ff;
+  --shadow: none;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -79,7 +87,7 @@ main { max-width: 760px; margin: 0 auto; padding: 1rem 1rem 7rem; }
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
   min-height: 44px; padding: 0.55rem 1rem; border-radius: 10px;
-  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
   font: inherit; font-weight: 600; cursor: pointer; text-decoration: none;
 }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -90,12 +98,12 @@ main { max-width: 760px; margin: 0 auto; padding: 1rem 1rem 7rem; }
 
 label.field { display: flex; flex-direction: column; gap: 0.3rem; font-weight: 600; }
 label.field span.hint { font-weight: 400; color: var(--muted); font-size: 0.88rem; }
-input, textarea {
+input, textarea, select {
   font: inherit; color: var(--text); background: var(--surface);
-  border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem 0.75rem; min-height: 44px; width: 100%;
+  border: 1px solid var(--border-strong); border-radius: 10px; padding: 0.6rem 0.75rem; min-height: 44px; width: 100%;
 }
 textarea { resize: vertical; min-height: 64px; }
-input:focus-visible, textarea:focus-visible, .btn:focus-visible, a:focus-visible { outline: 3px solid var(--box-selected); outline-offset: 2px; }
+input:focus-visible, textarea:focus-visible, select:focus-visible, .btn:focus-visible, a:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .field-error { color: var(--danger); font-size: 0.9rem; font-weight: 400; }
 
 .banner { border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 1rem; border: 1px solid transparent; }
@@ -125,7 +133,7 @@ input:focus-visible, textarea:focus-visible, .btn:focus-visible, a:focus-visible
 .photo-strip { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 0.75rem; }
 .photo-tile { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem; }
 .photo-thumb { position: relative; aspect-ratio: 1; width: 100%; padding: 0; border: 2px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg); cursor: pointer; display: grid; place-items: center; }
-.photo-tile.selected .photo-thumb { border-color: var(--box-selected); box-shadow: 0 0 0 2px var(--box-selected); }
+.photo-tile.selected .photo-thumb { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary); }
 .photo-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .photo-index { position: absolute; top: 4px; left: 4px; background: rgb(0 0 0 / 60%); color: #fff; border-radius: 6px; padding: 0 6px; font-weight: 700; }
 .photo-badge { position: absolute; bottom: 4px; right: 4px; background: var(--box); color: #111; border-radius: 999px; min-width: 22px; padding: 0 6px; font-weight: 700; text-align: center; }
@@ -139,10 +147,10 @@ input:focus-visible, textarea:focus-visible, .btn:focus-visible, a:focus-visible
 .box-editor { position: relative; border-radius: 8px; overflow: hidden; background: #000; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .box-editor img { width: 100%; height: auto; pointer-events: none; }
 .box-editor svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-.box-editor svg:focus-visible { outline: 3px solid var(--box-selected); outline-offset: -3px; }
+.box-editor svg:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
 .annotation-list { list-style: none; margin: 0.75rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
 .annotation-list li { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.5rem; border: 1px solid var(--border); border-radius: 10px; }
-.annotation-list li.selected { border-color: var(--box-selected); box-shadow: 0 0 0 1px var(--box-selected); }
+.annotation-list li.selected { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
 .ann-num { flex: none; width: 28px; height: 28px; border-radius: 6px; background: var(--box); color: #111; font-weight: 700; display: grid; place-items: center; margin-top: 0.4rem; }
 .annotation-list li.selected .ann-num { background: var(--box-selected); }
 .ann-body { flex: 1; display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
@@ -162,3 +170,55 @@ div.field span.hint { font-weight: 400; color: var(--muted); font-size: 0.88rem;
 .password-row { display: flex; gap: 0.5rem; align-items: center; }
 .password-row input { flex: 1; }
 .link-button { background: none; border: 0; padding: 0; font: inherit; color: var(--primary); text-decoration: underline; cursor: pointer; }
+
+/* ---- ikon (Font Awesome, SVG inline) */
+.icon-btn {
+  display: inline-grid; place-items: center; flex: none;
+  min-width: 44px; min-height: 44px; padding: 0; border-radius: 10px;
+  border: 0; background: none; color: inherit; font-size: 20px; cursor: pointer;
+}
+.icon-btn:hover { background: var(--primary-soft); }
+.icon-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.icon-btn:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+/* ---- pilihan tema */
+.theme-menu { position: relative; flex: none; color: var(--muted); }
+.theme-menu-list {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 10rem;
+  display: flex; flex-direction: column; padding: 0.25rem;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: var(--shadow);
+}
+.theme-menu-list button, .theme-inline button {
+  display: flex; align-items: center; gap: 0.5rem; min-height: 44px; padding: 0 0.75rem;
+  border: 0; border-radius: 8px; background: none; color: var(--text); font: inherit; cursor: pointer; text-align: left;
+}
+.theme-menu-list button[aria-checked="true"], .theme-inline button[aria-checked="true"] { background: var(--primary-soft); color: var(--primary); font-weight: 600; }
+.theme-inline { display: flex; gap: 0.15rem; padding: 0.2rem; border: 1px solid var(--border); border-radius: 10px; }
+.theme-inline button { flex: 1; justify-content: center; padding: 0 0.4rem; font-size: 0.88rem; }
+
+/* ---- label pada kotak */
+select {
+  appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 2.2rem;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 1.1rem) 50%, calc(100% - 0.75rem) 50%;
+  background-size: 0.35rem 0.35rem; background-repeat: no-repeat;
+}
+.label-row { display: flex; align-items: center; gap: 0.5rem; }
+.label-row select { flex: 1; min-width: 0; }
+.label-dot { flex: none; display: inline-block; width: 0.9rem; height: 0.9rem; border-radius: 50%; box-shadow: 0 0 0 1px rgb(0 0 0 / 35%); }
+.label-dot-empty { background: none; border: 2px dashed var(--muted); box-shadow: none; }
+.label-chip { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; overflow-wrap: anywhere; margin-top: 0.3rem; }
+.ann-body .hint { color: var(--muted); font-size: 0.88rem; }
+.ann-legacy { margin: 0.2rem 0 0; font-size: 0.92rem; }
+.ann-legacy .ann-text { margin: 0; }
+.legacy-tag { display: inline-block; padding: 0 0.4rem; border-radius: 6px; background: var(--warn-soft); color: var(--warn); font-size: 0.8rem; font-weight: 600; }
+
+/* ---- lencana (status review, label arsip…) */
+.badge { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.82rem; font-weight: 600; white-space: nowrap; }
+.badge-ok { background: var(--primary-soft); color: var(--ok); }
+.badge-warn { background: var(--warn-soft); color: var(--warn); }
+.badge-danger { background: var(--danger-soft); color: var(--danger); }
+.badge-muted { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+
+.review-reason { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.history-item .row { margin-top: 0.3rem; }

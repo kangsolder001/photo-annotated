@@ -1,7 +1,35 @@
-// Bentuk request/response API (lihat docs/spec.md §5). Nama field mengikuti JSON API apa adanya.
+// Bentuk request/response API (lihat docs/spec.md §5 dan docs/spec-labels-admin.md §5). Nama field
+// mengikuti JSON API apa adanya.
 
+/** Label aktif dari GET /labels (urut sort_order lalu nama). */
+export interface Label {
+  id: number;
+  name: string;
+  description?: string | null;
+  color: string;
+}
+
+/** Label lengkap di dalam anotasi (GET /submissions/{id}); label arsip tetap tampil benar. */
+export interface LabelRef {
+  id: number;
+  name: string;
+  color: string;
+  archived: boolean;
+}
+
+/** Kotak yang dikirim (POST/PUT /submissions): label wajib, teks bebas tidak diterima lagi. */
 export interface AnnotationDTO {
-  text: string;
+  label_id: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Kotak yang dibaca. Baris lama (sebelum label): `label: null` dan `text` berisi catatan bebas. */
+export interface AnnotationView {
+  label: LabelRef | null;
+  text: string | null;
   x: number;
   y: number;
   w: number;
@@ -39,7 +67,7 @@ export interface PhotoView {
   size_bytes: number;
   width: number;
   height: number;
-  annotations: AnnotationDTO[];
+  annotations: AnnotationView[];
 }
 
 export interface SubmissionView {
@@ -50,6 +78,8 @@ export interface SubmissionView {
   editable_until: string;
   editable: boolean;
   photos: PhotoView[];
+  /** Status review admin (spec-labels-admin §5.7); tanpa reviewed_at untuk user. */
+  review?: { status: "pending" | "accepted" | "rejected"; reason: string | null };
 }
 
 export interface PhotoURL {

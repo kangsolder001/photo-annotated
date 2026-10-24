@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../api/endpoints";
 import type { SubmissionView } from "../../api/types";
+import { ReviewBadge } from "../../components/ReviewBadge";
 import { Banner, Spinner } from "../../components/ui";
 import { config } from "../../config";
-import { fromDTO } from "../../lib/annotation";
+import { fromView } from "../../lib/annotation";
 import { drafts } from "../../lib/draft";
 import { errorMessage, isCode } from "../../lib/errors";
 import { history } from "../../lib/history";
+import { optionsFromView } from "../../lib/labels";
 import { formatDateTime, formatRemaining } from "../../lib/time";
 import { PhotoAnnotator } from "../annotate/PhotoAnnotator";
 import { currentOwner } from "../auth/owner";
@@ -29,11 +31,20 @@ export function SubmissionPage() {
   const load = useCallback(async () => {
     setError(undefined);
     try {
-      setView(await api.getSubmission(id, editToken));
+      const v = await api.getSubmission(id, editToken);
+      setView(v);
+      if (v.review) history.update(id, { review: v.review });
     } catch (e) {
+      if (isCode(e, "NOT_FOUND") && history.get(id, owner)) {
+        // tercatat di riwayat perangkat ini tetapi sudah tidak ada: dihapus admin (spec-labels-admin §5.5)
+        history.remove(id);
+        drafts.clear(id, owner);
+        setError("Laporan ini sudah dihapus. Laporan tersebut juga dihapus dari riwayat di perangkat ini.");
+        return;
+      }
       setError(isCode(e, "NOT_FOUND") ? "Laporan tidak ditemukan, atau perangkat/akun ini tidak punya akses ke laporan tersebut." : errorMessage(e));
     }
-  }, [id, editToken]);
+  }, [id, editToken, owner]);
 
   useEffect(() => {
     void load();
@@ -97,10 +108,21 @@ export function SubmissionPage() {
       {notice && <Banner kind="ok">{notice}</Banner>}
       <div className="card stack">
         <div className="muted">Dibuat {formatDateTime(view.created_at)}{view.version > 1 && ` · diubah ${formatDateTime(view.updated_at)}`}</div>
+        {view.review && (
+          <div className="stack review-box">
+            <div><ReviewBadge status={view.review.status} /></div>
+            {view.review.status === "rejected" && view.review.reason && <p className="review-reason">Alasan: {view.review.reason}</p>}
+            {view.review.status === "rejected" && canEdit && (
+              <p className="muted">Anda bisa memperbaiki laporan ini selama waktu edit masih ada; setelah disimpan laporan kembali menunggu review.</p>
+            )}
+          </div>
+        )}
         {canEdit ? (
           <div className="row">
             <span>Bisa diedit sampai {formatDateTime(view.editable_until)} (sisa {formatRemaining(remainingMs)}).</span>
-            <button type="button" className="btn btn-primary" onClick={() => { setNotice(undefined); setEditing(true); }}>Edit</button>
+            <button type="button" className="btn btn-primary" onClick={() => { setNotice(undefined); setEditing(true); }}>
+              {view.review?.status === "rejected" ? "Perbaiki" : "Edit"}
+            </button>
           </div>
         ) : (
           <span className="muted">{editable ? "Laporan ini hanya bisa diedit dari perangkat yang membuatnya." : "Batas waktu edit (24 jam) sudah lewat. Laporan hanya bisa dibaca."}</span>
@@ -110,7 +132,7 @@ export function SubmissionPage() {
         const url = urls[p.photo_id];
         return url ? (
           <PhotoAnnotator key={p.photo_id} src={url} width={p.width} height={p.height} label={`Foto ${i + 1}`}
-            boxes={p.annotations.map(fromDTO)} readOnly onImageError={() => void refresh(p.photo_id)} />
+            boxes={p.annotations.map(fromView)} labels={optionsFromView(p.annotations)} readOnly onImageError={() => void refresh(p.photo_id)} />
         ) : (
           <div key={p.photo_id} className="card"><Spinner label={`Memuat foto ${i + 1}`} /></div>
         );
