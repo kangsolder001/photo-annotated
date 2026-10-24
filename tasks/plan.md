@@ -130,9 +130,9 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Dependencies:** 6 · **Files:** `middleware/{ratelimit,cors,bodylimit}.go` + test · **Scope:** M
 
 ### Checkpoint 1: Foundation
-- [ ] `go vet`, `go test ./... -race`, `go build ./cmd/...` bersih
-- [ ] `/healthz` dan `/readyz` berjalan di mesin dev terhadap DB di Pi
-- [ ] Review dengan Anda sebelum Phase 2
+- [x] `go vet`, `go test ./... -race`, `go build ./cmd/...` bersih
+- [x] `/healthz` dan `/readyz` berjalan di mesin dev terhadap DB di Pi
+- [ ] Review dengan Anda sebelum Phase 2 (pekerjaan dilanjutkan; review dapat dilakukan kapan saja)
 
 ### Phase 2: Upload foto (mode `none`)
 

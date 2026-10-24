@@ -17,8 +17,8 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T8** Middleware: rate limit, CORS, body limit
 
 ### Checkpoint 1: Foundation
-- [ ] `go vet`, `go test ./... -race`, `go build ./cmd/...` bersih
-- [ ] `/healthz` dan `/readyz` jalan terhadap DB di Pi
+- [x] `go vet`, `go test ./... -race`, `go build ./cmd/...` bersih
+- [x] `/healthz` dan `/readyz` jalan terhadap DB di Pi
 - [ ] Review dengan Anda
 
 ## Phase 2: Upload foto (mode `none`)
