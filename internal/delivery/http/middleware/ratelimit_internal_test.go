@@ -1,0 +1,142 @@
+package middleware
+
+import (
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+type fakeClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (f *fakeClock) Now() time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.t
+}
+
+func (f *fakeClock) Advance(d time.Duration) {
+	f.mu.Lock()
+	f.t = f.t.Add(d)
+	f.mu.Unlock()
+}
+
+func newClock() *fakeClock { return &fakeClock{t: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)} }
+
+func TestRateLimiterSlidingWindow(t *testing.T) {
+	clk := newClock()
+	l := newRateLimiter(3, time.Minute, 1000, clk.Now)
+
+	for i := 0; i < 3; i++ {
+		if ok, _ := l.Allow("a"); !ok {
+			t.Fatalf("request %d seharusnya lolos", i+1)
+		}
+		clk.Advance(10 * time.Second) // t=0,10,20
+	}
+	// sekarang t=30s; request ke-4 ditolak dan harus menunggu sampai catatan t=0 keluar (60s-30s)
+	ok, retry := l.Allow("a")
+	if ok || retry != 30*time.Second {
+		t.Fatalf("ok=%v retry=%v, want false/30s", ok, retry)
+	}
+	// penolakan tidak boleh menggeser jendela
+	clk.Advance(29 * time.Second)
+	if ok, retry := l.Allow("a"); ok || retry != time.Second {
+		t.Fatalf("masih harus ditolak, retry=%v", retry)
+	}
+	clk.Advance(time.Second) // t=60s: catatan t=0 baru keluar
+	if ok, _ := l.Allow("a"); !ok {
+		t.Fatal("setelah Retry-After berlalu request harus lolos")
+	}
+	// hanya 1 slot yang dibebaskan (t=0); catatan t=10 dan 20 masih di jendela
+	if ok, retry := l.Allow("a"); ok || retry != 10*time.Second {
+		t.Fatalf("slot kedua belum bebas: ok=%v retry=%v", ok, retry)
+	}
+}
+
+func TestRateLimiterKeysAreIndependent(t *testing.T) {
+	clk := newClock()
+	l := newRateLimiter(1, time.Minute, 1000, clk.Now)
+	if ok, _ := l.Allow("a"); !ok {
+		t.Fatal()
+	}
+	if ok, _ := l.Allow("a"); ok {
+		t.Fatal("a harus ditolak")
+	}
+	if ok, _ := l.Allow("b"); !ok {
+		t.Fatal("b tidak boleh terpengaruh a")
+	}
+}
+
+func TestRateLimiterSweepFreesMemory(t *testing.T) {
+	clk := newClock()
+	l := newRateLimiter(5, time.Minute, 1000, clk.Now)
+	for i := 0; i < 200; i++ {
+		l.Allow(fmt.Sprintf("ip-%d", i))
+	}
+	if l.Len() != 200 {
+		t.Fatalf("Len = %d", l.Len())
+	}
+	clk.Advance(2 * time.Minute)
+	l.Allow("baru") // memicu sweep
+	if l.Len() != 1 {
+		t.Fatalf("setelah sweep Len = %d, want 1", l.Len())
+	}
+}
+
+func TestRateLimiterBoundsKeyCount(t *testing.T) {
+	clk := newClock()
+	l := newRateLimiter(5, time.Minute, 50, clk.Now)
+	for i := 0; i < 5000; i++ {
+		l.Allow(fmt.Sprintf("ip-%d", i))
+	}
+	if n := l.Len(); n > 50 {
+		t.Fatalf("jumlah kunci %d melebihi batas 50 (memori bisa dihabiskan)", n)
+	}
+}
+
+func TestRateLimiterConcurrentExactlyLimit(t *testing.T) {
+	l := NewRateLimiter(30)
+	var allowed atomic.Int64
+	var wg sync.WaitGroup
+	for i := 0; i < 200; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if ok, _ := l.Allow("same"); ok {
+				allowed.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if allowed.Load() != 30 {
+		t.Fatalf("lolos %d, want tepat 30", allowed.Load())
+	}
+}
+
+func TestRateLimiterPanicsOnInvalidLimit(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("limit 0 harus panic")
+		}
+	}()
+	NewRateLimiter(0)
+}
+
+func TestRateKeyGroupsIPv6By64(t *testing.T) {
+	a := rateKey("2001:db8:1:2:aaaa:bbbb:cccc:dddd")
+	b := rateKey("2001:db8:1:2:1111:2222:3333:4444")
+	c := rateKey("2001:db8:1:3::1")
+	if a != b || a == c {
+		t.Fatalf("pengelompokan /64 salah: %s %s %s", a, b, c)
+	}
+	if rateKey("203.0.113.9") != "203.0.113.9" || rateKey("::ffff:203.0.113.9") != "203.0.113.9" {
+		t.Fatal("IPv4 (termasuk mapped) harus apa adanya")
+	}
+	if rateKey("") != unknownKey || rateKey("bukan-ip") != unknownKey {
+		t.Fatal("IP tak valid harus ke kunci 'unknown'")
+	}
+}

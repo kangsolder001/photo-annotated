@@ -14,7 +14,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T5** Skeleton proyek + config loader (fail-fast)
 - [x] **T6** HTTP server skeleton: Gin, middleware, `/healthz`
 - [x] **T7** Koneksi DB + tool migrasi + `/readyz`
-- [ ] **T8** Middleware: rate limit, CORS, body limit
+- [x] **T8** Middleware: rate limit, CORS, body limit
 
 ### Checkpoint 1: Foundation
 - [ ] `go vet`, `go test ./... -race`, `go build ./cmd/...` bersih

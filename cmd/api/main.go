@@ -53,7 +53,7 @@ func run() error {
 	}
 	defer pool.Close()
 
-	router := httpapi.NewRouter(httpapi.Deps{Logger: log, TrustedProxies: trusted, DB: pool})
+	router := httpapi.NewRouter(httpapi.Deps{Logger: log, TrustedProxies: trusted, DB: pool, AllowedOrigins: cfg.App.AllowedOrigins})
 	srv := httpapi.NewServer(cfg.App.HTTPAddr, router)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

@@ -120,13 +120,13 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [x] `TEST_DATABASE_URL=… go test ./... -race` (integrasi benar-benar jalan, bukan skip); [x] `curl /readyz` pada binary asli
 **Dependencies:** 3, 6 · **Files:** `cmd/migrate/main.go`, `internal/adapter/postgres/pool.go`, `migrations/0001_init.sql`, handler readyz · **Scope:** M
 
-#### Task 8: Middleware batas (rate limit, CORS, body limit)
+#### Task 8: Middleware batas (rate limit, CORS, body limit) — **SELESAI**
 **Description:** Rate limiter per-IP in-memory (token bucket) yang dapat dikonfigurasi per route, CORS (`GET,POST,PUT,OPTIONS`; header `Content-Type, Authorization, X-Edit-Token`; preflight cache 1 jam), batas body JSON 64 KB (spec §9.4).
 **Acceptance criteria:**
-- [ ] Melebihi limit → `429 RATE_LIMITED` + `Retry-After`
-- [ ] Preflight `OPTIONS /api/v1/uploads/x` dari origin yang diizinkan → 204 dengan header benar; origin lain ditolak
-- [ ] Body JSON > 64 KB → 413; rute upload dikecualikan dari batas ini
-**Verification:** [ ] `go test ./internal/delivery/http/middleware/... -race`
+- [x] Melebihi limit → `429 RATE_LIMITED` + `Retry-After` tepat (sliding window log; tepat N lolos dari 200 goroutine paralel; IPv6 per /64; jumlah kunci dibatasi)
+- [x] Preflight `OPTIONS /api/v1/uploads/x` dari origin sah → 204 dengan header benar (juga untuk rute yang belum ada); origin/metode/header lain → 403; `Retry-After` dan `X-Request-ID` boleh dibaca FE
+- [x] Body JSON > 64 KB → 413 (lewat `Content-Length` tanpa membaca body, dan lewat `MaxBytesReader` untuk chunked); `httpx.DecodeJSON` ketat (415/400/413); rute upload tidak memakai grup ini
+**Verification:** [x] `go test ./... -race`; [x] curl pada binary: preflight 204/403, body 100 KB → 413
 **Dependencies:** 6 · **Files:** `middleware/{ratelimit,cors,bodylimit}.go` + test · **Scope:** M
 
 ### Checkpoint 1: Foundation

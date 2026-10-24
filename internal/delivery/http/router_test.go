@@ -31,6 +31,7 @@ func newTestRouterDB(t *testing.T, db fakeDB) (http.Handler, *bytes.Buffer) {
 		Logger:         slog.New(slog.NewJSONHandler(&buf, nil)),
 		TrustedProxies: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")},
 		DB:             db,
+		AllowedOrigins: []string{"https://app.example.com"},
 	}), &buf
 }
 
@@ -53,6 +54,27 @@ func TestReadyz(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), `"status":503`) || !strings.Contains(buf.String(), "10.0.0.9") {
 		t.Fatalf("503 dan penyebabnya harus tercatat di log (bukan di respons): %s", buf.String())
+	}
+}
+
+func TestRouterAnswersUploadPreflight(t *testing.T) {
+	h, _ := newTestRouter(t)
+	do := func(origin string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("OPTIONS", "/api/v1/uploads/0b6c1c2e-6a5e-4c55-9c0b-2f6c2d8e9a11", nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", "PUT")
+		req.Header.Set("Access-Control-Request-Headers", "content-type")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		return w
+	}
+	w := do("https://app.example.com")
+	if w.Code != 204 || w.Header().Get("Access-Control-Allow-Origin") != "https://app.example.com" ||
+		!strings.Contains(w.Header().Get("Access-Control-Allow-Methods"), "PUT") {
+		t.Fatalf("preflight upload dari origin sah: %d %v", w.Code, w.Header())
+	}
+	if w := do("https://evil.example.com"); w.Code != 403 {
+		t.Fatalf("origin lain harus ditolak: %d", w.Code)
 	}
 }
 

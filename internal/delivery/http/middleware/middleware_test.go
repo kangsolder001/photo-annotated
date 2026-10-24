@@ -248,3 +248,210 @@ func TestDeadlinesCutSlowBody(t *testing.T) {
 		t.Fatalf("deadline tidak bekerja, butuh %v", el)
 	}
 }
+
+// ---------------------------------------------------------------- rate limit (via Gin)
+
+func TestRateLimitMiddleware(t *testing.T) {
+	r := gin.New()
+	r.Use(middleware.ClientIP(prefixes(t, "127.0.0.1/32")))
+	r.GET("/x", middleware.RateLimit(middleware.NewRateLimiter(3)), func(c *gin.Context) { c.String(200, "ok") })
+
+	hit := func(cf string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/x", nil)
+		req.RemoteAddr = "127.0.0.1:1"
+		req.Header.Set("CF-Connecting-IP", cf)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+	for i := 0; i < 3; i++ {
+		if w := hit("203.0.113.1"); w.Code != 200 {
+			t.Fatalf("request %d: %d", i+1, w.Code)
+		}
+	}
+	w := hit("203.0.113.1")
+	if w.Code != 429 {
+		t.Fatalf("status = %d, want 429", w.Code)
+	}
+	if ra := w.Header().Get("Retry-After"); ra == "" || ra == "0" {
+		t.Fatalf("Retry-After = %q", ra)
+	}
+	if !strings.Contains(w.Body.String(), "RATE_LIMITED") {
+		t.Fatalf("body: %s", w.Body.String())
+	}
+	if w := hit("203.0.113.2"); w.Code != 200 {
+		t.Fatalf("IP lain tidak boleh terkena limit: %d", w.Code)
+	}
+}
+
+// ---------------------------------------------------------------- CORS
+
+func corsEngine() *gin.Engine {
+	r := gin.New()
+	r.Use(middleware.CORS([]string{"https://app.example.com"}))
+	r.PUT("/api/v1/uploads/:id", func(c *gin.Context) { c.Status(204) })
+	r.GET("/x", func(c *gin.Context) { c.String(200, "ok") })
+	return r
+}
+
+func preflight(r http.Handler, origin, method, headers, path string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest("OPTIONS", path, nil)
+	if origin != "" {
+		req.Header.Set("Origin", origin)
+	}
+	req.Header.Set("Access-Control-Request-Method", method)
+	if headers != "" {
+		req.Header.Set("Access-Control-Request-Headers", headers)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestCORSPreflightAllowed(t *testing.T) {
+	r := corsEngine()
+	w := preflight(r, "https://app.example.com", "PUT", "content-type, X-Edit-Token", "/api/v1/uploads/abc")
+	if w.Code != 204 {
+		t.Fatalf("status = %d (%s)", w.Code, w.Body.String())
+	}
+	h := w.Header()
+	if h.Get("Access-Control-Allow-Origin") != "https://app.example.com" ||
+		h.Get("Access-Control-Allow-Methods") != "GET, POST, PUT, OPTIONS" ||
+		h.Get("Access-Control-Allow-Headers") != "Content-Type, Authorization, X-Edit-Token" ||
+		h.Get("Access-Control-Max-Age") != "3600" {
+		t.Fatalf("header preflight salah: %v", h)
+	}
+	if !strings.Contains(strings.Join(h.Values("Vary"), ","), "Origin") {
+		t.Fatalf("Vary: Origin wajib: %v", h.Values("Vary"))
+	}
+}
+
+func TestCORSPreflightRejections(t *testing.T) {
+	r := corsEngine()
+	for name, w := range map[string]*httptest.ResponseRecorder{
+		"origin lain":        preflight(r, "https://evil.example.com", "PUT", "content-type", "/api/v1/uploads/abc"),
+		"origin null":        preflight(r, "null", "PUT", "", "/api/v1/uploads/abc"),
+		"method DELETE":      preflight(r, "https://app.example.com", "DELETE", "", "/x"),
+		"header tak dikenal": preflight(r, "https://app.example.com", "PUT", "content-type, x-evil", "/x"),
+		"skema beda":         preflight(r, "http://app.example.com", "PUT", "", "/x"),
+	} {
+		if w.Code != 403 {
+			t.Errorf("%s: status = %d, want 403", name, w.Code)
+		}
+		if w.Header().Get("Access-Control-Allow-Origin") != "" {
+			t.Errorf("%s: tidak boleh ada ACAO pada penolakan", name)
+		}
+	}
+}
+
+func TestCORSPreflightWorksForUnknownRoute(t *testing.T) {
+	// preflight harus dijawab sebelum routing, jadi rute yang tak ada/tak mendukung OPTIONS pun lolos
+	w := preflight(corsEngine(), "https://app.example.com", "POST", "content-type", "/api/v1/belum-ada")
+	if w.Code != 204 {
+		t.Fatalf("status = %d", w.Code)
+	}
+}
+
+func TestCORSActualRequestHeaders(t *testing.T) {
+	r := corsEngine()
+	req := httptest.NewRequest("GET", "/x", nil)
+	req.Header.Set("Origin", "https://app.example.com")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != 200 || w.Header().Get("Access-Control-Allow-Origin") != "https://app.example.com" {
+		t.Fatalf("origin diizinkan: %d %v", w.Code, w.Header())
+	}
+	if !strings.Contains(w.Header().Get("Access-Control-Expose-Headers"), "Retry-After") {
+		t.Fatalf("Retry-After harus bisa dibaca FE: %v", w.Header())
+	}
+
+	req = httptest.NewRequest("GET", "/x", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("origin lain tidak boleh mendapat ACAO: %v", w.Header())
+	}
+	if w.Code != 200 {
+		t.Fatalf("request biasa tidak diblokir server (CORS bukan otorisasi): %d", w.Code)
+	}
+
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/x", nil)) // tanpa Origin
+	if w.Header().Get("Access-Control-Allow-Origin") != "" || w.Header().Get("Vary") != "" {
+		t.Fatalf("tanpa Origin tidak ada header CORS: %v", w.Header())
+	}
+}
+
+// ---------------------------------------------------------------- body limit + DecodeJSON
+
+type payload struct {
+	Name string `json:"name"`
+}
+
+func bodyEngine(limit int64) *gin.Engine {
+	r := gin.New()
+	r.POST("/j", middleware.BodyLimit(limit), func(c *gin.Context) {
+		var p payload
+		if !httpx.DecodeJSON(c, &p) {
+			return
+		}
+		c.String(200, p.Name)
+	})
+	return r
+}
+
+func postJSON(r http.Handler, ct string, body io.Reader) *httptest.ResponseRecorder {
+	req := httptest.NewRequest("POST", "/j", body)
+	if ct != "" {
+		req.Header.Set("Content-Type", ct)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestBodyLimitAndDecodeJSON(t *testing.T) {
+	r := bodyEngine(64)
+	tests := []struct {
+		name string
+		ct   string
+		body io.Reader
+		want int
+		code string
+	}{
+		{"ok", "application/json", strings.NewReader(`{"name":"budi"}`), 200, ""},
+		{"ok dengan charset", "application/json; charset=utf-8", strings.NewReader(`{"name":"budi"}`), 200, ""},
+		{"content-type salah", "text/plain", strings.NewReader(`{"name":"budi"}`), 415, "UNSUPPORTED_MEDIA_TYPE"},
+		{"tanpa content-type", "", strings.NewReader(`{"name":"budi"}`), 415, "UNSUPPORTED_MEDIA_TYPE"},
+		{"JSON rusak", "application/json", strings.NewReader(`{"name":`), 400, "INVALID_JSON"},
+		{"field tak dikenal", "application/json", strings.NewReader(`{"name":"a","admin":true}`), 400, "INVALID_JSON"},
+		{"data setelah objek", "application/json", strings.NewReader(`{"name":"a"}{"name":"b"}`), 400, "INVALID_JSON"},
+		{"tipe salah", "application/json", strings.NewReader(`{"name":123}`), 400, "INVALID_JSON"},
+		{"terlalu besar (Content-Length)", "application/json", strings.NewReader(`{"name":"` + strings.Repeat("x", 100) + `"}`), 413, "PAYLOAD_TOO_LARGE"},
+		{"terlalu besar (chunked)", "application/json", io.MultiReader(strings.NewReader(`{"name":"` + strings.Repeat("x", 100) + `"}`)), 413, "PAYLOAD_TOO_LARGE"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			w := postJSON(r, tc.ct, tc.body)
+			if w.Code != tc.want {
+				t.Fatalf("status = %d, want %d (%s)", w.Code, tc.want, w.Body.String())
+			}
+			if tc.code != "" && !strings.Contains(w.Body.String(), tc.code) {
+				t.Fatalf("body %s tidak memuat %s", w.Body.String(), tc.code)
+			}
+		})
+	}
+}
+
+func TestBodyLimitRejectsEarlyByContentLength(t *testing.T) {
+	read := false
+	r := gin.New()
+	r.POST("/j", middleware.BodyLimit(10), func(c *gin.Context) { read = true; c.Status(200) })
+	req := httptest.NewRequest("POST", "/j", strings.NewReader(strings.Repeat("x", 100)))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != 413 || read {
+		t.Fatalf("harus 413 sebelum handler berjalan: code=%d handlerJalan=%v", w.Code, read)
+	}
+}

@@ -25,6 +25,7 @@ type Deps struct {
 	Logger         *slog.Logger
 	TrustedProxies []netip.Prefix
 	DB             handler.Pinger // untuk /readyz
+	AllowedOrigins []string       // origin FE yang diizinkan CORS
 }
 
 // NewRouter membuat engine dengan middleware dasar dan route operasional.
@@ -47,9 +48,13 @@ func NewRouter(d Deps) *gin.Engine {
 		middleware.ClientIP(d.TrustedProxies),
 		middleware.Logger(d.Logger),
 		middleware.Recovery(d.Logger),
+		// CORS global & sebelum routing: preflight dijawab tanpa auth/rate limit, untuk rute apa pun.
+		middleware.CORS(d.AllowedOrigins),
 	)
 
-	ops := r.Group("", middleware.Deadlines(jsonReadDeadline, jsonWriteDeadline))
+	// Rute JSON: deadline 10s/15s dan body maks 64 KB. Rute upload foto (T12) sengaja tidak
+	// memakai grup ini: ia punya deadline dan batas body sendiri.
+	ops := r.Group("", middleware.Deadlines(jsonReadDeadline, jsonWriteDeadline), middleware.BodyLimit(middleware.JSONBodyLimit))
 	ops.GET("/healthz", handler.Healthz)
 	ops.GET("/readyz", handler.Readyz(d.DB))
 
