@@ -31,7 +31,7 @@ func (r *ExportRepo) ExportPage(ctx context.Context, after *usecase.ExportCursor
 		aCreated, aSub, aPos, aPhoto = &after.CreatedAt, &after.SubmissionID, &after.Position, &after.PhotoID
 	}
 	rows, err := r.db(ctx).Query(ctx, `
-		SELECT s.id, s.created_at, p.id, p.position, p.storage_key, p.content_type, p.size_bytes, p.width, p.height, p.sha256
+		SELECT s.id, s.created_at, s.review_status, p.id, p.position, p.storage_key, p.content_type, p.size_bytes, p.width, p.height, p.sha256
 		  FROM photos p
 		  JOIN submissions s ON s.id = p.submission_id
 		 WHERE p.status = 'attached' AND s.deleted_at IS NULL
@@ -39,8 +39,9 @@ func (r *ExportRepo) ExportPage(ctx context.Context, after *usecase.ExportCursor
 		   AND ($2::timestamptz IS NULL OR s.created_at < $2)
 		   AND ($3::timestamptz IS NULL OR (s.created_at, s.id, p.position, p.id) > ($3, $4::uuid, $5::smallint, $6::uuid))
 		   AND ($8::int IS NULL OR EXISTS (SELECT 1 FROM annotations fa WHERE fa.photo_id = p.id AND fa.label_id = $8))
+		   AND ($9::text IS NULL OR s.review_status = $9)
 		 ORDER BY s.created_at, s.id, p.position, p.id
-		 LIMIT $7`, f.From, f.To, aCreated, aSub, aPos, aPhoto, limit, f.LabelID)
+		 LIMIT $7`, f.From, f.To, aCreated, aSub, aPos, aPhoto, limit, f.LabelID, reviewArg(f.Review))
 	if err != nil {
 		return nil, fmt.Errorf("postgres: export page: %w", err)
 	}
@@ -55,11 +56,13 @@ func (r *ExportRepo) ExportPage(ctx context.Context, after *usecase.ExportCursor
 			e   usecase.ExportPhoto
 			pos int16
 		)
-		if err := rows.Scan(&e.SubmissionID, &e.CreatedAt, &e.Photo.ID, &pos, &e.Photo.StorageKey, &e.Photo.ContentType,
+		var review string
+		if err := rows.Scan(&e.SubmissionID, &e.CreatedAt, &review, &e.Photo.ID, &pos, &e.Photo.StorageKey, &e.Photo.ContentType,
 			&e.Photo.SizeBytes, &e.Photo.Width, &e.Photo.Height, &e.Photo.SHA256); err != nil {
 			return nil, fmt.Errorf("postgres: scan export row: %w", err)
 		}
 		e.Photo.Position = int(pos)
+		e.Review = domain.ReviewStatus(review)
 		e.Photo.SubmissionID = &e.SubmissionID
 		e.Photo.Status = domain.PhotoAttached
 		index[e.Photo.ID] = len(out)
@@ -98,4 +101,12 @@ func (r *ExportRepo) ExportPage(ctx context.Context, after *usecase.ExportCursor
 		return nil, fmt.Errorf("postgres: export annotations rows: %w", err)
 	}
 	return out, nil
+}
+
+func reviewArg(r *domain.ReviewStatus) *string {
+	if r == nil {
+		return nil
+	}
+	s := string(*r)
+	return &s
 }

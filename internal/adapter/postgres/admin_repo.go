@@ -58,6 +58,9 @@ func (r *AdminSubmissionRepo) List(ctx context.Context, q usecase.AdminListQuery
 		where = append(where, `EXISTS (SELECT 1 FROM photos fp JOIN annotations fa ON fa.photo_id = fp.id
 			WHERE fp.submission_id = s.id AND fp.status = 'attached' AND fa.label_id = `+a.add(*q.LabelID)+`)`)
 	}
+	if q.Review != nil {
+		where = append(where, `s.review_status = `+a.add(string(*q.Review)))
+	}
 	if q.Unlabeled {
 		where = append(where, `EXISTS (SELECT 1 FROM photos fp JOIN annotations fa ON fa.photo_id = fp.id
 			WHERE fp.submission_id = s.id AND fp.status = 'attached' AND fa.label_id IS NULL)`)
@@ -79,7 +82,8 @@ func (r *AdminSubmissionRepo) List(ctx context.Context, q usecase.AdminListQuery
 	if q.After != nil {
 		where = append(where, `(s.created_at, s.id) `+cmp+` (`+a.add(q.After.CreatedAt)+`, `+a.add(q.After.ID)+`::uuid)`)
 	}
-	sql := `SELECT s.id, s.owner_id, s.version, s.created_at, s.updated_at, u.id, u.name, u.email, u.phone
+	sql := `SELECT s.id, s.owner_id, s.version, s.created_at, s.updated_at, s.review_status, s.review_reason, s.reviewed_at,
+		       u.id, u.name, u.email, u.phone
 		  FROM submissions s LEFT JOIN users u ON u.id = s.owner_id
 		 WHERE ` + strings.Join(where, " AND ") + `
 		 ORDER BY s.created_at ` + order + `, s.id ` + order + `
@@ -99,9 +103,12 @@ func (r *AdminSubmissionRepo) List(ctx context.Context, q usecase.AdminListQuery
 			name, email, phone *string
 		)
 		s := &row.Submission
-		if err := rows.Scan(&s.ID, &s.OwnerID, &s.Version, &s.CreatedAt, &s.UpdatedAt, &uid, &name, &email, &phone); err != nil {
+		var rv reviewScan
+		if err := rows.Scan(&s.ID, &s.OwnerID, &s.Version, &s.CreatedAt, &s.UpdatedAt, &rv.status, &rv.reason, &rv.at,
+			&uid, &name, &email, &phone); err != nil {
 			return nil, fmt.Errorf("postgres: scan admin submission: %w", err)
 		}
+		s.Review = rv.review()
 		if uid != nil {
 			row.Annotator = &usecase.Annotator{ID: *uid, Name: *name, Email: *email, Phone: *phone}
 		}

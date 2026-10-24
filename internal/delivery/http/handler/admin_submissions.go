@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -22,16 +23,19 @@ import (
 type AdminSubmissionReader interface {
 	List(ctx context.Context, q usecase.AdminListQuery) (*usecase.AdminListResult, error)
 	Detail(ctx context.Context, id uuid.UUID) (*usecase.AdminDetail, error)
+	Review(ctx context.Context, id uuid.UUID, version int, status, reason string) (*usecase.ReviewResult, error)
+	ReviewMany(ctx context.Context, items []usecase.ReviewItem, status, reason string) ([]usecase.ReviewItemResult, error)
 }
 
 // AdminSubmissionHandler menangani hasil anotasi di dashboard (spec-labels-admin §5.4). Respons memuat
 // data pribadi annotator: selalu Cache-Control no-store.
 type AdminSubmissionHandler struct {
 	reader AdminSubmissionReader
+	log    *slog.Logger
 }
 
-func NewAdminSubmissionHandler(r AdminSubmissionReader) *AdminSubmissionHandler {
-	return &AdminSubmissionHandler{reader: r}
+func NewAdminSubmissionHandler(r AdminSubmissionReader, log *slog.Logger) *AdminSubmissionHandler {
+	return &AdminSubmissionHandler{reader: r, log: log}
 }
 
 func invalidQuery(format string, a ...any) error {
@@ -121,6 +125,13 @@ func parseAdminListQuery(c *gin.Context) (usecase.AdminListQuery, error) {
 			q.PhoneQ = p
 		}
 	}
+	if v := c.Query("review_status"); v != "" {
+		st, perr := domain.ParseReviewStatus(v)
+		if perr != nil {
+			return q, invalidQuery("review_status must be pending, accepted, or rejected")
+		}
+		q.Review = &st
+	}
 	if v := c.Query("unlabeled"); v != "" {
 		b, perr := strconv.ParseBool(v)
 		if perr != nil {
@@ -157,8 +168,16 @@ type reviewDTO struct {
 }
 
 // reviewOf: status review submission (spec-labels-admin §5.7).
-func reviewOf(domain.Submission) reviewDTO {
-	return reviewDTO{Status: "pending"}
+func reviewOf(s domain.Submission) reviewDTO {
+	return toReviewDTO(s.Review)
+}
+
+func toReviewDTO(r domain.Review) reviewDTO {
+	status := r.Status
+	if status == "" {
+		status = domain.ReviewPending
+	}
+	return reviewDTO{Status: string(status), Reason: optString(r.Reason), ReviewedAt: utcPtr(r.ReviewedAt)}
 }
 
 type annotatorDTO struct {
@@ -313,4 +332,80 @@ func (h *AdminSubmissionHandler) Detail(c *gin.Context) {
 	}
 	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusOK, out)
+}
+
+type reviewBody struct {
+	Status  string  `json:"status"`
+	Reason  *string `json:"reason"`
+	Version int     `json:"version"`
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// Review menangani PUT /api/v1/admin/submissions/{id}/review.
+func (h *AdminSubmissionHandler) Review(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		httpx.NotFound(c)
+		return
+	}
+	var req reviewBody
+	if !httpx.DecodeJSON(c, &req) {
+		return
+	}
+	res, err := h.reader.Review(c.Request.Context(), id, req.Version, req.Status, deref(req.Reason))
+	if err != nil {
+		httpx.WriteError(c, err)
+		return
+	}
+	// alasan tidak di-log (bisa memuat nama orang, spec-labels-admin §8)
+	logAdminAction(h.log, c, "submission.review", "submission_id", id, "review_status", string(res.Review.Status))
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{"review": toReviewDTO(res.Review), "retention_deletes_at": utcPtr(res.RetentionDeletesAt)})
+}
+
+// ReviewMany menangani POST /api/v1/admin/submissions/review (1–50 item, hasil per item).
+func (h *AdminSubmissionHandler) ReviewMany(c *gin.Context) {
+	var req struct {
+		Items []struct {
+			ID      uuid.UUID `json:"id"`
+			Version int       `json:"version"`
+		} `json:"items"`
+		Status string  `json:"status"`
+		Reason *string `json:"reason"`
+	}
+	if !httpx.DecodeJSON(c, &req) {
+		return
+	}
+	items := make([]usecase.ReviewItem, len(req.Items))
+	for i, it := range req.Items {
+		items[i] = usecase.ReviewItem{ID: it.ID, Version: it.Version}
+	}
+	res, err := h.reader.ReviewMany(c.Request.Context(), items, req.Status, deref(req.Reason))
+	ok := 0
+	for _, r := range res {
+		if r.Result == usecase.ReviewResultOK {
+			ok++
+			logAdminAction(h.log, c, "submission.review", "submission_id", r.ID, "review_status", req.Status, "bulk", true)
+		}
+	}
+	if err != nil {
+		httpx.WriteError(c, err)
+		return
+	}
+	type itemDTO struct {
+		ID     uuid.UUID `json:"id"`
+		Result string    `json:"result"`
+	}
+	out := make([]itemDTO, len(res))
+	for i, r := range res {
+		out[i] = itemDTO{ID: r.ID, Result: r.Result}
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{"results": out})
 }

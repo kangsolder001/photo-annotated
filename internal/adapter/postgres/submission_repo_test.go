@@ -893,3 +893,48 @@ func TestGetDetailLegacyTextAndArchivedLabel(t *testing.T) {
 		t.Fatalf("PhotoLabelIDs = %v %v", ids, err)
 	}
 }
+
+func TestReviewConstraintsAndReset(t *testing.T) {
+	r := newRig(t)
+	s := newSub(nil)
+	if err := r.subs.Create(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := r.subs.Get(ctx, s.ID)
+	if got.Review.Status != domain.ReviewPending || got.Review.ReviewedAt != nil {
+		t.Fatalf("default review = %+v", got.Review)
+	}
+	for name, sql := range map[string]string{
+		"rejected tanpa alasan":      `UPDATE submissions SET review_status = 'rejected', reviewed_at = now() WHERE id = $1`,
+		"accepted tanpa reviewed_at": `UPDATE submissions SET review_status = 'accepted' WHERE id = $1`,
+		"pending dengan alasan":      `UPDATE submissions SET review_reason = 'x' WHERE id = $1`,
+		"pending dengan reviewed_at": `UPDATE submissions SET reviewed_at = now() WHERE id = $1`,
+		"status tak dikenal":         `UPDATE submissions SET review_status = 'approved', reviewed_at = now() WHERE id = $1`,
+		"alasan kosong":              `UPDATE submissions SET review_status = 'rejected', review_reason = '', reviewed_at = now() WHERE id = $1`,
+	} {
+		if _, err := r.pool.Exec(ctx, sql, s.ID); pgCode(err) != "23514" {
+			t.Errorf("%s harus ditolak CHECK: %v", name, err)
+		}
+	}
+	at := now()
+	if err := r.subs.SetReview(ctx, s.ID, 1, domain.Review{Status: domain.ReviewRejected, Reason: "buram", ReviewedAt: &at}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.subs.SetReview(ctx, s.ID, 2, domain.Review{Status: domain.ReviewAccepted, ReviewedAt: &at}); codeOf(err) != "VERSION_CONFLICT" {
+		t.Fatalf("versi salah: %v", err)
+	}
+	if err := r.subs.SetReview(ctx, uuid.New(), 1, domain.Review{Status: domain.ReviewAccepted, ReviewedAt: &at}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("id tak ada: %v", err)
+	}
+	got, _ = r.subs.Get(ctx, s.ID)
+	if got.Review.Status != domain.ReviewRejected || got.Review.Reason != "buram" || got.Review.ReviewedAt == nil || got.Version != 1 {
+		t.Fatalf("review tersimpan = %+v v%d", got.Review, got.Version)
+	}
+	if _, err := r.subs.BumpVersion(ctx, s.ID, 1, now()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = r.subs.Get(ctx, s.ID)
+	if got.Review.Status != domain.ReviewPending || got.Review.Reason != "" || got.Review.ReviewedAt != nil {
+		t.Fatalf("BumpVersion harus mereset review: %+v", got.Review)
+	}
+}

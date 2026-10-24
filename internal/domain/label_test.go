@@ -3,6 +3,7 @@ package domain_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"photo-annotated/internal/domain"
 )
@@ -94,5 +95,39 @@ func TestPhonePrefix(t *testing.T) {
 		if _, ok := domain.PhonePrefix(in); ok {
 			t.Errorf("%q seharusnya bukan potongan nomor", in)
 		}
+	}
+}
+
+func TestNewReview(t *testing.T) {
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		status domain.ReviewStatus
+		reason string
+		code   string
+		want   domain.Review
+	}{
+		{domain.ReviewAccepted, "", "", domain.Review{Status: domain.ReviewAccepted, ReviewedAt: &now}},
+		{domain.ReviewAccepted, "  rapi  ", "", domain.Review{Status: domain.ReviewAccepted, Reason: "rapi", ReviewedAt: &now}},
+		{domain.ReviewRejected, "Kotak tidak pas", "", domain.Review{Status: domain.ReviewRejected, Reason: "Kotak tidak pas", ReviewedAt: &now}},
+		{domain.ReviewRejected, "", "INVALID_REVIEW_REASON", domain.Review{}},
+		{domain.ReviewRejected, "   ", "INVALID_REVIEW_REASON", domain.Review{}},
+		{domain.ReviewRejected, strings.Repeat("x", 501), "INVALID_REVIEW_REASON", domain.Review{}},
+		{domain.ReviewRejected, "baris\nbaru", "INVALID_REVIEW_REASON", domain.Review{}},
+		{domain.ReviewPending, "", "", domain.Review{Status: domain.ReviewPending}},
+		{domain.ReviewPending, "alasan", "INVALID_REVIEW_REASON", domain.Review{}},
+		{"aneh", "", "INVALID_REVIEW_STATUS", domain.Review{}},
+	}
+	for _, tc := range tests {
+		got, err := domain.NewReview(tc.status, tc.reason, now)
+		if errCode(err) != tc.code {
+			t.Errorf("%s/%q: err %v, ingin %s", tc.status, tc.reason, err, tc.code)
+			continue
+		}
+		if err == nil && (got.Status != tc.want.Status || got.Reason != tc.want.Reason || (got.ReviewedAt == nil) != (tc.want.ReviewedAt == nil)) {
+			t.Errorf("%s/%q: %+v", tc.status, tc.reason, got)
+		}
+	}
+	if _, err := domain.ParseReviewStatus("ACCEPTED"); errCode(err) != "INVALID_REVIEW_STATUS" {
+		t.Fatal("status peka huruf besar")
 	}
 }

@@ -213,3 +213,9 @@ func TestAdminDeleteMany(t *testing.T) {
 		}
 	}
 }
+
+// newDeleteRigFrom memakai pool/store/clock rig admin yang sudah ada.
+func newDeleteRigFrom(t *testing.T, r *adminSubsRig) *usecase.AdminDelete {
+	t.Helper()
+	return usecase.NewAdminDelete(postgres.NewDeletionRepo(r.pool), postgres.NewTxManager(r.pool), r.store, r.clock)
+}

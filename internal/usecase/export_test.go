@@ -135,7 +135,7 @@ func TestExportOrderPagingAndShape(t *testing.T) {
 	for k := range row {
 		keys = append(keys, k)
 	}
-	if len(row) != 5 || row["created_at"] != "2026-10-20T08:00:00Z" {
+	if len(row) != 6 || row["created_at"] != "2026-10-20T08:00:00Z" || row["review_status"] != "pending" {
 		t.Fatalf("kunci baris = %v", keys)
 	}
 	img := row["image"].(map[string]any)
@@ -304,5 +304,28 @@ func TestExportLabelsAndLabelFilter(t *testing.T) {
 	}
 	if rows := runExport(t, r.uc(500), usecase.ExportQuery{}); len(rows) != 2 {
 		t.Fatalf("tanpa filter = %d baris", len(rows))
+	}
+}
+
+// AC 18: export review_status=accepted hanya memuat submission yang diterima; tiap baris memuat status.
+func TestExportReviewStatusFilter(t *testing.T) {
+	r := newExportRig(t)
+	acc := r.seed(t, time.Date(2026, 10, 20, 8, 0, 0, 0, time.UTC), 2)
+	r.seed(t, time.Date(2026, 10, 21, 8, 0, 0, 0, time.UTC), 1)
+	if _, err := r.pool.Exec(bg, `UPDATE submissions SET review_status = 'accepted', reviewed_at = now() WHERE id = $1`, acc); err != nil {
+		t.Fatal(err)
+	}
+	accepted := domain.ReviewAccepted
+	rows := runExport(t, r.uc(500), usecase.ExportQuery{ExportFilter: usecase.ExportFilter{Review: &accepted}})
+	if len(rows) != 2 {
+		t.Fatalf("export accepted = %d baris", len(rows))
+	}
+	for _, row := range rows {
+		if row["submission_id"] != acc.String() || row["review_status"] != "accepted" {
+			t.Fatalf("baris = %v", row)
+		}
+	}
+	if all := runExport(t, r.uc(500), usecase.ExportQuery{}); len(all) != 3 {
+		t.Fatalf("tanpa filter = %d baris", len(all))
 	}
 }

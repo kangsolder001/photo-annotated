@@ -31,6 +31,12 @@ Tidak ada penyimpangan dari bentuk JSON spec. Detail yang spec tidak sebutkan da
 - Hapus massal `POST /admin/submissions/delete`: daftar kosong, > 50, duplikat, atau UUID nol → `422 INVALID_IDS`
   (kode tidak disebut spec); id yang bukan UUID → `400 INVALID_JSON`. Respons `202 cleanup_pending` memuat field
   yang sama dengan `200` (`photos_deleted`, `annotations_deleted`, `submission_deleted`).
+- Review: kode error `422 INVALID_REVIEW_STATUS` (status bukan pending/accepted/rejected), `422 INVALID_REVIEW_REASON`
+  (tolak tanpa alasan, alasan pada `pending`, > 500 karakter, karakter kontrol), `422 INVALID_VERSION` (`version`
+  tidak dikirim/< 1). Review massal: item kosong/> 50/duplikat/versi < 1 → `422 INVALID_ITEMS`. Alasan yang hanya
+  spasi dianggap kosong. Review **tidak** menaikkan `version`.
+- `GET /submissions/{id}` (pengguna) kini memuat `"review": { "status", "reason" }`.
+- Export: setiap baris memuat `"review_status"`; query `review_status` yang salah → `422 INVALID_QUERY`.
 
 ## Perubahan config untuk deploy
 
@@ -179,3 +185,24 @@ SSD error → cleanup_pending + data tersembunyi + baris foto dipertahankan + cl
 5 putaran tanpa data hidup kembali, hapus massal + validasi; e2e: hapus foto/submission, file hilang dari SSD, pemilik
 404 di GET/URL/edit, export tidak memuat, 404 berulang, 401 tanpa token, hapus massal dengan not_found + 202, log
 hygiene)
+
+#### Task 46: Review submission + pengecualian retensi — **SELESAI**
+**Hasil:** migrasi `0009_review` (`review_status` default `pending`, `review_reason`, `reviewed_at`, CHECK konsistensi
+status/alasan/waktu, indeks `(review_status, created_at)`). `PUT /admin/submissions/{id}/review` (dengan `version`
+yang dilihat admin), `POST /admin/submissions/review` (massal, hasil `ok`/`version_conflict`/`not_found`). Edit
+pengguna yang berhasil mereset review ke `pending`; hapus foto oleh admin tidak. `GET /submissions/{id}` memuat review
+untuk pemilik. Daftar admin: `review` sungguhan, filter `review_status`, `retention_deletes_at = null` untuk accepted
+(antrean review = `review_status=pending&sort=oldest`). Export: query `review_status` + field `review_status`. Retensi
+melewati submission `accepted`. Log `admin action` `submission.review` (status saja; alasan tidak di-log).
+**Keputusan:**
+- Reset review dilakukan di `BumpVersion` (satu statement dengan kenaikan versi), sehingga tidak ada jalur edit yang
+  lupa mereset. Hapus foto admin menaikkan versi lewat jalur lain (`DeletionRepo`) sehingga review tetap.
+- `SetReview` bersyarat `version = $expected AND deleted_at IS NULL`; tidak cocok dibedakan `404` vs `409` dengan
+  pemeriksaan keberadaan (sama dengan `BumpVersion`).
+- Batal menerima submission yang sudah lewat 90 hari tidak menghapus apa pun di request itu; cleanup berikutnya yang
+  menghapus (diuji).
+**Verification:** [x] `go vet`, `go build ./cmd/...`, `go test ./... -race` (domain: aturan alasan/status; repo: CHECK,
+SetReview konflik/404, BumpVersion mereset; usecase: alur review, versi lama 409, alasan wajib, hapus foto tidak
+mereset, edit pemilik mereset (juga accepted), review massal + validasi, antrean review, retensi melewati accepted +
+terhapus setelah batal diterima, export accepted; e2e: semua kode error, pemilik melihat status + alasan, filter daftar,
+retensi null, review massal, export, edit mereset, 401/404, log hygiene tanpa alasan)

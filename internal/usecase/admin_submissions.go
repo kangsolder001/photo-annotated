@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -52,9 +53,17 @@ type AdminListResult struct {
 	Next  *AdminCursor
 }
 
-// retentionDeletesAt: kapan submission ini akan terhapus retensi.
+// retentionDeletesAt: kapan submission ini akan terhapus retensi; nil bila diterima (tidak ikut retensi).
 func (u *AdminSubmissions) retentionDeletesAt(s *domain.Submission) *time.Time {
-	t := s.CreatedAt.Add(time.Duration(u.cfg.RetentionDays) * 24 * time.Hour)
+	return RetentionDeletesAt(s, u.cfg.RetentionDays)
+}
+
+// RetentionDeletesAt = created_at + retention.days, atau nil untuk submission accepted (spec §5.7).
+func RetentionDeletesAt(s *domain.Submission, days int) *time.Time {
+	if s.Review.Status == domain.ReviewAccepted {
+		return nil
+	}
+	t := s.CreatedAt.AddDate(0, 0, days)
 	return &t
 }
 
@@ -122,4 +131,97 @@ func (u *AdminSubmissions) Detail(ctx context.Context, id uuid.UUID) (*AdminDeta
 		out.PhotoURLs[p.Photo.ID] = viewURL(u.cfg.PublicBaseURL, u.signer, p.Photo.ID, out.URLExpiresAt)
 	}
 	return out, nil
+}
+
+// ReviewResult adalah hasil satu review: status baru dan batas retensi yang berlaku sesudahnya.
+type ReviewResult struct {
+	Review             domain.Review
+	RetentionDeletesAt *time.Time
+}
+
+func parseReview(status, reason string, now time.Time) (domain.Review, error) {
+	st, err := domain.ParseReviewStatus(status)
+	if err != nil {
+		return domain.Review{}, err
+	}
+	return domain.NewReview(st, reason, now)
+}
+
+// Review menerima/menolak/membatalkan review satu submission (spec-labels-admin §5.7). version = versi
+// yang dilihat admin; bila pengguna sudah mengedit sejak itu → VERSION_CONFLICT, sehingga admin tidak
+// pernah menerima isi yang belum ia lihat.
+func (u *AdminSubmissions) Review(ctx context.Context, id uuid.UUID, version int, status, reason string) (*ReviewResult, error) {
+	if version < 1 {
+		return nil, domain.Invalid("INVALID_VERSION", "version must be the version you reviewed (>= 1)")
+	}
+	rv, err := parseReview(status, reason, u.clock.Now().UTC().Truncate(time.Microsecond))
+	if err != nil {
+		return nil, err
+	}
+	if err := u.subs.SetReview(ctx, id, version, rv); err != nil {
+		return nil, err
+	}
+	s, err := u.subs.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return &ReviewResult{Review: s.Review, RetentionDeletesAt: u.retentionDeletesAt(s)}, nil
+}
+
+// ReviewItem adalah satu submission pada review massal.
+type ReviewItem struct {
+	ID      uuid.UUID
+	Version int
+}
+
+// Hasil per item review massal.
+const (
+	ReviewResultOK              = "ok"
+	ReviewResultVersionConflict = "version_conflict"
+	ReviewResultNotFound        = "not_found"
+)
+
+// ReviewItemResult adalah hasil satu item review massal.
+type ReviewItemResult struct {
+	ID     uuid.UUID
+	Result string
+}
+
+// ReviewMany menerapkan satu keputusan (dan satu alasan) ke 1–50 submission; diproses per item.
+func (u *AdminSubmissions) ReviewMany(ctx context.Context, items []ReviewItem, status, reason string) ([]ReviewItemResult, error) {
+	if len(items) < 1 || len(items) > MaxBulkDelete {
+		return nil, domain.Invalid("INVALID_ITEMS", "items must contain between 1 and %d submissions", MaxBulkDelete)
+	}
+	seen := make(map[uuid.UUID]bool, len(items))
+	for _, it := range items {
+		if it.ID == uuid.Nil || it.Version < 1 || seen[it.ID] {
+			return nil, domain.Invalid("INVALID_ITEMS", "items must be distinct submissions, each with its version (>= 1)")
+		}
+		seen[it.ID] = true
+	}
+	rv, err := parseReview(status, reason, u.clock.Now().UTC().Truncate(time.Microsecond))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ReviewItemResult, 0, len(items))
+	for _, it := range items {
+		err := u.subs.SetReview(ctx, it.ID, it.Version, rv)
+		res := ReviewItemResult{ID: it.ID, Result: ReviewResultOK}
+		switch {
+		case err == nil:
+		case errors.Is(err, domain.ErrNotFound):
+			res.Result = ReviewResultNotFound
+		case isCode(err, "VERSION_CONFLICT"):
+			res.Result = ReviewResultVersionConflict
+		default:
+			return out, err
+		}
+		out = append(out, res)
+	}
+	return out, nil
+}
+
+func isCode(err error, code string) bool {
+	de, ok := domain.AsError(err)
+	return ok && de.Code == code
 }

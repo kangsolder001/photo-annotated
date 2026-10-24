@@ -28,6 +28,26 @@ func NewSubmissionRepo(pool *pgxpool.Pool) *SubmissionRepo {
 
 const submissionColumns = `id, owner_id, client_request_id, client_ip, version, created_at, updated_at`
 
+// reviewColumns dibaca bersama submission (prefix tabel disesuaikan pemanggil).
+const reviewColumns = `review_status, review_reason, reviewed_at`
+
+// scanReview mengisi Review dari kolom review_status, review_reason, reviewed_at.
+type reviewScan struct {
+	status string
+	reason *string
+	at     *time.Time
+}
+
+func (r *reviewScan) dst() []any { return []any{&r.status, &r.reason, &r.at} }
+
+func (r *reviewScan) review() domain.Review {
+	out := domain.Review{Status: domain.ReviewStatus(r.status), ReviewedAt: r.at}
+	if r.reason != nil {
+		out.Reason = *r.reason
+	}
+	return out
+}
+
 func (r *SubmissionRepo) Create(ctx context.Context, s *domain.Submission) error {
 	_, err := r.db(ctx).Exec(ctx, `INSERT INTO submissions (`+submissionColumns+`) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
 		s.ID, s.OwnerID, s.ClientRequestID, s.ClientIP, s.Version, s.CreatedAt, s.UpdatedAt)
@@ -49,10 +69,14 @@ func (r *SubmissionRepo) GetByClientRequestID(ctx context.Context, id uuid.UUID)
 }
 
 func (r *SubmissionRepo) getBy(ctx context.Context, column string, id uuid.UUID) (*domain.Submission, error) {
-	var s domain.Submission
+	var (
+		s  domain.Submission
+		rv reviewScan
+	)
 	// submission yang dihapus admin (deleted_at) tidak terlihat oleh siapa pun (spec-labels-admin §5.5)
-	err := r.db(ctx).QueryRow(ctx, `SELECT `+submissionColumns+` FROM submissions WHERE `+column+` = $1 AND deleted_at IS NULL`, id).
-		Scan(&s.ID, &s.OwnerID, &s.ClientRequestID, &s.ClientIP, &s.Version, &s.CreatedAt, &s.UpdatedAt)
+	err := r.db(ctx).QueryRow(ctx, `SELECT `+submissionColumns+`, `+reviewColumns+` FROM submissions WHERE `+column+` = $1 AND deleted_at IS NULL`, id).
+		Scan(append([]any{&s.ID, &s.OwnerID, &s.ClientRequestID, &s.ClientIP, &s.Version, &s.CreatedAt, &s.UpdatedAt}, rv.dst()...)...)
+	s.Review = rv.review()
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("submission %s: %w", id, domain.ErrNotFound)
 	}
@@ -67,6 +91,7 @@ func (r *SubmissionRepo) getBy(ctx context.Context, column string, id uuid.UUID)
 func (r *SubmissionRepo) GetDetail(ctx context.Context, id uuid.UUID) (*domain.SubmissionDetail, error) {
 	rows, err := r.db(ctx).Query(ctx, `
 		SELECT s.id, s.owner_id, s.client_request_id, s.client_ip, s.version, s.created_at, s.updated_at,
+		       s.review_status, s.review_reason, s.reviewed_at,
 		       p.id, p.submission_id, p.owner_id, p.position, p.storage_key, p.content_type, p.size_bytes,
 		       p.width, p.height, p.uploaded_at, p.sha256, p.status, p.created_at,
 		       a.id, a.label_id, a.text, a.x, a.y, a.w, a.h, l.name, l.color, l.archived_at
@@ -95,13 +120,16 @@ func (r *SubmissionRepo) GetDetail(ctx context.Context, id uuid.UUID) (*domain.S
 			atext, lname, lcol  *string
 			ax, ay, aw, ah      *float64
 			larchived           *time.Time
+			rv                  reviewScan
 		)
 		if err := rows.Scan(&s.ID, &s.OwnerID, &s.ClientRequestID, &s.ClientIP, &s.Version, &s.CreatedAt, &s.UpdatedAt,
+			&rv.status, &rv.reason, &rv.at,
 			&pid, &psub, &powner, &ppos, &pkey, &pct, &psize, &pw, &ph, &puploaded, &psha, &pstatus, &pcreated,
 			&aid, &alabel, &atext, &ax, &ay, &aw, &ah, &lname, &lcol, &larchived); err != nil {
 			return nil, fmt.Errorf("postgres: scan submission detail: %w", err)
 		}
 		if detail == nil {
+			s.Review = rv.review()
 			detail = &domain.SubmissionDetail{Submission: s, Photos: []domain.PhotoWithAnnotations{}}
 		}
 		if pid == nil {
@@ -211,7 +239,9 @@ func (r *SubmissionRepo) ReplaceAnnotations(ctx context.Context, photoID uuid.UU
 func (r *SubmissionRepo) BumpVersion(ctx context.Context, id uuid.UUID, expected int, now time.Time) (int, error) {
 	var v int
 	err := r.db(ctx).QueryRow(ctx,
-		`UPDATE submissions SET version = version + 1, updated_at = $3 WHERE id = $1 AND version = $2 AND deleted_at IS NULL RETURNING version`,
+		// edit pengguna mengubah isi: review kembali pending (spec-labels-admin §5.7)
+		`UPDATE submissions SET version = version + 1, updated_at = $3, review_status = 'pending', review_reason = NULL, reviewed_at = NULL
+		  WHERE id = $1 AND version = $2 AND deleted_at IS NULL RETURNING version`,
 		id, expected, now).Scan(&v)
 	if err == nil {
 		return v, nil
@@ -230,3 +260,25 @@ func (r *SubmissionRepo) BumpVersion(ctx context.Context, id uuid.UUID, expected
 }
 
 var _ = netip.Addr{} // ClientIP *netip.Addr dipetakan ke kolom inet oleh pgx
+
+// SetReview menyimpan keputusan review bila version masih sama dengan yang dilihat admin. Review tidak
+// mengubah version (isi submission tidak berubah).
+func (r *SubmissionRepo) SetReview(ctx context.Context, id uuid.UUID, version int, rv domain.Review) error {
+	tag, err := r.db(ctx).Exec(ctx, `
+		UPDATE submissions SET review_status = $3, review_reason = $4, reviewed_at = $5
+		 WHERE id = $1 AND version = $2 AND deleted_at IS NULL`, id, version, string(rv.Status), nullable(rv.Reason), rv.ReviewedAt)
+	if err != nil {
+		return fmt.Errorf("postgres: set review: %w", err)
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	var exists bool
+	if err := r.db(ctx).QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM submissions WHERE id = $1 AND deleted_at IS NULL)`, id).Scan(&exists); err != nil {
+		return fmt.Errorf("postgres: set review: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("submission %s: %w", id, domain.ErrNotFound)
+	}
+	return domain.Conflict("VERSION_CONFLICT", "the submission was changed since you loaded it; reload and review again")
+}

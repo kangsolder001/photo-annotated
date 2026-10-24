@@ -64,6 +64,13 @@ func parseExportQuery(c *gin.Context) (usecase.ExportQuery, error) {
 		}
 		q.LabelID = &id
 	}
+	if v := c.Query("review_status"); v != "" {
+		st, err := domain.ParseReviewStatus(v)
+		if err != nil {
+			return q, domain.Invalid("INVALID_QUERY", "review_status must be pending, accepted, or rejected")
+		}
+		q.Review = &st
+	}
 	if v := c.Query("include_urls"); v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {

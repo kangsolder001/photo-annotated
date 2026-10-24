@@ -66,6 +66,8 @@ func (r *CleanupRepo) ExpireSubmissions(ctx context.Context, cutoff time.Time, l
 		WITH expired AS (
 			SELECT s.id FROM submissions s
 			 WHERE s.created_at < $1
+			   -- submission yang diterima admin tidak ikut retensi (spec-labels-admin §5.7)
+			   AND s.review_status <> 'accepted'
 			   AND EXISTS (SELECT 1 FROM photos p WHERE p.submission_id = s.id AND p.status <> 'deleted')
 			 ORDER BY s.created_at
 			 LIMIT $2

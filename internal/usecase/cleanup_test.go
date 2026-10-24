@@ -713,3 +713,43 @@ func (r *cleanRig) submittedVia(t *testing.T, ed *editRig, n int) (*usecase.Subm
 	}
 	return out, ps
 }
+
+// AC 17: submission accepted berumur > 90 hari tidak terhapus; pending/rejected seumur itu terhapus;
+// membatalkan penerimaan membuatnya terhapus pada putaran berikutnya.
+func TestCleanupRetentionSkipsAccepted(t *testing.T) {
+	r := newCleanRig(t, cleanOpts{})
+	accepted, accPhotos := r.attachedSubmission(t, 1, 120*24*time.Hour)
+	rejected, _ := r.attachedSubmission(t, 1, 120*24*time.Hour)
+	pending, _ := r.attachedSubmission(t, 1, 120*24*time.Hour)
+	setReview := func(id uuid.UUID, status, reason string) {
+		t.Helper()
+		var rsn any
+		if reason != "" {
+			rsn = reason
+		}
+		var at any = "now()"
+		if status == "pending" {
+			at = nil
+		}
+		if _, err := r.pool.Exec(bg, `UPDATE submissions SET review_status = $2, review_reason = $3,
+			reviewed_at = CASE WHEN $4::text IS NULL THEN NULL ELSE now() END WHERE id = $1`, id, status, rsn, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setReview(accepted, "accepted", "")
+	setReview(rejected, "rejected", "buruk")
+
+	mustRun(t, r)
+	if !r.submissionExists(t, accepted) || !r.fileExists(accPhotos[0]) {
+		t.Fatal("submission accepted tidak boleh terhapus retensi")
+	}
+	if r.submissionExists(t, rejected) || r.submissionExists(t, pending) {
+		t.Fatal("submission rejected/pending lewat retensi harus terhapus")
+	}
+	// batal diterima → terhapus pada putaran berikutnya
+	setReview(accepted, "pending", "")
+	mustRun(t, r)
+	if r.submissionExists(t, accepted) || r.fileExists(accPhotos[0]) {
+		t.Fatal("submission yang batal diterima harus terhapus pada putaran berikutnya")
+	}
+}

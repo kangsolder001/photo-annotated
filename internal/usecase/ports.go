@@ -253,6 +253,7 @@ type ExportCursor struct {
 type ExportPhoto struct {
 	SubmissionID uuid.UUID
 	CreatedAt    time.Time // waktu submission dibuat
+	Review       domain.ReviewStatus
 	Photo        domain.Photo
 	Annotations  []domain.Annotation
 }
@@ -262,6 +263,7 @@ type ExportPhoto struct {
 type ExportFilter struct {
 	From, To *time.Time
 	LabelID  *int
+	Review   *domain.ReviewStatus // nil = semua status
 }
 
 // ExportRepo membaca data export per halaman, berurutan menurut ExportCursor.
@@ -326,7 +328,11 @@ type SubmissionRepo interface {
 	PhotoLabelIDs(ctx context.Context, photoIDs []uuid.UUID) (map[uuid.UUID]map[int]bool, error)
 	// ReplaceAnnotations mengganti seluruh anotasi sebuah foto (hapus lalu tambah).
 	ReplaceAnnotations(ctx context.Context, photoID uuid.UUID, anns []domain.Annotation) error
-	// BumpVersion menaikkan version dan updated_at bila version saat ini == expected.
+	// SetReview menyimpan review bila version == expected (tanpa menaikkan version). Tidak cocok →
+	// VERSION_CONFLICT; tidak ada / sudah dihapus → domain.ErrNotFound.
+	SetReview(ctx context.Context, id uuid.UUID, expected int, rv domain.Review) error
+	// BumpVersion menaikkan version dan updated_at bila version saat ini == expected, dan mengembalikan
+	// review ke pending (isi berubah sejak direview).
 	// Tidak cocok → domain.Conflict VERSION_CONFLICT; id tak ada → domain.ErrNotFound.
 	BumpVersion(ctx context.Context, id uuid.UUID, expected int, now time.Time) (newVersion int, err error)
 }
@@ -402,7 +408,8 @@ type AdminListQuery struct {
 	NameQ     string     // nama annotator mengandung (tanpa beda huruf besar-kecil); kosong = tanpa filter
 	PhoneQ    string     // awalan nomor kanonik; kosong = tanpa filter (NameQ/PhoneQ digabung OR)
 	Unlabeled bool       // masih punya kotak teks lama
-	Oldest    bool       // urut created_at naik (default: terbaru dulu)
+	Review    *domain.ReviewStatus
+	Oldest    bool // urut created_at naik (default: terbaru dulu)
 	Limit     int
 	After     *AdminCursor
 }

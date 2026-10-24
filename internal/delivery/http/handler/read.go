@@ -76,6 +76,12 @@ type photoViewDTO struct {
 	Annotations []annotationDTO `json:"annotations"`
 }
 
+// userReviewDTO: status review yang dilihat pemilik (tanpa reviewed_at, spec-labels-admin §5.7).
+type userReviewDTO struct {
+	Status string  `json:"status"`
+	Reason *string `json:"reason"`
+}
+
 // submissionViewDTO sengaja tidak memuat field internal (storage_key, sha256, owner_id, client_ip).
 type submissionViewDTO struct {
 	ID            uuid.UUID      `json:"id"`
@@ -85,6 +91,7 @@ type submissionViewDTO struct {
 	EditableUntil time.Time      `json:"editable_until"`
 	Editable      bool           `json:"editable"`
 	Photos        []photoViewDTO `json:"photos"`
+	Review        userReviewDTO  `json:"review"`
 }
 
 func toPhotoView(p domain.PhotoWithAnnotations) photoViewDTO {
@@ -117,6 +124,8 @@ func (h *ReadHandler) GetSubmission(c *gin.Context) {
 		EditableUntil: v.EditableUntil.UTC(), Editable: v.Editable,
 		Photos: make([]photoViewDTO, len(v.Detail.Photos)),
 	}
+	rv := toReviewDTO(v.Detail.Submission.Review)
+	dto.Review = userReviewDTO{Status: rv.Status, Reason: rv.Reason}
 	for i, p := range v.Detail.Photos {
 		dto.Photos[i] = toPhotoView(p)
 	}

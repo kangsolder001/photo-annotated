@@ -223,9 +223,11 @@ func NewRouter(d Deps) *gin.Engine {
 			api.DELETE("/admin/labels/:id", adminOnly, labels.Delete)
 		}
 		if d.AdminSubmissions != nil {
-			subsAdmin := handler.NewAdminSubmissionHandler(d.AdminSubmissions)
+			subsAdmin := handler.NewAdminSubmissionHandler(d.AdminSubmissions, d.Logger)
 			api.GET("/admin/submissions", adminOnly, subsAdmin.List)
 			api.GET("/admin/submissions/:id", adminOnly, subsAdmin.Detail)
+			api.PUT("/admin/submissions/:id/review", adminOnly, subsAdmin.Review)
+			api.POST("/admin/submissions/review", adminOnly, subsAdmin.ReviewMany)
 		}
 		if d.AdminDelete != nil {
 			dels := handler.NewAdminDeleteHandler(d.AdminDelete, d.Logger)

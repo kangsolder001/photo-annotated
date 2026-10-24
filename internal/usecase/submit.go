@@ -94,7 +94,7 @@ func (u *Submit) Submit(ctx context.Context, in SubmitInput) (*SubmitOutput, err
 	now := u.clock.Now().UTC().Truncate(time.Microsecond)
 	sub := &domain.Submission{
 		ID: u.newID(), OwnerID: in.OwnerID, ClientRequestID: in.ClientRequestID, ClientIP: in.ClientIP,
-		Version: 1, CreatedAt: now, UpdatedAt: now,
+		Version: 1, CreatedAt: now, UpdatedAt: now, Review: domain.Review{Status: domain.ReviewPending},
 	}
 	err = u.tx.WithTx(ctx, func(ctx context.Context) error {
 		// label dibaca FOR SHARE di transaksi yang sama: arsip/hapus berbarengan tidak bisa lolos

@@ -24,6 +24,7 @@ type ExportQuery struct {
 // ExportItem adalah satu baris export: satu foto beserta anotasinya.
 type ExportItem struct {
 	SubmissionID uuid.UUID
+	ReviewStatus string
 	PhotoID      uuid.UUID
 	StorageKey   string
 	SHA256       []byte
@@ -101,7 +102,7 @@ func (e *Export) Run(ctx context.Context, q ExportQuery, enc ExportEncoder, afte
 
 func toExportItem(p *ExportPhoto) *ExportItem {
 	item := &ExportItem{
-		SubmissionID: p.SubmissionID, PhotoID: p.Photo.ID, StorageKey: p.Photo.StorageKey, SHA256: p.Photo.SHA256,
+		SubmissionID: p.SubmissionID, ReviewStatus: string(p.Review), PhotoID: p.Photo.ID, StorageKey: p.Photo.StorageKey, SHA256: p.Photo.SHA256,
 		Width: p.Photo.Width, Height: p.Photo.Height, CreatedAt: p.CreatedAt,
 		Annotations: make([]ExportAnnotation, len(p.Annotations)),
 	}

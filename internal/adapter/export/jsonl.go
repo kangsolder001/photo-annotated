@@ -53,11 +53,12 @@ type jsonlRow struct {
 	Image        jsonlImage        `json:"image"`
 	Annotations  []jsonlAnnotation `json:"annotations"`
 	CreatedAt    time.Time         `json:"created_at"`
+	ReviewStatus string            `json:"review_status"`
 }
 
 func (j *JSONL) Encode(it *usecase.ExportItem) error {
 	row := jsonlRow{
-		SubmissionID: it.SubmissionID, PhotoID: it.PhotoID, CreatedAt: it.CreatedAt.UTC(),
+		SubmissionID: it.SubmissionID, PhotoID: it.PhotoID, CreatedAt: it.CreatedAt.UTC(), ReviewStatus: it.ReviewStatus,
 		Image:       jsonlImage{StorageKey: it.StorageKey, SHA256: hex.EncodeToString(it.SHA256), Width: it.Width, Height: it.Height},
 		Annotations: make([]jsonlAnnotation, len(it.Annotations)),
 	}
