@@ -7,9 +7,9 @@ function cloudflareHeaders(apiBase: string): Plugin {
   const apiOrigin = apiBase ? new URL(apiBase).origin : "";
   const csp = [
     "default-src 'self'",
-    "script-src 'self' https://challenges.cloudflare.com",
+    "script-src 'self' https://challenges.cloudflare.com https://static.cloudflareinsights.com",
     "frame-src https://challenges.cloudflare.com",
-    `connect-src 'self' ${apiOrigin}`.trim(),
+    `connect-src 'self' https://cloudflareinsights.com ${apiOrigin}`.trim(),
     `img-src 'self' blob: data: ${apiOrigin}`.trim(),
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",

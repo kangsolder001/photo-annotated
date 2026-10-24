@@ -408,7 +408,7 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [ ] manual dengan OTP nyata (Checkpoint 5)
 **Dependencies:** 22, 27 · **Files:** `web/src/pages/{Register,Otp}.tsx`, `web/src/lib/auth.ts` · **Scope:** M
 
-#### Task 30: Deploy FE ke Cloudflare Pages — **diganti: FE disajikan dari Pi** (nginx `web`, port 8081, satu origin dengan API; LAN `http://192.168.1.222:8081` sudah jalan). Sisa: daftarkan public hostname tunnel → `http://localhost:8081`, lalu ganti `public_base_url`/`allowed_origins` ke domain itu.
+#### Task 30: Deploy FE ke Cloudflare Pages — **diganti: FE disajikan dari Pi** (nginx `web`, port 8081, satu origin dengan API; LAN `http://192.168.1.222:8081` sudah jalan). **SELESAI 24 Okt:** public hostname `cam.zipzip.my.id` → `http://localhost:8081`; `public_base_url = https://cam.zipzip.my.id`, origin ditambahkan ke `allowed_origins`. Terverifikasi: halaman & API lewat HTTPS, Cloudflare tidak meng-cache (`DYNAMIC`), IP klien asli tercatat dari `CF-Connecting-IP`, browser tanpa error. CSP mengizinkan Cloudflare Web Analytics yang disisipkan zona.
 **Description:** Build produksi, deploy, CSP ketat, `VITE_API_BASE_URL`, cek CORS + Cloudflare Tunnel ke API.
 **Acceptance criteria:**
 - [ ] FE dari CDN memanggil API lewat Tunnel; preflight upload lolos; tidak ada file FE yang di-serve dari Pi
