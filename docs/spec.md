@@ -412,8 +412,8 @@ Target ukuran hasil: 200–500 KB per foto.
 - Bentuk: rectangle, axis-aligned, dengan satu teks bebas per kotak.
 - Koordinat **dinormalisasi 0–1** relatif terhadap dimensi foto **hasil proses** (yang di-upload), origin di kiri atas.
 - `x`, `y` = pojok kiri atas; `w`, `h` = lebar & tinggi.
-- Aturan validasi (FE & BE): `0 ≤ x,y < 1`, `0 < w,h ≤ 1`, `x + w ≤ 1`, `y + h ≤ 1`, dan ukuran minimum `w,h ≥ 0.005` untuk mencegah kotak tak sengaja.
-- `text`: wajib, 1–1000 karakter setelah `trim`.
+- Aturan validasi (FE & BE): `0 ≤ x,y < 1`, `0 < w,h ≤ 1`, `x + w ≤ 1`, `y + h ≤ 1`, dan ukuran minimum `w,h ≥ 0.005` untuk mencegah kotak tak sengaja. Batas `x + w ≤ 1` dan `y + h ≤ 1` memakai toleransi pembulatan `1e-6` (`x + w ≤ 1.000001`), baik di aplikasi maupun di CHECK constraint, karena konversi piksel→0..1 di browser dapat menghasilkan 1.0000000002 untuk kotak yang sah.
+- `text`: wajib, 1–1000 karakter (rune) setelah `trim`; `CRLF` dinormalisasi ke `LF`; UTF-8 valid; tanpa karakter kontrol selain newline dan tanpa karakter kontrol arah teks (U+202A–202E, U+2066–2069) yang bisa menipu tampilan di layar admin. Karakter ZWJ (emoji majemuk) tetap diizinkan.
 - Anotasi tidak di-"burn" ke gambar. Render overlay dilakukan di client.
 
 ### 6.4 UX
@@ -466,7 +466,7 @@ Index: `(status, created_at)` untuk cleanup job; `(submission_id)`.
 | `id` | `bigserial` PK | |
 | `photo_id` | `uuid` FK → photos NOT NULL | ON DELETE CASCADE |
 | `text` | `text` NOT NULL | CHECK `char_length(text) BETWEEN 1 AND 1000` |
-| `x`, `y`, `w`, `h` | `real` NOT NULL | Dengan CHECK constraint sesuai §6.3 |
+| `x`, `y`, `w`, `h` | `double precision` NOT NULL | Dengan CHECK constraint sesuai §6.3 (termasuk toleransi `1e-6`). Bukan `real`: float32 tidak menyimpan 0.12 secara persis, sehingga nilai tidak kembali sama saat dibaca/diekspor |
 | `created_at` | `timestamptz` NOT NULL DEFAULT now() | |
 
 Index: `(photo_id)`.

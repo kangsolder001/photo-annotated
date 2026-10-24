@@ -136,12 +136,14 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 
 ### Phase 2: Upload foto (mode `none`)
 
-#### Task 9: Domain — aturan foto & anotasi
+#### Task 9: Domain — aturan foto & anotasi — **SELESAI**
 **Description:** Entity `Photo`, `Annotation`, status foto, error domain, validasi murni: tipe konten, ukuran ≤ 2 MB, sisi terpanjang ≤ 2048, bbox (spec §6.3), teks anotasi (1–1000 rune, tanpa karakter kontrol selain newline).
 **Acceptance criteria:**
-- [ ] Table-driven test mencakup batas (0, 0.005, 1, `x+w>1`, teks kosong/1001 rune/karakter kontrol)
-- [ ] Tidak meng-import paket di luar stdlib
-**Verification:** [ ] `go test ./internal/domain/... -race`
+- [x] Table-driven test (52 kasus) mencakup batas (0, 0.005, 1, `x+w>1`, toleransi 1e-6, NaN/Inf, teks kosong/1001 rune/karakter kontrol/bidi override/UTF-8 rusak, kunci penyimpanan `../`, `\n`, huruf besar)
+- [x] Satu-satunya dependensi non-stdlib: `github.com/google/uuid` (tipe identitas). Direvisi dari "hanya stdlib"
+- [x] Keputusan: toleransi `1e-6` pada `x+w ≤ 1` dan kolom koordinat `double precision` (spec §6.3, §7.3 diperbarui)
+- [x] `domain.Error` dengan `Kind` (→ status HTTP dipetakan di delivery) + `Code` stabil untuk klien
+**Verification:** [x] `go test ./internal/domain/... -race`
 **Dependencies:** 5 · **Files:** `internal/domain/{photo,annotation,errors}.go` + test · **Scope:** S
 
 #### Task 10: Adapter `localfs` (PhotoStore) + penjagaan mount
