@@ -91,13 +91,13 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 
 ### Phase 1: Foundation
 
-#### Task 5: Skeleton proyek + config loader
+#### Task 5: Skeleton proyek + config loader — **SELESAI**
 **Description:** `go.mod`, struktur direktori Clean Architecture, loader `config.json` + override env dengan validasi fail-fast (spec §11.4, §9.1).
 **Acceptance criteria:**
-- [ ] Config tidak lengkap (mis. `otp` tanpa `OTP_PEPPER`, `local.root` tidak ada) → proses gagal start dengan pesan jelas
-- [ ] Env menimpa nilai file; secret tidak pernah ada di `config.json`
-- [ ] `config.json.example` sesuai spec §11.4
-**Verification:** [ ] `go vet ./... && go test ./internal/config/... -race`; [ ] `go build ./cmd/...`
+- [x] Config tidak lengkap (mis. `otp` tanpa `OTP_PEPPER`, `local.root` tidak ada) → gagal dengan semua masalah dilaporkan sekaligus
+- [x] Secret hanya dari env; field tak dikenal di file (termasuk secret) ditolak; `Secrets` disamarkan di `%v`/`%#v`/slog
+- [x] `config.json.example` sesuai spec §11.4 dan selalu diuji valid (`TestExampleConfigIsValid`)
+**Verification:** [x] `go vet ./... && go test ./internal/config/... -race` (28 test); [x] `go build ./...`
 **Dependencies:** None · **Files:** `go.mod`, `internal/config/config.go`, `internal/config/config_test.go`, `config.json.example` · **Scope:** S
 
 #### Task 6: HTTP server skeleton

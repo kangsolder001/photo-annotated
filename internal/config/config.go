@@ -1,0 +1,444 @@
+// Package config memuat dan memvalidasi konfigurasi aplikasi.
+//
+// Konfigurasi non-rahasia dibaca dari config.json (field tak dikenal ditolak,
+// sehingga secret tidak mungkin ikut tersimpan di file). Secret hanya dibaca dari
+// environment. Semua masalah dilaporkan sekaligus dan membuat proses gagal start.
+package config
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+const (
+	AuthModeNone = "none"
+	AuthModeOTP  = "otp"
+
+	StorageDriverLocal = "local"
+
+	minSecretLen = 32
+)
+
+// Duration adalah time.Duration yang di-JSON sebagai string ("10m", "720h").
+type Duration time.Duration
+
+func (d Duration) Std() time.Duration { return time.Duration(d) }
+
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return fmt.Errorf("durasi harus berupa string seperti \"10m\"")
+	}
+	v, err := time.ParseDuration(s)
+	if err != nil {
+		return fmt.Errorf("durasi %q tidak valid", s)
+	}
+	*d = Duration(v)
+	return nil
+}
+
+func (d Duration) MarshalJSON() ([]byte, error) { return json.Marshal(time.Duration(d).String()) }
+
+type Config struct {
+	App       App       `json:"app"`
+	Auth      Auth      `json:"auth"`
+	WANotif   WANotif   `json:"wa_notif"`
+	Admin     Admin     `json:"admin"`
+	Edit      Edit      `json:"edit"`
+	Turnstile Turnstile `json:"turnstile"`
+	Database  Database  `json:"database"`
+	Storage   Storage   `json:"storage"`
+	Limits    Limits    `json:"limits"`
+	Retention Retention `json:"retention"`
+
+	// Secrets hanya berasal dari environment, tidak pernah dari file.
+	Secrets Secrets `json:"-"`
+}
+
+type App struct {
+	Env            string   `json:"env"`
+	HTTPAddr       string   `json:"http_addr"`
+	PublicBaseURL  string   `json:"public_base_url"`
+	AllowedOrigins []string `json:"allowed_origins"`
+}
+
+type Auth struct {
+	Mode       string   `json:"mode"`
+	SessionTTL Duration `json:"session_ttl"`
+	OTP        OTP      `json:"otp"`
+}
+
+type OTP struct {
+	Length             int      `json:"length"`
+	TTL                Duration `json:"ttl"`
+	MaxVerifyAttempts  int      `json:"max_verify_attempts"`
+	ResendCooldown     Duration `json:"resend_cooldown"`
+	MaxPerPhonePerHour int      `json:"max_per_phone_per_hour"`
+	MaxQueue           int      `json:"max_queue"`
+	DailyGlobalCap     int      `json:"daily_global_cap"`
+	MessageTemplate    string   `json:"message_template"`
+}
+
+type WANotif struct {
+	BaseURL             string   `json:"base_url"`
+	Timeout             Duration `json:"timeout"`
+	HealthProbeInterval Duration `json:"health_probe_interval"`
+}
+
+type Admin struct {
+	Enabled        bool     `json:"enabled"`
+	Username       string   `json:"username"`
+	PasswordBcrypt string   `json:"password_bcrypt"`
+	TokenTTL       Duration `json:"token_ttl"`
+}
+
+type Edit struct {
+	Window Duration `json:"window"`
+}
+
+type Turnstile struct {
+	Enabled bool `json:"enabled"`
+}
+
+type Database struct {
+	MaxConns int `json:"max_conns"`
+}
+
+type Storage struct {
+	Driver       string       `json:"driver"`
+	Local        StorageLocal `json:"local"`
+	UploadURLTTL Duration     `json:"upload_url_ttl"`
+	ViewURLTTL   Duration     `json:"view_url_ttl"`
+}
+
+type StorageLocal struct {
+	Root         string `json:"root"`
+	RequireMount bool   `json:"require_mount"`
+	MinFreeBytes int64  `json:"min_free_bytes"`
+}
+
+type Limits struct {
+	MaxUploadBytes         int64      `json:"max_upload_bytes"`
+	MaxPhotosPerSubmission int        `json:"max_photos_per_submission"`
+	MaxAnnotationsPerPhoto int        `json:"max_annotations_per_photo"`
+	MaxAnnotationTextLen   int        `json:"max_annotation_text_len"`
+	MaxConcurrentUploads   int        `json:"max_concurrent_uploads"`
+	UploadTimeout          Duration   `json:"upload_timeout"`
+	RateLimitPerMin        RateLimits `json:"rate_limit_per_min"`
+}
+
+type RateLimits struct {
+	Presign     int `json:"presign"`
+	Submissions int `json:"submissions"`
+	OTPRequest  int `json:"otp_request"`
+	OTPVerify   int `json:"otp_verify"`
+	AdminLogin  int `json:"admin_login"`
+}
+
+type Retention struct {
+	Days            int      `json:"days"`
+	PendingPhotoTTL Duration `json:"pending_photo_ttl"`
+	CleanupInterval Duration `json:"cleanup_interval"`
+	CleanupBatch    int      `json:"cleanup_batch"`
+}
+
+// Secrets berisi nilai rahasia dari environment. Nilainya disamarkan saat dicetak/di-log.
+type Secrets struct {
+	DatabaseURL          string
+	StorageSigningSecret string
+	EditTokenSecret      string
+	OTPPepper            string
+	AdminTokenSecret     string
+	WANotifToken         string
+	TurnstileSecret      string
+}
+
+func (Secrets) String() string   { return "Secrets{redacted}" }
+func (Secrets) GoString() string { return "Secrets{redacted}" }
+func (Secrets) LogValue() slog.Value {
+	return slog.StringValue("redacted")
+}
+
+// Defaults mengembalikan nilai bawaan untuk parameter tuning. Field yang menentukan
+// perilaku keamanan/lingkungan (auth.mode, storage.driver, root, URL publik, origin)
+// sengaja tidak punya default dan wajib diisi.
+func Defaults() Config {
+	return Config{
+		App: App{Env: "production", HTTPAddr: ":8080"},
+		Auth: Auth{
+			SessionTTL: Duration(30 * 24 * time.Hour),
+			OTP: OTP{
+				Length:             6,
+				TTL:                Duration(5 * time.Minute),
+				MaxVerifyAttempts:  5,
+				ResendCooldown:     Duration(60 * time.Second),
+				MaxPerPhonePerHour: 5,
+				MaxQueue:           200,
+				DailyGlobalCap:     500,
+				MessageTemplate:    "*{code}* adalah kode verifikasi Photo Annotated Anda. Berlaku {ttl_minutes} menit. Jangan bagikan kode ini ke siapa pun.",
+			},
+		},
+		WANotif: WANotif{Timeout: Duration(10 * time.Second), HealthProbeInterval: Duration(30 * time.Second)},
+		Admin:   Admin{TokenTTL: Duration(8 * time.Hour)},
+		Edit:    Edit{Window: Duration(24 * time.Hour)},
+		Turnstile: Turnstile{
+			Enabled: false,
+		},
+		Database: Database{MaxConns: 20},
+		Storage: Storage{
+			Local:        StorageLocal{RequireMount: true, MinFreeBytes: 5 << 30},
+			UploadURLTTL: Duration(10 * time.Minute),
+			ViewURLTTL:   Duration(5 * time.Minute),
+		},
+		Limits: Limits{
+			MaxUploadBytes:         2 << 20,
+			MaxPhotosPerSubmission: 5,
+			MaxAnnotationsPerPhoto: 50,
+			MaxAnnotationTextLen:   1000,
+			MaxConcurrentUploads:   200,
+			UploadTimeout:          Duration(60 * time.Second),
+			RateLimitPerMin:        RateLimits{Presign: 30, Submissions: 10, OTPRequest: 5, OTPVerify: 20, AdminLogin: 5},
+		},
+		Retention: Retention{
+			Days:            90,
+			PendingPhotoTTL: Duration(24 * time.Hour),
+			CleanupInterval: Duration(time.Hour),
+			CleanupBatch:    100,
+		},
+	}
+}
+
+// Path mengembalikan lokasi config.json: env CONFIG_PATH, atau ./config.json.
+func Path(getenv func(string) string) string {
+	if p := strings.TrimSpace(getenv("CONFIG_PATH")); p != "" {
+		return p
+	}
+	return "config.json"
+}
+
+// Load membaca file konfigurasi, menimpa secret dari environment, lalu memvalidasi.
+func Load(path string, getenv func(string) string) (*Config, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("config: membaca %s: %w", path, err)
+	}
+	return Parse(raw, getenv)
+}
+
+// Parse sama seperti Load tetapi dari byte JSON (dipakai test).
+func Parse(raw []byte, getenv func(string) string) (*Config, error) {
+	cfg := Defaults()
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cfg); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	if dec.More() {
+		return nil, errors.New("config: ada data setelah objek JSON utama")
+	}
+	cfg.Secrets = Secrets{
+		DatabaseURL:          strings.TrimSpace(getenv("DATABASE_URL")),
+		StorageSigningSecret: strings.TrimSpace(getenv("STORAGE_SIGNING_SECRET")),
+		EditTokenSecret:      strings.TrimSpace(getenv("EDIT_TOKEN_SECRET")),
+		OTPPepper:            strings.TrimSpace(getenv("OTP_PEPPER")),
+		AdminTokenSecret:     strings.TrimSpace(getenv("ADMIN_TOKEN_SECRET")),
+		WANotifToken:         strings.TrimSpace(getenv("WA_NOTIF_TOKEN")),
+		TurnstileSecret:      strings.TrimSpace(getenv("TURNSTILE_SECRET")),
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+// Validate memeriksa seluruh konfigurasi dan melaporkan semua masalah sekaligus.
+func (c *Config) Validate() error {
+	var errs []error
+	bad := func(field, format string, a ...any) {
+		errs = append(errs, fmt.Errorf("%s: %s", field, fmt.Sprintf(format, a...)))
+	}
+
+	// app
+	if strings.TrimSpace(c.App.HTTPAddr) == "" {
+		bad("app.http_addr", "wajib diisi")
+	}
+	if err := checkAbsURL(c.App.PublicBaseURL, false); err != nil {
+		bad("app.public_base_url", "%v", err)
+	}
+	if len(c.App.AllowedOrigins) == 0 {
+		bad("app.allowed_origins", "minimal satu origin")
+	}
+	for i, o := range c.App.AllowedOrigins {
+		if err := checkAbsURL(o, true); err != nil {
+			bad(fmt.Sprintf("app.allowed_origins[%d]", i), "%v", err)
+		}
+	}
+
+	// auth
+	switch c.Auth.Mode {
+	case AuthModeNone:
+		requireSecret(&errs, "EDIT_TOKEN_SECRET", c.Secrets.EditTokenSecret, "auth.mode=none")
+	case AuthModeOTP:
+		requireSecret(&errs, "OTP_PEPPER", c.Secrets.OTPPepper, "auth.mode=otp")
+		if c.Secrets.WANotifToken == "" {
+			bad("WA_NOTIF_TOKEN", "wajib diisi (env) jika auth.mode=otp")
+		}
+		if err := checkAbsURL(c.WANotif.BaseURL, false); err != nil {
+			bad("wa_notif.base_url", "wajib untuk auth.mode=otp: %v", err)
+		}
+		if c.WANotif.Timeout <= 0 {
+			bad("wa_notif.timeout", "harus > 0")
+		}
+		if c.WANotif.HealthProbeInterval <= 0 {
+			bad("wa_notif.health_probe_interval", "harus > 0")
+		}
+		o := c.Auth.OTP
+		if o.Length < 4 || o.Length > 8 {
+			bad("auth.otp.length", "harus 4-8")
+		}
+		if o.TTL <= 0 || o.ResendCooldown < 0 {
+			bad("auth.otp", "ttl harus > 0 dan resend_cooldown >= 0")
+		}
+		if o.MaxVerifyAttempts < 1 || o.MaxPerPhonePerHour < 1 || o.MaxQueue < 1 || o.DailyGlobalCap < 1 {
+			bad("auth.otp", "max_verify_attempts, max_per_phone_per_hour, max_queue, daily_global_cap harus >= 1")
+		}
+		if !strings.Contains(o.MessageTemplate, "{code}") {
+			bad("auth.otp.message_template", "harus memuat {code}")
+		}
+		if c.Auth.SessionTTL <= 0 {
+			bad("auth.session_ttl", "harus > 0")
+		}
+	case "":
+		bad("auth.mode", "wajib diisi (%q atau %q)", AuthModeNone, AuthModeOTP)
+	default:
+		bad("auth.mode", "%q tidak dikenal (gunakan %q atau %q)", c.Auth.Mode, AuthModeNone, AuthModeOTP)
+	}
+
+	// admin
+	if c.Admin.Enabled {
+		if strings.TrimSpace(c.Admin.Username) == "" {
+			bad("admin.username", "wajib diisi jika admin.enabled")
+		}
+		if !looksLikeBcrypt(c.Admin.PasswordBcrypt) {
+			bad("admin.password_bcrypt", "harus hash bcrypt ($2a$/$2b$/$2y$, 60 karakter), bukan plaintext")
+		}
+		requireSecret(&errs, "ADMIN_TOKEN_SECRET", c.Secrets.AdminTokenSecret, "admin.enabled")
+		if c.Admin.TokenTTL <= 0 {
+			bad("admin.token_ttl", "harus > 0")
+		}
+	}
+
+	// turnstile
+	if c.Turnstile.Enabled && c.Secrets.TurnstileSecret == "" {
+		bad("TURNSTILE_SECRET", "wajib diisi (env) jika turnstile.enabled")
+	}
+
+	// edit
+	if c.Edit.Window <= 0 {
+		bad("edit.window", "harus > 0")
+	}
+
+	// database
+	if c.Secrets.DatabaseURL == "" {
+		bad("DATABASE_URL", "wajib diisi (env)")
+	}
+	if c.Database.MaxConns < 1 || c.Database.MaxConns > 100 {
+		bad("database.max_conns", "harus 1-100")
+	}
+
+	// storage
+	requireSecret(&errs, "STORAGE_SIGNING_SECRET", c.Secrets.StorageSigningSecret, "penyimpanan foto")
+	switch c.Storage.Driver {
+	case StorageDriverLocal:
+		if !filepath.IsAbs(c.Storage.Local.Root) {
+			bad("storage.local.root", "harus path absolut (nilai: %q)", c.Storage.Local.Root)
+		}
+		if c.Storage.Local.MinFreeBytes < 0 {
+			bad("storage.local.min_free_bytes", "tidak boleh negatif")
+		}
+	case "":
+		bad("storage.driver", "wajib diisi (%q)", StorageDriverLocal)
+	default:
+		bad("storage.driver", "%q belum didukung (hanya %q)", c.Storage.Driver, StorageDriverLocal)
+	}
+	if c.Storage.UploadURLTTL <= 0 || c.Storage.ViewURLTTL <= 0 {
+		bad("storage", "upload_url_ttl dan view_url_ttl harus > 0")
+	}
+
+	// limits
+	l := c.Limits
+	if l.MaxUploadBytes < 1 {
+		bad("limits.max_upload_bytes", "harus > 0")
+	}
+	if l.MaxPhotosPerSubmission < 1 || l.MaxAnnotationsPerPhoto < 1 || l.MaxAnnotationTextLen < 1 || l.MaxConcurrentUploads < 1 {
+		bad("limits", "max_photos_per_submission, max_annotations_per_photo, max_annotation_text_len, max_concurrent_uploads harus >= 1")
+	}
+	if l.UploadTimeout <= 0 {
+		bad("limits.upload_timeout", "harus > 0")
+	}
+	r := l.RateLimitPerMin
+	if r.Presign < 1 || r.Submissions < 1 || r.OTPRequest < 1 || r.OTPVerify < 1 || r.AdminLogin < 1 {
+		bad("limits.rate_limit_per_min", "semua nilai harus >= 1")
+	}
+
+	// retention
+	t := c.Retention
+	if t.Days < 1 || t.CleanupBatch < 1 || t.PendingPhotoTTL <= 0 || t.CleanupInterval <= 0 {
+		bad("retention", "days >= 1, cleanup_batch >= 1, pending_photo_ttl dan cleanup_interval > 0")
+	}
+
+	if len(errs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("config tidak valid:\n  - %w", joinLines(errs))
+}
+
+func requireSecret(errs *[]error, name, val, why string) {
+	switch {
+	case val == "":
+		*errs = append(*errs, fmt.Errorf("%s: wajib diisi (env) untuk %s", name, why))
+	case len(val) < minSecretLen:
+		*errs = append(*errs, fmt.Errorf("%s: terlalu pendek (%d karakter, minimal %d)", name, len(val), minSecretLen))
+	}
+}
+
+func checkAbsURL(s string, originOnly bool) error {
+	if strings.TrimSpace(s) == "" {
+		return errors.New("wajib diisi")
+	}
+	u, err := url.Parse(s)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("%q bukan URL http(s) absolut", s)
+	}
+	if originOnly && (u.Path != "" || u.RawQuery != "" || u.Fragment != "") {
+		return fmt.Errorf("%q harus berupa origin (skema://host[:port]) tanpa path", s)
+	}
+	if !originOnly && strings.HasSuffix(s, "/") {
+		return fmt.Errorf("%q tidak boleh diakhiri '/'", s)
+	}
+	return nil
+}
+
+func looksLikeBcrypt(h string) bool {
+	if len(h) != 60 {
+		return false
+	}
+	return strings.HasPrefix(h, "$2a$") || strings.HasPrefix(h, "$2b$") || strings.HasPrefix(h, "$2y$")
+}
+
+// joinLines menggabungkan error menjadi satu per baris dengan indentasi.
+func joinLines(errs []error) error {
+	msgs := make([]string, len(errs))
+	for i, e := range errs {
+		msgs[i] = e.Error()
+	}
+	return errors.New(strings.Join(msgs, "\n  - "))
+}

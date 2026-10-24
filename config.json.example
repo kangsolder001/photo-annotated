@@ -1,0 +1,61 @@
+{
+  "app": {
+    "env": "production",
+    "http_addr": ":8080",
+    "public_base_url": "https://api.example.com",
+    "allowed_origins": ["https://app.example.com"]
+  },
+  "auth": {
+    "mode": "otp",
+    "session_ttl": "720h",
+    "otp": {
+      "length": 6,
+      "ttl": "5m",
+      "max_verify_attempts": 5,
+      "resend_cooldown": "60s",
+      "max_per_phone_per_hour": 5,
+      "max_queue": 200,
+      "daily_global_cap": 500,
+      "message_template": "*{code}* adalah kode verifikasi Photo Annotated Anda. Berlaku {ttl_minutes} menit. Jangan bagikan kode ini ke siapa pun."
+    }
+  },
+  "wa_notif": {
+    "base_url": "http://wa-notif-service:3030",
+    "timeout": "10s",
+    "health_probe_interval": "30s"
+  },
+  "admin": {
+    "enabled": true,
+    "username": "admin",
+    "password_bcrypt": "$2a$10$FCu4N2Hbf06J0yoSrrEd5ukjWw1w/U3I4RxiGQwtHuzwOAm/1IXmy",
+    "token_ttl": "8h"
+  },
+  "edit": { "window": "24h" },
+  "turnstile": { "enabled": true },
+  "database": { "max_conns": 20 },
+  "storage": {
+    "driver": "local",
+    "local": {
+      "root": "/data/photos",
+      "require_mount": true,
+      "min_free_bytes": 5368709120
+    },
+    "upload_url_ttl": "10m",
+    "view_url_ttl": "5m"
+  },
+  "limits": {
+    "max_upload_bytes": 2097152,
+    "max_photos_per_submission": 5,
+    "max_annotations_per_photo": 50,
+    "max_annotation_text_len": 1000,
+    "max_concurrent_uploads": 200,
+    "upload_timeout": "60s",
+    "rate_limit_per_min": { "presign": 30, "submissions": 10, "otp_request": 5, "otp_verify": 20, "admin_login": 5 }
+  },
+  "retention": {
+    "days": 90,
+    "pending_photo_ttl": "24h",
+    "cleanup_interval": "1h",
+    "cleanup_batch": 100
+  }
+}

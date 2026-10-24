@@ -11,7 +11,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [ ] **T4** 🔒⚠️ Spike OTP: kirim ke nomor sendiri + nomor tanpa WhatsApp (butuh nomor dari Anda)
 
 ## Phase 1: Foundation
-- [ ] **T5** Skeleton proyek + config loader (fail-fast)
+- [x] **T5** Skeleton proyek + config loader (fail-fast)
 - [ ] **T6** HTTP server skeleton: Gin, middleware, `/healthz`
 - [ ] **T7** Koneksi DB + tool migrasi + `/readyz`
 - [ ] **T8** Middleware: rate limit, CORS, body limit
