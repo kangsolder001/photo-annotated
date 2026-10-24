@@ -276,12 +276,16 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [x] `go test ./... -race` hijau; [x] `migrate up/down/up` pada DB dev (versi 4)
 **Dependencies:** 13 · **Files:** `domain/{user,phone,otp}.go`, `migrations/0004_auth.sql`, repo + test · **Scope:** M
 
-#### Task 19: Adapter `wanotif` + probe kanal + stub
+#### Task 19: Adapter `wanotif` + probe kanal + stub — **SELESAI**
 **Description:** `OTPSender` HTTP client ke `wa-notif` (pemetaan error spec §9.5), probe `GET /api/v1/session/status` per 30 detik, status `otp_available`, dan **stub `wa-notif`** (jeda 1,5 detik) untuk test/load test.
 **Acceptance criteria:**
-- [ ] 503/timeout/401/500 dipetakan ke `failure_reason` yang benar; token tidak muncul di log
-- [ ] 3 kegagalan berturut-turut atau probe tidak `connected` → `otp_available=false`; pulih saat berhasil
-**Verification:** [ ] `go test ./internal/adapter/wanotif/... -race` (terhadap stub)
+- [x] 14 kombinasi respons (503/500/401/400/404/405/429/502/504, 200 bukan JSON / `success:false` / tanpa `message_id`) + timeout, koneksi ditolak, konteks batal dipetakan ke `SendError{Reason, Retryable, Alert}`; pembatalan konteks (shutdown) bukan kegagalan gateway; error tidak pernah memuat isi pesan/kode OTP/token/URL lengkap (diuji dengan server yang memantulkan semuanya); redirect tidak diikuti; badan respons dibatasi 64 KB
+- [x] Pagar tujuan: JID grup/pengguna, format lokal, `+`, huruf, newline, negara lain ditolak **tanpa menyentuh jaringan** (0 panggilan ke server)
+- [x] `Channel`: tersedia sampai ada bukti sebaliknya; 3 gagal kirim berturut-turut atau probe gagal → tidak tersedia; kirim sukses mereset hitungan; probe sukses memulihkan (mencegah kanal terkunci); transisi dilaporkan lewat `changed`; aman konkuren
+- [x] Stub `wa-notif` (`internal/testutil/wastub` + `cmd/wanotif-stub`): meniru auth Bearer (status publik seperti aslinya), pengiriman diserialkan dengan jeda, 503/500/400/200-rusak/hang, mencatat pesan mentah (termasuk JID) dan mengekstrak kode OTP untuk test
+- [x] `cmd/wanotif-check` (hanya baca status)
+**Temuan terhadap `wa-notif` ASLI:** `/api/v1/session/status` dan `/qr` ternyata publik (dokumentasi menyebut butuh token); sesi WhatsApp **`DISCONNECTED` sejak 20 Okt 09:12 WIB** (koneksi awal gagal dan tidak pernah dicoba lagi) padahal `/health` UP. Probe kita mendeteksinya dengan benar. Pemulihan butuh `docker restart wa-notif-service` (tindakan di service Anda; belum dilakukan)
+**Verification:** [x] `go test ./... -race` (stub, adapter, channel); [x] probe terhadap `wa-notif` asli di 192.168.1.222:3030 (hanya baca): `TIDAK TERSEDIA … DISCONNECTED`; terhadap stub: `TERSAMBUNG`; URL salah: ditolak
 **Dependencies:** 4, 5 · **Files:** `adapter/wanotif/{client,probe}.go`, `cmd/wanotif-stub/main.go` + test · **Scope:** M
 
 #### Task 20: `POST /auth/register` & `/auth/otp/request` (antrean)

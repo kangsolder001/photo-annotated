@@ -181,6 +181,30 @@ type SessionRepo interface {
 	DeleteInactiveBefore(ctx context.Context, cutoff time.Time, limit int) (int, error)
 }
 
+// SendError menjelaskan kegagalan OTPSender dengan cukup rinci bagi dispatcher untuk memutuskan
+// apakah mengulang dan alasan apa yang boleh dilihat klien (spec §9.5). Pesan dan token tidak pernah
+// dimasukkan ke dalam error ini.
+type SendError struct {
+	Reason    string // domain.OTPFailWAUnavailable atau domain.OTPFailSendFailed
+	Retryable bool   // layak dicoba lagi (gangguan sementara)
+	Alert     bool   // perlu perhatian operator (salah konfigurasi: token ditolak, request ditolak)
+	Err       error
+}
+
+func (e *SendError) Error() string { return "send otp (" + e.Reason + "): " + e.Err.Error() }
+func (e *SendError) Unwrap() error { return e.Err }
+
+// OTPSender mengirim pesan OTP ke nomor kanonik. Kegagalan dikembalikan sebagai *SendError;
+// pembatalan konteks (shutdown) dikembalikan apa adanya.
+type OTPSender interface {
+	Send(ctx context.Context, phone, message string) (messageID string, err error)
+}
+
+// ChannelProbe memeriksa apakah kanal pengiriman (sesi WhatsApp) tersambung; nil berarti ya.
+type ChannelProbe interface {
+	Check(ctx context.Context) error
+}
+
 // EditTokenSigner menurunkan dan memverifikasi token edit anonim (hanya auth.mode = none).
 type EditTokenSigner interface {
 	Token(submissionID uuid.UUID) string

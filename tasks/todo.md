@@ -52,7 +52,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 
 ## Phase 5: Auth OTP
 - [x] **T18** Domain nomor HP + skema users/otp/sessions
-- [ ] **T19** Adapter `wanotif` + probe kanal + stub `wa-notif`
+- [x] **T19** Adapter `wanotif` + probe kanal + stub `wa-notif`
 - [ ] **T20** `POST /auth/register` & `/auth/otp/request` (antrean, batas)
 - [ ] **T21** Dispatcher OTP + `GET /auth/otp/{id}` + `channel-status`
 - [ ] **T22** `POST /auth/otp/verify` + session + `me`/`logout` + middleware
