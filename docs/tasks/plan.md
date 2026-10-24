@@ -431,6 +431,8 @@ Spec: [spec-labels-admin.md](../spec-labels-admin.md). Dikerjakan paralel: backe
 
 **Verifikasi gabungan (25 Okt):** `go vet`, `go build ./cmd/...`, `go test ./... -race` hijau (DB test di Pi); FE typecheck, 496 test, build hijau (bundle user 374 kB, chunk admin lazy 104 kB); E2E browser `web/e2e/flow.mjs` lulus penuh terhadap backend gabungan (admin OTP → label → anotasi berlabel → review tolak → lencana user → hapus permanen, file hilang dari penyimpanan → hapus/arsip label).
 
+**Deploy ke Pi (25 Okt, image `a939b30`):** backup dulu (`~/backups/photo-annotated/`: `config.json` + `pg_dump` DB), image lama di-tag `prev-3206339` untuk rollback; `config.json`: `admin.enabled=true` + `admin.superadmin` (nomor hanya di Pi). Migrasi 0006–0010 sukses, API `ready`. Smoke lewat https://cam.zipzip.my.id: `/admin/login` → 404, `/labels` tanpa sesi → 401, `/admin/channel-status` → `otp_available: true`, `/admin/masuk` tersaji.
+
 ### Checkpoint 7: Aplikasi utuh
 - [ ] Alur lengkap dari HP (seluler) berhasil, termasuk edit dan OTP
 - [ ] Review dengan Anda

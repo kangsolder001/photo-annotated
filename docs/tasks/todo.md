@@ -104,7 +104,8 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T53** Frontend: hapus emoji, ganti ikon Font Awesome Free (dipakai semua task FE berikutnya)
 
 ### Checkpoint 9: Label & dashboard admin
-- [ ] Deploy backend + FE bersamaan ke Pi; login admin ke nomor asli; buat label; anotasi dari HP; lihat di dashboard; review; blokir & buka blokir akun uji; hapus submission uji dan pastikan filenya hilang dari SSD; cek status sistem dan statistik; cek dashboard di HP dan desktop; cek kedua tema; tidak ada emoji
+- [x] Deploy backend + FE bersamaan ke Pi (25 Okt, `a939b30`)
+- [ ] Uji manual: login admin ke nomor asli; buat label; anotasi dari HP; lihat di dashboard; review; blokir & buka blokir akun uji; hapus submission uji dan pastikan filenya hilang dari SSD; cek status sistem dan statistik; cek dashboard di HP dan desktop; cek kedua tema; tidak ada emoji
 - [ ] Review dengan Anda
 
 ### Checkpoint 7: Aplikasi utuh
