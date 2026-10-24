@@ -16,6 +16,7 @@ import (
 
 	"photo-annotated/internal/adapter/signer"
 	"photo-annotated/internal/domain"
+	"photo-annotated/internal/testutil/pgtest"
 	"photo-annotated/internal/usecase"
 )
 
@@ -170,7 +171,7 @@ func TestReaderSubmissionAccessIsUniformNotFound(t *testing.T) {
 
 func TestReaderAdminAndOwnerAccess(t *testing.T) {
 	r := newReadRig(t, false)
-	alice, bob := uuid.New(), uuid.New()
+	alice, bob := pgtest.CreateUser(t, r.pool), pgtest.CreateUser(t, r.pool)
 	out, _ := r.submitted(t, &alice, 1)
 
 	if _, err := r.rd.Submission(bg, usecase.Caller{Admin: true}, out.SubmissionID); err != nil {
@@ -185,7 +186,7 @@ func TestReaderAdminAndOwnerAccess(t *testing.T) {
 
 func TestReaderIgnoresEditTokenWhenNotConfigured(t *testing.T) {
 	r := newReadRig(t, true) // mode otp: tidak ada token edit
-	alice := uuid.New()
+	alice := pgtest.CreateUser(t, r.pool)
 	out, _ := r.submitted(t, &alice, 1)
 	// token (dari signer lain) tidak berarti apa pun
 	_, err := r.rd.Submission(bg, usecase.Caller{EditToken: r.edit.Token(out.SubmissionID)}, out.SubmissionID)

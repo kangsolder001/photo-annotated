@@ -76,7 +76,7 @@ func codeOf(err error) string {
 
 func TestSubmissionCreateGet(t *testing.T) {
 	r := newRig(t)
-	owner := uuid.New()
+	owner := pgtest.CreateUser(t, r.pool)
 	s := newSub(&owner)
 	if err := r.subs.Create(ctx, s); err != nil {
 		t.Fatal(err)
@@ -372,7 +372,7 @@ func TestPhotoSubmissionForeignKey(t *testing.T) {
 
 func TestAttachConditions(t *testing.T) {
 	r := newRig(t)
-	owner, other := uuid.New(), uuid.New()
+	owner, other := pgtest.CreateUser(t, r.pool), pgtest.CreateUser(t, r.pool)
 	s := newSub(&owner)
 	_ = r.subs.Create(ctx, s)
 

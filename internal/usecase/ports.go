@@ -126,6 +126,61 @@ type PhotoRepo interface {
 	SetPosition(ctx context.Context, photoID, submissionID uuid.UUID, position int) error
 }
 
+// UserRepo menyimpan pengguna (auth.mode = otp).
+type UserRepo interface {
+	// FindOrCreatePending membuat pengguna pending baru, atau mengembalikan yang sudah ada untuk
+	// nomor yang sama TANPA menimpa nama/email-nya (created=false). Aman terhadap balapan.
+	FindOrCreatePending(ctx context.Context, u *domain.User) (user *domain.User, created bool, err error)
+	Get(ctx context.Context, id uuid.UUID) (*domain.User, error)
+	GetByPhone(ctx context.Context, phone string) (*domain.User, error)
+	// Activate menandai nomor terverifikasi dan mencatat login (idempoten untuk pengguna aktif).
+	Activate(ctx context.Context, id uuid.UUID, now time.Time) error
+	// DeletePendingBefore menghapus pengguna pending yang dibuat sebelum cutoff.
+	DeletePendingBefore(ctx context.Context, cutoff time.Time, limit int) (int, error)
+}
+
+// OTPRepo menyimpan challenge OTP dan menjadi antrean pengiriman.
+type OTPRepo interface {
+	// Replace menandai challenge aktif milik nomor itu sebagai expired lalu menyimpan c yang baru,
+	// dalam satu transaksi (hanya satu challenge aktif per nomor).
+	Replace(ctx context.Context, c *domain.OTPChallenge) error
+	Get(ctx context.Context, id uuid.UUID) (*domain.OTPChallenge, error)
+	// LatestForPhone mengembalikan challenge terbaru milik nomor, atau domain.ErrNotFound.
+	LatestForPhone(ctx context.Context, phone string) (*domain.OTPChallenge, error)
+	CountForPhoneSince(ctx context.Context, phone string, since time.Time) (int, error)
+	CountCreatedSince(ctx context.Context, since time.Time) (int, error)
+	CountQueued(ctx context.Context) (int, error)
+
+	// ClaimNext mengambil challenge queued yang siap (next_attempt_at <= now), mengubahnya menjadi
+	// sending (next_attempt_at diisi now sebagai penanda waktu klaim) dan menaikkan send_attempts.
+	// domain.ErrNotFound bila antrean kosong.
+	ClaimNext(ctx context.Context, now time.Time) (*domain.OTPChallenge, error)
+	// RequeueStuck mengembalikan challenge sending yang diklaim sebelum olderThan (worker mati
+	// di tengah kirim) ke queued, siap dikirim sejak now.
+	RequeueStuck(ctx context.Context, olderThan, now time.Time) (int, error)
+	MarkSent(ctx context.Context, id uuid.UUID, waMessageID string, sentAt, expiresAt time.Time) error
+	Requeue(ctx context.Context, id uuid.UUID, nextAttemptAt time.Time) error
+	MarkFailed(ctx context.Context, id uuid.UUID, reason string) error
+
+	// IncrementVerifyAttempts menaikkan percobaan verifikasi dan mengembalikan nilai barunya.
+	IncrementVerifyAttempts(ctx context.Context, id uuid.UUID) (int, error)
+	// Consume menandai challenge sent → consumed sekali pakai; false bila sudah bukan sent.
+	Consume(ctx context.Context, id uuid.UUID) (bool, error)
+	// Expire menandai challenge aktif sebagai expired.
+	Expire(ctx context.Context, id uuid.UUID) error
+	DeleteBefore(ctx context.Context, cutoff time.Time, limit int) (int, error)
+}
+
+// SessionRepo menyimpan sesi login.
+type SessionRepo interface {
+	Create(ctx context.Context, s *domain.Session) error
+	// GetByTokenHash mengembalikan sesi, atau domain.ErrNotFound.
+	GetByTokenHash(ctx context.Context, hash []byte) (*domain.Session, error)
+	Revoke(ctx context.Context, id uuid.UUID, now time.Time) error
+	// DeleteInactiveBefore menghapus sesi yang kedaluwarsa atau dicabut sebelum cutoff.
+	DeleteInactiveBefore(ctx context.Context, cutoff time.Time, limit int) (int, error)
+}
+
 // EditTokenSigner menurunkan dan memverifikasi token edit anonim (hanya auth.mode = none).
 type EditTokenSigner interface {
 	Token(submissionID uuid.UUID) string

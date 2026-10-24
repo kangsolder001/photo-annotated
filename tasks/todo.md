@@ -51,7 +51,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] Semua test hijau; demo end-to-end di Pi dengan SSD (upload, submit, baca, edit, cleanup)
 
 ## Phase 5: Auth OTP
-- [ ] **T18** Domain nomor HP + skema users/otp/sessions
+- [x] **T18** Domain nomor HP + skema users/otp/sessions
 - [ ] **T19** Adapter `wanotif` + probe kanal + stub `wa-notif`
 - [ ] **T20** `POST /auth/register` & `/auth/otp/request` (antrean, batas)
 - [ ] **T21** Dispatcher OTP + `GET /auth/otp/{id}` + `channel-status`

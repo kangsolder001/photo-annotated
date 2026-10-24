@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 
@@ -68,4 +69,29 @@ func Pool(t testing.TB) *pgxpool.Pool {
 		admin.Close()
 	})
 	return pool
+}
+
+// CreateUser menyisipkan pengguna aktif dengan nomor acak dan mengembalikan id-nya. Dipakai test
+// yang membutuhkan pemilik nyata (owner_id punya FK ke users).
+func CreateUser(t testing.TB, pool *pgxpool.Pool) uuid.UUID {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	id := uuid.New()
+	for attempt := 0; attempt < 5; attempt++ {
+		var rnd [8]byte
+		_, _ = rand.Read(rnd[:])
+		phone := "628"
+		for _, b := range rnd {
+			phone += string(rune('0' + b%10))
+		}
+		now := time.Now().UTC()
+		_, err := pool.Exec(ctx, `INSERT INTO users (id, name, email, phone, status, phone_verified_at, created_at)
+			VALUES ($1, 'Pengguna Uji', 'uji@example.com', $2, 'active', $3, $3)`, id, phone, now)
+		if err == nil {
+			return id
+		}
+	}
+	t.Fatal("pgtest: gagal membuat pengguna uji")
+	return uuid.Nil
 }

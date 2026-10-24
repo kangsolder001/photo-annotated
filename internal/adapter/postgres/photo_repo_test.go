@@ -50,7 +50,7 @@ func TestPhotoRepoRoundTrip(t *testing.T) {
 
 	// foto lengkap: semua kolom terisi
 	full := validPhoto()
-	owner := uuid.New()
+	owner := pgtest.CreateUser(t, pool)
 	subRow := newSub(nil)
 	if err := postgres.NewSubmissionRepo(pool).Create(ctx, subRow); err != nil {
 		t.Fatal(err)

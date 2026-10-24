@@ -341,7 +341,7 @@ func TestSubmitPhotoStateErrors(t *testing.T) {
 
 func TestSubmitPhotoOwnership(t *testing.T) {
 	r := newSubRig(t, rigOpts{})
-	alice, bob := uuid.New(), uuid.New()
+	alice, bob := pgtest.CreateUser(t, r.pool), pgtest.CreateUser(t, r.pool)
 	alicePhoto, anonPhoto := r.uploaded(t, &alice), r.uploaded(t, nil)
 
 	// pemilik lain, anonim memakai foto milik user, dan user memakai foto anonim: semuanya
@@ -468,7 +468,7 @@ func TestSubmitIdempotentReplay(t *testing.T) {
 
 func TestSubmitReplayByAnotherOwnerIsRefused(t *testing.T) {
 	r := newSubRig(t, rigOpts{})
-	alice, bob := uuid.New(), uuid.New()
+	alice, bob := pgtest.CreateUser(t, r.pool), pgtest.CreateUser(t, r.pool)
 	req := in(r.uploaded(t, &alice))
 	req.OwnerID = &alice
 	if _, err := r.uc.Submit(bg, req); err != nil {

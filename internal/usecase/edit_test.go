@@ -12,6 +12,7 @@ import (
 
 	"photo-annotated/internal/adapter/postgres"
 	"photo-annotated/internal/domain"
+	"photo-annotated/internal/testutil/pgtest"
 	"photo-annotated/internal/usecase"
 )
 
@@ -320,7 +321,7 @@ func TestEditAuthorization(t *testing.T) {
 
 func TestEditByOwnerUser(t *testing.T) {
 	r := newEditRig(t, true) // mode otp: tanpa token edit
-	alice, bob := uuid.New(), uuid.New()
+	alice, bob := pgtest.CreateUser(t, r.pool), pgtest.CreateUser(t, r.pool)
 	out, p := r.submitted(t, &alice, 1)
 	run := func(owner *uuid.UUID) error {
 		_, err := r.ed.Edit(bg, usecase.EditInput{SubmissionID: out.SubmissionID, Caller: usecase.Caller{UserID: owner}, Version: 1, Photos: []usecase.SubmitPhoto{ep(p[0], "oleh pemilik")}})

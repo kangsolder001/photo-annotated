@@ -265,12 +265,15 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 
 ### Phase 5: Auth OTP
 
-#### Task 18: Domain nomor HP + skema auth
+#### Task 18: Domain nomor HP + skema auth — **SELESAI**
 **Description:** Normalisasi nomor Indonesia (`^628[0-9]{8,12}$`, tolak `@`), entity `User/OTPChallenge/Session`, migrasi `users`, `otp_challenges`, `sessions`, tambah FK `owner_id` pada `submissions`/`photos`.
 **Acceptance criteria:**
-- [ ] `0812-3456-7890`, `+628…`, `628…` → bentuk kanonik sama; JID grup dan nomor non-Indonesia ditolak
-- [ ] Migrasi up/down bersih
-**Verification:** [ ] `go test ./internal/domain/... ./internal/adapter/postgres/... -race`
+- [x] 16 bentuk penulisan (`0812-3456-7890`, `+62 812…`, `0062…`, `+62 0812…`, …) → satu bentuk kanonik, idempoten; 24 masukan ditolak (JID grup `…@g.us`, `@`, huruf, `+` di tengah, kode negara lain, `00…` selain `0062`, telepon rumah, terlalu pendek/panjang, karakter kontrol, angka non-ASCII, bidi override, SQL injection); `MaskPhone`; nama (1–100, tanpa kontrol/bidi) dan email (satu alamat polos, huruf kecil, tanpa injeksi header)
+- [x] Migrasi 0004 (`users`, `otp_challenges`, `sessions`, FK `owner_id` dengan `SET NULL`) up/down/up bersih pada DB dev; CHECK menolak nomor tak kanonik, email huruf besar, `active` tanpa verifikasi, `failure_reason` pada status bukan failed, hash bukan 32 byte, sesi `expires_at ≤ created_at`; email tidak unik, nomor unik; indeks unik parsial: satu challenge aktif per nomor
+- [x] Repo `UserRepo`/`OTPRepo`/`SessionRepo` + konkurensi: 10 `FindOrCreatePending` serentak → 1 pembuat; `ClaimNext` 12 item × 5 worker → tepat sekali; 20 `IncrementVerifyAttempts` serentak → nilai 1..20 unik; 10 `Consume` serentak → 1 pemenang; `Replace` serentak → tepat 1 challenge aktif
+- [x] `AuthCleanup` (`CleanupStep`): hanya yang jatuh tempo dihapus (batas ketat), challenge/sesi yang masih berjalan atau dalam masa tenggang aman, multi-batch, idempoten, terintegrasi di `RunOnce`
+- [x] Test lama disesuaikan: FK baru menolak `owner_id` fiktif, jadi `pgtest.CreateUser` membuat pemilik nyata
+**Verification:** [x] `go test ./... -race` hijau; [x] `migrate up/down/up` pada DB dev (versi 4)
 **Dependencies:** 13 · **Files:** `domain/{user,phone,otp}.go`, `migrations/0004_auth.sql`, repo + test · **Scope:** M
 
 #### Task 19: Adapter `wanotif` + probe kanal + stub
