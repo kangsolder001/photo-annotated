@@ -30,12 +30,15 @@ export function SubmissionPage() {
 
   const load = useCallback(async () => {
     setError(undefined);
+    // dibaca sebelum request: pemuatan yang berbarengan (StrictMode, muat ulang) bisa sudah menghapus
+    // entri riwayat saat 404 kedua tiba, dan pesan "sudah dihapus" tidak boleh tertimpa
+    const known = Boolean(history.get(id, owner));
     try {
       const v = await api.getSubmission(id, editToken);
       setView(v);
       if (v.review) history.update(id, { review: v.review });
     } catch (e) {
-      if (isCode(e, "NOT_FOUND") && history.get(id, owner)) {
+      if (isCode(e, "NOT_FOUND") && known) {
         // tercatat di riwayat perangkat ini tetapi sudah tidak ada: dihapus admin (spec-labels-admin §5.5)
         history.remove(id);
         drafts.clear(id, owner);
