@@ -414,13 +414,16 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 
 ### Phase 8: Hardening & go-live
 
-#### Task 31: Dockerfile + Compose (`api` + `cloudflared`)
+#### Task 31: Dockerfile + Compose (`api` + `cloudflared`) — **SELESAI (kecuali Tunnel)**
 **Description:** Image arm64 multi-stage, compose dengan network `shared-db` & `wa-notif_default`, bind mount SSD `/data/photos`, `ulimits nofile 65536`, config read-only.
 **Acceptance criteria:**
-- [ ] `docker compose up -d` di Pi: API sehat; SSD dilepas → API menolak start (`require_marker`)
-- [ ] Container non-root (UID 65532) dapat menulis ke `/data/photos`
-**Verification:** [ ] `docker compose ps`; [ ] `curl https://<api>/healthz` lewat Tunnel
-**Dependencies:** Checkpoint 6 · **Files:** `Dockerfile`, `docker-compose.yml`, `.dockerignore` · **Scope:** S
+- [x] `docker compose up -d` di Pi: `migrate` exit 0 lalu `api` `healthy`, `/healthz` dan `/readyz` 200; tanpa penanda SSD (direktori kosong) → API menolak start (`STORAGE_UNAVAILABLE … SSD belum ter-mount?`, exit 1)
+- [x] Container non-root (UID 65532, rootfs read-only, `cap_drop ALL`, nofile 65536) menulis ke `/data/photos`: 20 upload lewat SSH tunnel berhasil, file `65532:65532 0640` di SSD
+- [ ] ⏳ `curl https://<api>/healthz` lewat Tunnel: butuh domain + `TUNNEL_TOKEN` (profile `tunnel` sudah disiapkan)
+**Kondisi deploy saat ini di Pi:** `auth.mode=none`, Turnstile & admin mati (secret/password belum ada), `public_base_url` sementara `http://127.0.0.1:8080`, port hanya localhost. Diubah saat domain, `WA_NOTIF_TOKEN`, `TURNSTILE_SECRET`, dan password admin tersedia.
+**Temuan:** `cgroup_disable=memory` di kernel Pi → batas memori container tidak berlaku (lihat spec §11.2).
+**Verification:** [x] `docker compose ps`; [x] uji penanda; [x] uji tulis UID 65532; [ ] Tunnel
+**Dependencies:** Checkpoint 6 · **Files:** `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `cmd/healthcheck` · **Scope:** S
 
 #### Task 32: Observability
 **Description:** Field log lengkap (tanpa data sensitif), Promtail → Loki, dashboard Grafana (spec §12), alert: error rate, suhu, SSD > 80%, mount hilang, antrean OTP, kegagalan `wa-notif`.

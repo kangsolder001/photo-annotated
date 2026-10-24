@@ -718,6 +718,8 @@ Risiko utama: endpoint OTP publik membuat API ini bisa dipakai untuk **mengirim 
 - `config.json` di-mount read-only ke container `api`.
 - Root foto di-bind-mount dari SSD: `/mnt/ssd/photo-annotated/photos:/data/photos` (baca-tulis). Jika SSD belum ter-mount, bind mount mengarah ke direktori kosong di SD card; karena itu `storage.local.require_marker` wajib `true` di produksi dan penanda `.photo-annotated-store` harus ada di SSD (§8.2).
 - `ulimits: nofile: 65536` untuk `api` (banyak koneksi dan file terbuka bersamaan).
+- Implementasi (`Dockerfile`, `docker-compose.yml` di root repo): image `distroless/static` nonroot (UID 65532) ±16 MB berisi `api`, `migrate`, `maintenance`, `healthcheck`; dibangun silang di mesin dev (`docker buildx build --platform linux/arm64`) lalu dikirim ke Pi (`docker save | ssh … docker load`). Service `migrate` (one-shot) berjalan dulu, `api` start setelah migrasi sukses. Container `read_only`, `cap_drop: ALL`, `no-new-privileges`, HEALTHCHECK lewat biner `healthcheck` (distroless tanpa curl). Port API hanya `127.0.0.1:8080` di Pi; akses publik lewat `cloudflared` (profile `tunnel`, `TUNNEL_TOKEN` di `.env`, ingress ke `http://api:8080`).
+- **Catatan Pi:** kernel di-boot dengan `cgroup_disable=memory`, sehingga batas memori container (`api` 512 MB, `shared-postgres` 1 GB) **tidak ditegakkan** (`docker info`: "No memory limit support"). Mengaktifkannya: tambahkan `cgroup_enable=memory` di `/boot/firmware/cmdline.txt` lalu reboot (belum dilakukan; butuh persetujuan).
 
 ### 11.3 Tuning awal
 - Go `pgxpool`: `MaxConns = 20` (config: `database.max_conns`).

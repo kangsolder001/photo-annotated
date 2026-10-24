@@ -1,0 +1,9 @@
+# Hanya kode Go yang dibutuhkan build; jangan pernah mengirim secret ke konteks build.
+*
+!go.mod
+!go.sum
+!cmd/
+!internal/
+!migrations/
+**/*_test.go
+internal/testutil/

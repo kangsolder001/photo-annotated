@@ -83,7 +83,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [ ] Review dengan Anda
 
 ## Phase 8: Hardening & go-live
-- [ ] **T31** Dockerfile + Compose (`api` + `cloudflared`)
+- [x] **T31** Dockerfile + Compose (`api` + `cloudflared`) — Tunnel menunggu domain/token
 - [ ] **T32** Observability: log, Promtail/Loki, Grafana, alert
 - [ ] **T33** 🔒 Backup DB + foto + uji restore (butuh tujuan backup)
 - [ ] **T34** Load test k6 (stub `wa-notif`, ±30 foto/s, klien lambat)
