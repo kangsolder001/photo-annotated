@@ -1,0 +1,545 @@
+# Dihasilkan dari daftar alert spec §12. Kontak notifikasi belum diatur (alert tampil di Grafana).
+apiVersion: 1
+groups:
+- orgId: 1
+  name: photo-annotated
+  folder: Alert
+  interval: 1m
+  rules:
+  - uid: pa-error-rate
+    title: Error rate API > 2%
+    condition: C
+    for: 5m
+    noDataState: OK
+    execErrState: Error
+    labels:
+      app: photo-annotated
+    annotations:
+      summary: Lebih dari 2% request API berakhir 5xx selama 5 menit
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: loki
+      model:
+        refId: A
+        expr: 100 * sum(count_over_time({project="photo-annotated", service="api"} |= `"msg":"request"` | json | status >= 500 [5m])) / sum(count_over_time({project="photo-annotated", service="api"} |= `"msg":"request"` [5m]))
+        datasource: &id001
+          type: loki
+          uid: loki
+        queryType: instant
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 2
+  - uid: pa-api-silent
+    title: API tidak mengirim stats (mati / SSD tidak ter-mount)
+    condition: C
+    for: 1m
+    noDataState: Alerting
+    execErrState: Error
+    labels:
+      app: photo-annotated
+    annotations:
+      summary: 'Tidak ada baris stats 5 menit: container API mati atau gagal start (mis. STORAGE_UNAVAILABLE)'
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: loki
+      model:
+        refId: A
+        expr: sum(count_over_time({project="photo-annotated", service="api"} |= `"msg":"stats"` [5m]))
+        datasource: *id001
+        queryType: instant
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: lt
+            params:
+            - 1
+  - uid: pa-storage-unavailable
+    title: Penyimpanan foto tidak tersedia
+    condition: C
+    for: 0s
+    noDataState: OK
+    execErrState: Error
+    labels:
+      app: photo-annotated
+    annotations:
+      summary: API melaporkan STORAGE_UNAVAILABLE (SSD/penanda hilang)
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: loki
+      model:
+        refId: A
+        expr: sum(count_over_time({project="photo-annotated", service="api"} |= `STORAGE_UNAVAILABLE` [5m]))
+        datasource: *id001
+        queryType: instant
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+  - uid: pa-cleanup-failing
+    title: Job cleanup gagal berulang
+    condition: C
+    for: 0s
+    noDataState: OK
+    execErrState: Error
+    labels:
+      app: photo-annotated
+    annotations:
+      summary: Cleanup gagal lebih dari sekali dalam 3 jam
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: loki
+      model:
+        refId: A
+        expr: sum(count_over_time({project="photo-annotated", service="api"} |= `"msg":"job error"` |= `"job":"cleanup"` [3h]))
+        datasource: *id001
+        queryType: instant
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 1
+  - uid: pi-cpu-temp
+    title: Suhu CPU Pi > 75°C
+    condition: C
+    for: 5m
+    noDataState: OK
+    execErrState: Error
+    labels:
+      app: photo-annotated
+    annotations:
+      summary: Risiko thermal throttling
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: max(node_thermal_zone_temp)
+        datasource: &id002
+          type: prometheus
+          uid: prometheus
+        instant: true
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 75
+  - uid: pi-ssd-usage
+    title: SSD terpakai > 80%
+    condition: C
+    for: 5m
+    noDataState: OK
+    execErrState: Error
+    labels:
+      app: photo-annotated
+    annotations:
+      summary: Ruang SSD hampir habis
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 100 * (1 - node_filesystem_avail_bytes{mountpoint="/mnt/ssd"} / node_filesystem_size_bytes{mountpoint="/mnt/ssd"})
+        datasource: *id002
+        instant: true
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 80
+  - uid: pi-ssd-missing
+    title: SSD tidak ter-mount
+    condition: C
+    for: 2m
+    noDataState: Alerting
+    execErrState: Error
+    labels:
+      app: photo-annotated
+    annotations:
+      summary: /mnt/ssd hilang dari daftar filesystem
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: count(node_filesystem_size_bytes{mountpoint="/mnt/ssd"})
+        datasource: *id002
+        instant: true
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: lt
+            params:
+            - 1
+  - uid: pi-kernel-io
+    title: Error I/O disk di log kernel
+    condition: C
+    for: 0s
+    noDataState: OK
+    execErrState: Error
+    labels:
+      app: photo-annotated
+    annotations:
+      summary: Kernel melaporkan error disk/USB (cek kabel & SSD)
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: loki
+      model:
+        refId: A
+        expr: sum(count_over_time({job="kernel"} |~ `(?i)(I/O error|EXT4-fs error|blk_update_request|reset (high|super)-speed USB|uas_eh)` [10m]))
+        datasource: *id001
+        queryType: instant
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+  - uid: pi-eth0-saturated
+    title: Trafik masuk eth0 > 80% kapasitas ISP
+    condition: C
+    for: 5m
+    noDataState: OK
+    execErrState: Error
+    labels:
+      app: photo-annotated
+    annotations:
+      summary: '> 150 Mbps (80% dari ±187 Mbps) selama 5 menit'
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: rate(node_network_receive_bytes_total{device="eth0"}[5m]) * 8
+        datasource: *id002
+        instant: true
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 150000000.0
+  - uid: otp-channel-down
+    title: Kanal WhatsApp OTP tidak tersedia
+    condition: C
+    for: 5m
+    noDataState: OK
+    execErrState: Error
+    labels:
+      app: photo-annotated
+    annotations:
+      summary: wa-notif terputus atau gagal berulang (cek sesi WhatsApp, mungkin perlu restart/scan QR)
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: loki
+      model:
+        refId: A
+        expr: sum(count_over_time({project="photo-annotated", service="api"} |= `"msg":"stats"` | json | otp_available="false" [5m]))
+        datasource: *id001
+        queryType: instant
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+  - uid: otp-gateway-failures
+    title: Kegagalan wa-notif > 20%
+    condition: C
+    for: 5m
+    noDataState: OK
+    execErrState: Error
+    labels:
+      app: photo-annotated
+    annotations:
+      summary: Lebih dari 20% pengiriman OTP gagal karena gateway
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: loki
+      model:
+        refId: A
+        expr: 100 * sum(count_over_time({project="photo-annotated", service="api"} |= `"msg":"otp dispatch` |= `WA_UNAVAILABLE` [5m])) / sum(count_over_time({project="photo-annotated", service="api"} |= `"msg":"otp dispatch` [5m]))
+        datasource: *id001
+        queryType: instant
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 20
+  - uid: otp-queue-high
+    title: Antrean OTP > 80% max_queue
+    condition: C
+    for: 2m
+    noDataState: OK
+    execErrState: Error
+    labels:
+      app: photo-annotated
+    annotations:
+      summary: Antrean OTP hampir penuh (register/login akan ditolak OTP_BUSY)
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: loki
+      model:
+        refId: A
+        expr: max(max_over_time({project="photo-annotated", service="api"} |= `"msg":"stats"` | json | unwrap otp_queued [5m])) / max(max_over_time({project="photo-annotated", service="api"} |= `"msg":"stats"` | json | unwrap otp_max_queue [5m]))
+        datasource: *id001
+        queryType: instant
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0.8
+  - uid: otp-daily-cap
+    title: OTP harian > 80% daily_global_cap
+    condition: C
+    for: 0s
+    noDataState: OK
+    execErrState: Error
+    labels:
+      app: photo-annotated
+    annotations:
+      summary: Mendekati batas harian OTP (kemungkinan penyalahgunaan)
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: loki
+      model:
+        refId: A
+        expr: max(max_over_time({project="photo-annotated", service="api"} |= `"msg":"stats"` | json | unwrap otp_created_24h [5m])) / max(max_over_time({project="photo-annotated", service="api"} |= `"msg":"stats"` | json | unwrap otp_daily_cap [5m]))
+        datasource: *id001
+        queryType: instant
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0.8

@@ -1,0 +1,4 @@
+# Prometheus hanya menyimpan metrik yang dikirim alloy lewat remote write (tanpa scrape sendiri).
+global:
+  evaluation_interval: 1m
+scrape_configs: []

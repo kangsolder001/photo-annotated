@@ -1,0 +1,72 @@
+# Stack observability bersama untuk semua aplikasi di Raspberry Pi (spec §12).
+# Dipasang di /home/myrpi/docker/observability; SEMUA data di SSD (/mnt/ssd/observability), bukan microSD.
+#
+#   alloy       mengumpulkan log semua container Docker + log kernel (journal) → Loki,
+#               dan metrik host (CPU, suhu, memori, disk, eth0) → Prometheus
+#   loki        penyimpanan log (retensi 30 hari)
+#   prometheus  penyimpanan metrik host (retensi 30 hari), hanya menerima remote write dari alloy
+#   grafana     dashboard + alert, hanya di 127.0.0.1:3000 (akses lewat SSH tunnel atau Cloudflare Access)
+#
+# Siapkan sekali: ./setup.sh (membuat folder di SSD dengan pemilik yang benar dan .env berisi password Grafana)
+name: observability
+
+services:
+  loki:
+    image: grafana/loki:3.7.8
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./loki.yaml:/etc/loki/loki.yaml:ro
+      - /mnt/ssd/observability/loki:/loki
+    deploy: { resources: { limits: { memory: 384m } } }
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-remote-write-receiver
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /mnt/ssd/observability/prometheus:/prometheus
+    deploy: { resources: { limits: { memory: 384m } } }
+
+  alloy:
+    image: grafana/alloy:v1.20.1
+    restart: unless-stopped
+    command: ["run", "--storage.path=/var/lib/alloy", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - /mnt/ssd/observability/alloy:/var/lib/alloy
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/log/journal:/var/log/journal:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+      - /run/udev:/run/udev:ro
+      - /:/host/root:ro,rslave
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    depends_on: [loki, prometheus]
+    deploy: { resources: { limits: { memory: 384m } } }
+
+  grafana:
+    image: grafana/grafana:13.2.3
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      TZ: Asia/Jakarta
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana-dashboards:ro
+      - /mnt/ssd/observability/grafana:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on: [loki, prometheus]
+    deploy: { resources: { limits: { memory: 384m } } }
