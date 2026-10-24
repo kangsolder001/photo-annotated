@@ -47,7 +47,7 @@ func Pool(t testing.TB) *pgxpool.Pool {
 
 	// migrasi ke schema ini lewat koneksi database/sql dengan search_path yang sama
 	sqlDB := stdlib.OpenDB(*cfg.ConnConfig)
-	if _, err := postgres.MigrateUp(ctx, sqlDB); err != nil {
+	if _, err := postgres.MigrateUpUnlocked(ctx, sqlDB); err != nil {
 		_ = sqlDB.Close()
 		admin.Close()
 		t.Fatalf("pgtest: migrate up: %v", err)
@@ -94,4 +94,26 @@ func CreateUser(t testing.TB, pool *pgxpool.Pool) uuid.UUID {
 	}
 	t.Fatal("pgtest: gagal membuat pengguna uji")
 	return uuid.Nil
+}
+
+// InsertLabeledAnnotation menyisipkan submission + satu foto berstatus photoStatus + satu anotasi
+// berlabel labelID langsung lewat SQL (tanpa file di disk). Untuk test hitungan pemakaian label.
+func InsertLabeledAnnotation(t testing.TB, pool *pgxpool.Pool, labelID int, photoStatus string) (submissionID, photoID uuid.UUID) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	submissionID, photoID = uuid.New(), uuid.New()
+	var sum [32]byte
+	_, _ = rand.Read(sum[:])
+	if _, err := pool.Exec(ctx, `INSERT INTO submissions (id, client_request_id) VALUES ($1, $2)`, submissionID, uuid.New()); err != nil {
+		t.Fatalf("pgtest: submission: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO photos (id, submission_id, storage_key, content_type, size_bytes, width, height, uploaded_at, sha256, status)
+		VALUES ($1, $2, $3, 'image/webp', 100, 10, 10, now(), $4, $5)`, photoID, submissionID, "test/"+photoID.String(), sum[:], photoStatus); err != nil {
+		t.Fatalf("pgtest: photo: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO annotations (photo_id, label_id, x, y, w, h) VALUES ($1, $2, 0.1, 0.1, 0.2, 0.2)`, photoID, labelID); err != nil {
+		t.Fatalf("pgtest: annotation: %v", err)
+	}
+	return submissionID, photoID
 }

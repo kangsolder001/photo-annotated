@@ -53,8 +53,8 @@ func (r *readRig) submitted(t *testing.T, owner *uuid.UUID, n int) (*usecase.Sub
 	req := in(photos...)
 	req.OwnerID = owner
 	req.Photos[0].Annotations = []domain.Annotation{
-		{Text: "pertama", X: 0.12, Y: 0.30, W: 0.25, H: 0.18},
-		{Text: "kedua", X: 0.55, Y: 0.10, W: 0.30, H: 0.12},
+		{LabelID: lbl("pertama"), X: 0.12, Y: 0.30, W: 0.25, H: 0.18},
+		{LabelID: lbl("kedua"), X: 0.55, Y: 0.10, W: 0.30, H: 0.12},
 	}
 	out, err := r.uc.Submit(bg, req)
 	if err != nil {
@@ -93,7 +93,7 @@ func TestReaderSubmissionWithEditToken(t *testing.T) {
 			t.Fatalf("urutan foto salah di %d", i)
 		}
 	}
-	if len(d.Photos[0].Annotations) != 2 || d.Photos[0].Annotations[1].Text != "kedua" {
+	if len(d.Photos[0].Annotations) != 2 || labelName(d.Photos[0].Annotations[1]) != "kedua" {
 		t.Fatalf("anotasi: %+v", d.Photos[0].Annotations)
 	}
 	wantUntil := d.Submission.CreatedAt.Add(24 * time.Hour)

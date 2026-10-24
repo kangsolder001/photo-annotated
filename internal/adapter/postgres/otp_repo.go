@@ -38,14 +38,18 @@ func scanOTP(row pgx.Row) (*domain.OTPChallenge, error) {
 		vAtt, sA                   int16
 		purpose                    string
 		regName, regEmail, regHash *string
+		userID                     *uuid.UUID
 	)
-	err := row.Scan(&c.ID, &c.UserID, &c.Phone, &c.CodeHash, &status, &failure, &vAtt, &sA,
+	err := row.Scan(&c.ID, &userID, &c.Phone, &c.CodeHash, &status, &failure, &vAtt, &sA,
 		&c.NextAttemptAt, &waMsgID, &c.ClientIP, &c.CreatedAt, &c.SentAt, &c.ExpiresAt,
 		&purpose, &regName, &regEmail, &regHash)
 	if err != nil {
 		return nil, err
 	}
 	c.Purpose = domain.OTPPurpose(purpose)
+	if userID != nil {
+		c.UserID = *userID // NULL (login admin) → uuid.Nil
+	}
 	for dst, src := range map[*string]*string{&c.RegName: regName, &c.RegEmail: regEmail, &c.RegPasswordHash: regHash} {
 		if src != nil {
 			*dst = *src
@@ -76,17 +80,31 @@ func nullable(s string) *string {
 	return &s
 }
 
+// nullUUID memetakan uuid.Nil ke NULL (challenge login admin tidak punya pengguna).
+func nullUUID(id uuid.UUID) *uuid.UUID {
+	if id == uuid.Nil {
+		return nil
+	}
+	return &id
+}
+
+// Replace hanya membatalkan challenge aktif yang sejenis (login admin vs pengguna), sesuai indeks
+// unik otp_one_active_per_phone: login admin dan login/reset pengguna pada nomor yang sama tidak
+// saling membatalkan.
 func (r *OTPRepo) Replace(ctx context.Context, c *domain.OTPChallenge) error {
+	purpose := purposeOrDefault(c.Purpose)
 	err := r.tx.WithTx(ctx, func(ctx context.Context) error {
 		if _, err := r.db(ctx).Exec(ctx,
-			`UPDATE otp_challenges SET status = 'expired' WHERE phone = $1 AND status IN ('queued', 'sending', 'sent')`, c.Phone); err != nil {
+			`UPDATE otp_challenges SET status = 'expired'
+			  WHERE phone = $1 AND (purpose = 'admin_login') = $2 AND status IN ('queued', 'sending', 'sent')`,
+			c.Phone, purpose == domain.OTPPurposeAdminLogin); err != nil {
 			return fmt.Errorf("postgres: expire previous otp: %w", err)
 		}
 		_, err := r.db(ctx).Exec(ctx, `INSERT INTO otp_challenges (`+otpColumns+`)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
-			c.ID, c.UserID, c.Phone, c.CodeHash, string(c.Status), nullable(c.FailureReason), c.VerifyAttempts, c.SendAttempts,
+			c.ID, nullUUID(c.UserID), c.Phone, c.CodeHash, string(c.Status), nullable(c.FailureReason), c.VerifyAttempts, c.SendAttempts,
 			c.NextAttemptAt, nullable(c.WAMessageID), c.ClientIP, c.CreatedAt, c.SentAt, c.ExpiresAt,
-			string(purposeOrDefault(c.Purpose)), nullable(c.RegName), nullable(c.RegEmail), nullable(c.RegPasswordHash))
+			string(purpose), nullable(c.RegName), nullable(c.RegEmail), nullable(c.RegPasswordHash))
 		if err != nil {
 			if isUniqueViolation(err, "otp_one_active_per_phone") {
 				// dua permintaan untuk nomor yang sama berbarengan: yang kalah diminta mengulang

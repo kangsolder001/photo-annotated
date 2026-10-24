@@ -50,13 +50,13 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 	user := s.with(map[string]string{"Authorization": "Bearer " + token})
 
 	pid := user.uploadedPhoto(t, 0x31)
-	body := `{"photos":[{"photo_id":"` + pid.String() + `","annotations":[{"text":"TEKS-ANOTASI-RAHASIA","x":0.1,"y":0.1,"w":0.2,"h":0.2}]}],"client_request_id":"` + uuid.NewString() + `"}`
+	body := `{"photos":[{"photo_id":"` + pid.String() + `","annotations":[{"label_id":1,"x":0.1,"y":0.1,"w":0.2,"h":0.2}]}],"client_request_id":"` + uuid.NewString() + `"}`
 	sub := user.submit(t, body)
 	if sub.Status != 201 {
 		t.Fatalf("submit: %d %s", sub.Status, sub.Raw)
 	}
 	user.edit(t, sub.SubmissionID, "", strings.Replace(body, `"client_request_id":"`, `"x":"`, 1)) // 400, body tidak dicatat
-	user.edit(t, sub.SubmissionID, "", `{"version":1,"photos":[{"photo_id":"`+pid.String()+`","annotations":[{"text":"EDIT-RAHASIA","x":0.1,"y":0.1,"w":0.2,"h":0.2}]}]}`)
+	user.edit(t, sub.SubmissionID, "", `{"version":1,"photos":[{"photo_id":"`+pid.String()+`","annotations":[{"label_id":2,"x":0.1,"y":0.1,"w":0.2,"h":0.2}]}]}`)
 	_, _, urlBody := user.get(t, "/api/v1/photos/"+pid.String()+"/url", nil)
 	var pu struct{ URL string }
 	_ = json.Unmarshal(urlBody, &pu)
@@ -68,21 +68,55 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 	r, _ := admin.client.Get(s.srv.URL + "/api/v1/admin/export?include_urls=true")
 	io.Copy(io.Discard, r.Body)
 	r.Body.Close()
-	s.postJSON(t, "/api/v1/admin/login", `{"username":"admin","password":"PASSWORD-SALAH-RAHASIA"}`)
+	adminCode := s.wa.LastCodeFor(testSuperadmin)
+	_, lbl := admin.send(t, "POST", "/api/v1/admin/labels", `{"name":"Retak","description":"DESKRIPSI-LABEL"}`)
+	admin.send(t, "PUT", "/api/v1/admin/labels/"+idOf(lbl), `{"name":"Retak halus","color":"#000000","archived":true}`)
+	_, active := admin.getJSON(t, "/api/v1/labels")
+	var order []string
+	for _, l := range labelList(t, active) {
+		order = append([]string{idOf(l)}, order...) // dibalik
+	}
+	admin.send(t, "PUT", "/api/v1/admin/labels/order", `{"ids":[`+strings.Join(order, ",")+`]}`)
+	admin.send(t, "DELETE", "/api/v1/admin/labels/"+idOf(lbl), "")
+	admin.get(t, "/api/v1/admin/me", nil)
+	_, _, listRaw := admin.get(t, "/api/v1/admin/submissions?q=0812-7777", nil)
+	if !strings.Contains(string(listRaw), "6281277771234") {
+		t.Fatalf("daftar admin harus memuat nomor utuh (yang tidak boleh masuk log): %s", listRaw)
+	}
+	admin.get(t, "/api/v1/admin/submissions/"+sub.SubmissionID.String(), nil)
+	admin.send(t, "PUT", "/api/v1/admin/submissions/"+sub.SubmissionID.String()+"/review", `{"status":"rejected","reason":"ALASAN-REVIEW-RAHASIA Budi","version":2}`)
+	admin.send(t, "DELETE", "/api/v1/admin/submissions/"+sub.SubmissionID.String(), "")
+	_, users := admin.getJSON(t, "/api/v1/admin/users?q=Rahasia")
+	uid := users["items"].([]any)[0].(map[string]any)["id"].(string)
+	admin.send(t, "POST", "/api/v1/admin/users/"+uid+"/block", `{"reason":"ALASAN-BLOKIR-RAHASIA"}`)
+	admin.send(t, "POST", "/api/v1/admin/users/"+uid+"/unblock", "")
+	admin.send(t, "POST", "/api/v1/admin/users/"+uid+"/delete-data", `{"include_accepted":true}`)
+	s.postJSON(t, "/api/v1/auth/login", `{"phone":"0812-7777-1234","password":"PASSWORD-RAHASIA-1"}`)
+	_, fake := s.postJSON(t, "/api/v1/admin/otp/request", `{"phone":"0813-5555-6666","turnstile_token":"human"}`)
+	s.postJSON(t, "/api/v1/admin/otp/verify", `{"challenge_id":"`+fake["challenge_id"].(string)+`","code":"424242"}`)
+	s.getJSON(t, "/api/v1/admin/otp/"+fake["challenge_id"].(string))
 	s.with(map[string]string{"Authorization": "Bearer token-palsu-rahasia"}).get(t, "/api/v1/auth/me", nil)
 	s.postJSON(t, "/api/v1/auth/otp/verify", `{"challenge_id":"`+reg["challenge_id"].(string)+`","code":"999999"}`)
 	user.authed(t, "POST", "/api/v1/auth/logout", "")
 	s.get(t, "/healthz", nil)
 
 	out := logs.String()
-	if !strings.Contains(out, `"user_id"`) || !strings.Contains(out, `"code":"OTP_EXPIRED"`) {
+	if !strings.Contains(out, `"user_id"`) || !strings.Contains(out, `"code":"OTP_EXPIRED"`) ||
+		!strings.Contains(out, `"msg":"admin login"`) || !strings.Contains(out, `"phone":"62813****2222"`) ||
+		!strings.Contains(out, `"action":"label.create"`) || !strings.Contains(out, `"action":"label.archive"`) ||
+		!strings.Contains(out, `"action":"label.reorder"`) || !strings.Contains(out, `"action":"label.delete"`) ||
+		!strings.Contains(out, `"action":"submission.delete"`) || !strings.Contains(out, `"action":"submission.review"`) ||
+		!strings.Contains(out, `"action":"user.block"`) || !strings.Contains(out, `"action":"user.unblock"`) ||
+		!strings.Contains(out, `"action":"user.delete_data"`) {
 		t.Fatalf("log kurang lengkap (user_id/code):\n%s", out)
 	}
 	secrets := map[string]string{
 		"kode OTP": code, "token sesi": token, "token admin": strings.TrimPrefix(adminTok, "Bearer "),
 		"nomor utuh": "6281277771234", "nomor input": "0812-7777-1234", "nama": "Rahasia Namanya",
-		"email": "surel.rahasia", "teks anotasi": "TEKS-ANOTASI-RAHASIA", "teks edit": "EDIT-RAHASIA",
-		"password": "PASSWORD-SALAH-RAHASIA", "password daftar": "PASSWORD-RAHASIA-1", "token palsu": "token-palsu-rahasia", "tanda tangan URL": "sig=",
+		"email":          "surel.rahasia",
+		"kode OTP admin": adminCode, "alasan review": "ALASAN-REVIEW-RAHASIA", "alasan blokir": "ALASAN-BLOKIR-RAHASIA", "deskripsi label": "DESKRIPSI-LABEL", "nomor superadmin": testSuperadmin, "nomor superadmin input": testSuperadminInput,
+		"nomor lain di login admin": "6281355556666", "kode admin salah": "424242",
+		"password daftar": "PASSWORD-RAHASIA-1", "token palsu": "token-palsu-rahasia", "tanda tangan URL": "sig=",
 		"header Authorization": "Bearer", "turnstile": `"human"`,
 	}
 	for what, v := range secrets {

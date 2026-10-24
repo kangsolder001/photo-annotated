@@ -28,9 +28,12 @@
   },
   "admin": {
     "enabled": true,
-    "username": "admin",
-    "password_bcrypt": "$2a$10$FCu4N2Hbf06J0yoSrrEd5ukjWw1w/U3I4RxiGQwtHuzwOAm/1IXmy",
-    "token_ttl": "8h"
+    "superadmin": {
+      "name": "Super Admin",
+      "phone": "GANTI-dengan-nomor-HP-superadmin"
+    },
+    "token_ttl": "8h",
+    "otp_message_template": "*{code}* adalah kode masuk ADMIN Photo Annotated. Berlaku {ttl_minutes} menit. Jika Anda tidak sedang masuk, abaikan dan periksa keamanan akun."
   },
   "edit": { "window": "24h" },
   "turnstile": { "enabled": true },
@@ -49,7 +52,7 @@
     "max_upload_bytes": 2097152,
     "max_photos_per_submission": 5,
     "max_annotations_per_photo": 50,
-    "max_annotation_text_len": 1000,
+    "max_labels": 200,
     "max_concurrent_uploads": 200,
     "upload_timeout": "60s",
     "rate_limit_per_min": { "presign": 30, "submissions": 10, "otp_request": 5, "otp_verify": 20, "admin_login": 5, "login": 10 }

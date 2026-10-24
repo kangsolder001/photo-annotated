@@ -113,8 +113,20 @@ func (u *Cleanup) RunOnce(ctx context.Context) (CleanupReport, error) {
 		}
 	}
 
-	// 2. Hapus file + baris foto yang rejected/deleted (termasuk hasil claim di atas dan edit).
+	// 2. Hapus file + baris foto yang rejected/deleted (termasuk hasil claim di atas, edit, dan hapus
+	//    admin yang filenya belum sempat terhapus), lalu submission yang dihapus admin dan sudah kosong.
 	u.deletePhotos(ctx, &rep, &errs, failed)
+	for i := 0; i < u.cfg.MaxBatches; i++ {
+		gone, err := u.repo.DeleteEmptyDeletedSubmissions(ctx, u.cfg.Batch)
+		if err != nil {
+			errs.add(err)
+			break
+		}
+		rep.SubmissionsDeleted += gone
+		if gone < u.cfg.Batch {
+			break
+		}
+	}
 
 	// 3. Retensi: tandai foto submission kedaluwarsa, hapus filenya, lalu hapus submission yang
 	//    sudah tidak punya baris foto. Diulang selama masih ada kemajuan.

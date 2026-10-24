@@ -28,6 +28,9 @@ type OTPPurpose string
 const (
 	OTPPurposeRegister OTPPurpose = "register"
 	OTPPurposeReset    OTPPurpose = "reset"
+	// OTPPurposeAdminLogin: login superadmin (spec-labels-admin §3). Tidak terikat ke pengguna
+	// (UserID = uuid.Nil) dan hanya bisa diverifikasi lewat /admin/otp/verify.
+	OTPPurposeAdminLogin OTPPurpose = "admin_login"
 )
 
 // Alasan kegagalan kirim yang boleh dilihat klien (spec §5.8).
@@ -40,8 +43,8 @@ const (
 // HMAC-nya.
 type OTPChallenge struct {
 	ID      uuid.UUID
-	UserID  uuid.UUID
-	Phone   string // salinan nomor kanonik saat dibuat
+	UserID  uuid.UUID // uuid.Nil untuk login admin (kolom NULL)
+	Phone   string    // salinan nomor kanonik saat dibuat
 	Purpose OTPPurpose
 	// Data registrasi (hanya Purpose = register). Disimpan di challenge, bukan di pengguna, dan baru
 	// diterapkan saat kode challenge INI diverifikasi: pendaftaran ulang nomor yang sama oleh orang

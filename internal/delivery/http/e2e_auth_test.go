@@ -39,6 +39,8 @@ type authStack struct {
 	channel *usecase.Channel
 	disp    *usecase.OTPDispatcher
 	wa      *wastub.Server
+	otps    *postgres.OTPRepo
+	phones  *usecase.PhoneLimiter
 }
 
 func newAuthStack(t *testing.T, cfURL string, otpPerMin int, extra ...func(*stackOpts)) *authStack {
@@ -55,8 +57,10 @@ func newAuthStack(t *testing.T, cfURL string, otpPerMin int, extra ...func(*stac
 	parts := func(pool *pgxpool.Pool) otpParts {
 		users, otps := postgres.NewUserRepo(pool), postgres.NewOTPRepo(pool)
 		phones := usecase.NewPhoneLimiter(as.cooldown, 5)
+		as.otps, as.phones = otps, phones
 		as.disp = usecase.NewOTPDispatcher(otps, sender, codes, as.channel, phones, usecase.SystemClock{}, usecase.OTPDispatchConfig{
-			CodeTTL: 5 * time.Minute, MessageTemplate: "*{code}* kode Anda", RetryDelays: []time.Duration{3 * time.Second}, StuckAfter: time.Minute,
+			CodeTTL: 5 * time.Minute, MessageTemplate: "*{code}* kode Anda", AdminMessageTemplate: testAdminTemplate,
+			RetryDelays: []time.Duration{3 * time.Second}, StuckAfter: time.Minute,
 		})
 		req := usecase.NewOTPRequest(users, otps, codes, testBcrypt, as.channel, phones, usecase.SystemClock{},
 			usecase.OTPRequestConfig{ResendCooldown: time.Minute, MaxQueue: 200, DailyGlobalCap: 500, SendInterval: 1500 * time.Millisecond, CodeTTL: 5 * time.Minute})
@@ -75,7 +79,11 @@ func newAuthStack(t *testing.T, cfURL string, otpPerMin int, extra ...func(*stac
 		t.Fatal(err)
 	}
 	as.cooldown = time.Minute
-	opts := stackOpts{otp: parts, channel: as.channel, turnstile: ts, otpPerMin: otpPerMin, admin: testAdmin(t), adminPerMin: 1_000_000}
+	// superadmin memakai antrean, dispatcher, dan batas per nomor yang sama dengan OTP pengguna
+	admin := func(*pgxpool.Pool) adminParts {
+		return adminParts{login: newTestAdminLogin(as.otps, codes, as.channel, as.phones), disp: as.disp, wa: as.wa}
+	}
+	opts := stackOpts{otp: parts, channel: as.channel, turnstile: ts, otpPerMin: otpPerMin, admin: admin, adminPerMin: 1_000_000}
 	for _, f := range extra {
 		f(&opts)
 	}

@@ -1,6 +1,9 @@
 package usecase
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 // Channel melacak apakah kanal OTP (WhatsApp) layak dipakai, agar FE bisa memberi tahu pengguna
 // sebelum mereka menunggu kode yang tidak akan datang (spec §9.5):
@@ -18,6 +21,7 @@ type Channel struct {
 	threshold  int
 	probeOK    bool
 	failStreak int
+	lastProbe  time.Time // waktu probe terakhir (nol = belum pernah)
 }
 
 // NewChannel membuat pelacak; kanal dianggap tersedia sampai ada bukti sebaliknya.
@@ -38,15 +42,21 @@ func (c *Channel) Available() bool {
 
 // ChannelState adalah potret status kanal (untuk log dan metrik).
 type ChannelState struct {
-	Available  bool
-	ProbeOK    bool
-	FailStreak int
+	Available   bool
+	ProbeOK     bool
+	FailStreak  int
+	LastProbeAt *time.Time // nil bila belum pernah ada probe
 }
 
 func (c *Channel) State() ChannelState {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return ChannelState{Available: c.availableLocked(), ProbeOK: c.probeOK, FailStreak: c.failStreak}
+	st := ChannelState{Available: c.availableLocked(), ProbeOK: c.probeOK, FailStreak: c.failStreak}
+	if !c.lastProbe.IsZero() {
+		t := c.lastProbe
+		st.LastProbeAt = &t
+	}
+	return st
 }
 
 // RecordProbe mencatat hasil probe. changed true bila ketersediaan berubah (untuk mencatat transisi).
@@ -55,6 +65,7 @@ func (c *Channel) RecordProbe(err error) (available, changed bool) {
 	defer c.mu.Unlock()
 	before := c.availableLocked()
 	c.probeOK = err == nil
+	c.lastProbe = time.Now()
 	if err == nil {
 		c.failStreak = 0
 	}

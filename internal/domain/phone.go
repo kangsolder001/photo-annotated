@@ -77,3 +77,36 @@ func MaskPhone(p string) string {
 	}
 	return p[:5] + strings.Repeat("*", len(p)-9) + p[len(p)-4:]
 }
+
+// PhonePrefix mengubah potongan nomor yang diketik admin untuk pencarian awalan menjadi awalan bentuk
+// kanonik ("0812", "+62 812", "62812", "812" → "62812"). ok false bila q bukan potongan nomor (memuat
+// huruf atau karakter lain), sehingga hanya dicari sebagai nama.
+func PhonePrefix(q string) (prefix string, ok bool) {
+	s := strings.TrimSpace(q)
+	s = strings.TrimPrefix(s, "+")
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == ' ' || r == '-' || r == '.' || r == '(' || r == ')':
+		default:
+			return "", false
+		}
+	}
+	d := b.String()
+	switch {
+	case d == "":
+		return "", false
+	case strings.HasPrefix(d, "0062"):
+		d = d[2:]
+	case strings.HasPrefix(d, "0"):
+		d = "62" + d[1:]
+	case strings.HasPrefix(d, "8"):
+		d = "62" + d
+	}
+	if strings.HasPrefix(d, "620") { // "+62 0812…"
+		d = "62" + d[3:]
+	}
+	return d, true
+}

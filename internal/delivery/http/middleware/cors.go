@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	corsAllowMethods = "GET, POST, PUT, OPTIONS"
+	corsAllowMethods = "GET, POST, PUT, DELETE, OPTIONS"
 	corsMaxAge       = "3600"
 	// Header respons yang boleh dibaca FE (Retry-After dipakai untuk backoff upload).
 	corsExposeHeaders = "X-Request-ID, Retry-After"
@@ -21,7 +21,7 @@ const (
 var corsHeaders = []string{"Content-Type", "Authorization", "X-Edit-Token", HeaderTurnstileToken}
 
 var (
-	corsMethodSet    = toSet("GET", "POST", "PUT", "OPTIONS")
+	corsMethodSet    = toSet("GET", "POST", "PUT", "DELETE", "OPTIONS")
 	corsAllowHeaders = strings.Join(corsHeaders, ", ")
 	corsHeaderSet    = lowerSet(corsHeaders)
 )

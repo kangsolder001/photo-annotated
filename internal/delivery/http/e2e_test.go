@@ -32,6 +32,7 @@ import (
 	"photo-annotated/internal/domain"
 	"photo-annotated/internal/testutil/imgfix"
 	"photo-annotated/internal/testutil/pgtest"
+	"photo-annotated/internal/testutil/wastub"
 	"photo-annotated/internal/usecase"
 )
 
@@ -53,8 +54,11 @@ type stackOpts struct {
 	otpPerMin int
 	// Turnstile presign/submit pada mode none (nil = tanpa)
 	uploadTurnstile usecase.TurnstileVerifier
-	admin           httpapi.AdminAuth
-	adminPerMin     int
+	// superadmin opsional (nil = admin dimatikan: /admin/* 404); dirakit di atas pool milik stack
+	admin       func(*pgxpool.Pool) adminParts
+	adminPerMin int
+	// deleteStore membungkus PhotoStore untuk hapus permanen admin (mis. simulasi SSD error); nil = asli
+	deleteStore func(usecase.PhotoStore) usecase.PhotoStore
 	// tujuan log request (nil = dibuang)
 	logOut io.Writer
 	// cooldown kode OTP per nomor di stack auth (0 = 1 menit)
@@ -69,14 +73,26 @@ type otpParts struct {
 	login    handler.PasswordLoginer
 }
 
+// adminParts adalah login superadmin yang dirakit test beserta dispatcher dan stub wa-notif-nya.
+type adminParts struct {
+	login   httpapi.AdminAuth
+	channel handler.ChannelStatus // nil = pakai stackOpts.channel
+	disp    *usecase.OTPDispatcher
+	wa      *wastub.Server
+}
+
 type stack struct {
-	pool   *pgxpool.Pool
-	srv    *httptest.Server
-	subs   *postgres.SubmissionRepo
-	repo   *postgres.PhotoRepo
-	signer *signer.Signer
-	dir    string
-	client *http.Client
+	admin adminParts
+	// cleanupRequests: berapa kali hapus data annotator meminta cleanup segera
+	cleanupRequests *atomic.Int32
+	store           *localfs.Store
+	pool            *pgxpool.Pool
+	srv             *httptest.Server
+	subs            *postgres.SubmissionRepo
+	repo            *postgres.PhotoRepo
+	signer          *signer.Signer
+	dir             string
+	client          *http.Client
 }
 
 // newStack merakit seluruh backend dengan Postgres, localfs, signer, dan imagecheck sungguhan
@@ -99,6 +115,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		o.otpPerMin = 1_000_000
 	}
 	pool := pgtest.Pool(t)
+	seedE2ELabels(t, pool)
 	repo := postgres.NewPhotoRepo(pool)
 	dir := t.TempDir()
 	store, err := localfs.New(localfs.Options{Root: dir, MinFreeBytes: o.minFree})
@@ -122,8 +139,9 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	if o.otp != nil {
 		et = nil
 	}
-	submit := usecase.NewSubmit(repo, subs, txm, store, et, usecase.SystemClock{},
-		usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50, MaxAnnotationTextLen: 1000})
+	labelRepo := postgres.NewLabelRepo(pool)
+	submit := usecase.NewSubmit(repo, subs, labelRepo, txm, store, et, usecase.SystemClock{},
+		usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50})
 
 	var inner atomic.Pointer[http.Handler]
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -134,8 +152,8 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	reader := usecase.NewReader(subs, repo, store, sg, et, usecase.SystemClock{}, usecase.ReadConfig{
 		PublicBaseURL: srv.URL, EditWindow: 24 * time.Hour, ViewURLTTL: o.viewTTL,
 	})
-	editor := usecase.NewEdit(repo, subs, txm, store, et, usecase.SystemClock{}, usecase.EditConfig{
-		SubmitConfig: usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50, MaxAnnotationTextLen: 1000},
+	editor := usecase.NewEdit(repo, subs, labelRepo, txm, store, et, usecase.SystemClock{}, usecase.EditConfig{
+		SubmitConfig: usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50},
 		Window:       24 * time.Hour,
 	})
 	presign := usecase.NewPresign(repo, store, sg, usecase.SystemClock{}, usecase.PresignConfig{
@@ -151,7 +169,37 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	if o.otp != nil {
 		otp = o.otp(pool)
 	}
+	var adm adminParts
+	channel := o.channel
+	authMode := "none"
+	if o.otp != nil {
+		authMode = "otp"
+	}
+	if o.admin != nil {
+		adm = o.admin(pool)
+		if adm.channel != nil {
+			channel = adm.channel
+		}
+	}
+	cleanupRequests := &atomic.Int32{}
+	var adminUsers handler.AdminUserService
+	if o.otp != nil && o.admin != nil {
+		adminUsers = usecase.NewAdminUsers(postgres.NewAdminUserRepo(pool), postgres.NewSessionRepo(pool), postgres.NewDeletionRepo(pool),
+			txm, usecase.SystemClock{}, func() { cleanupRequests.Add(1) })
+	}
+	statsRepo := postgres.NewStatsRepo(pool)
+	sysChannel := usecase.NewChannel(3)
+	if c, ok := channel.(*usecase.Channel); ok {
+		sysChannel = c
+	}
 	var h http.Handler = httpapi.NewRouter(httpapi.Deps{
+		AdminUsers: adminUsers,
+		LabelStats: usecase.NewLabelStats(statsRepo),
+		System: usecase.NewSystemStatus(usecase.SystemDeps{
+			DB: pool, Stats: statsRepo, AdminStats: statsRepo, Storage: store, Uploads: upload, Channel: sysChannel,
+			Cleanup: &usecase.CleanupStatus{}, Clock: usecase.SystemClock{},
+		}, usecase.SystemConfig{StartedAt: time.Now(), Version: "test", AuthMode: authMode, MinFreeBytes: o.minFree,
+			MaxQueue: 200, DailyCap: 500, RetentionDays: 90}),
 		Logger:         slog.New(slog.NewJSONHandler(logOut, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		TrustedProxies: []netip.Prefix{},
 		DB:             pool,
@@ -160,12 +208,38 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		Uploader: upload, MaxUploadBytes: o.maxBytes, UploadTimeout: time.Minute,
 		Submitter: submit, SubmissionsPerMin: 1_000_000,
 		Reader: reader, Editor: editor,
-		OTPRequester: otp.req, OTPVerifier: otp.verify, PasswordLogin: otp.login, LoginPerMin: 1_000_000, Sessions: otp.sessions, OTPVerifyPerMin: 1_000_000, OTPChannel: o.channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin, UploadTurnstile: o.uploadTurnstile, Admin: o.admin, AdminLoginPerMin: o.adminPerMin,
+		Labels:       usecase.NewLabels(postgres.NewLabelRepo(pool), txm, usecase.SystemClock{}, usecase.LabelsConfig{MaxActive: 200}),
+		OTPRequester: otp.req, OTPVerifier: otp.verify, PasswordLogin: otp.login, LoginPerMin: 1_000_000, Sessions: otp.sessions, OTPVerifyPerMin: 1_000_000, OTPChannel: channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin, UploadTurnstile: o.uploadTurnstile, Admin: adm.login, AdminLoginPerMin: o.adminPerMin, AuthMode: authMode,
+		AdminDelete: usecase.NewAdminDelete(postgres.NewDeletionRepo(pool), txm, o.wrapStore(store), usecase.SystemClock{}),
+		AdminSubmissions: usecase.NewAdminSubmissions(postgres.NewAdminSubmissionRepo(pool), subs, sg, usecase.SystemClock{},
+			usecase.AdminSubmissionsConfig{PublicBaseURL: srv.URL, ViewURLTTL: o.viewTTL, EditWindow: 24 * time.Hour, RetentionDays: 90}),
 		Exporter: usecase.NewExport(postgres.NewExportRepo(pool), sg, usecase.SystemClock{}, usecase.ExportConfig{PublicBaseURL: srv.URL, URLTTL: time.Hour, PageSize: 2}),
 		NewJSONL: func(w io.Writer) handler.ExportStream { return export.NewJSONL(w) },
 	})
 	inner.Store(&h)
-	return &stack{pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}
+	return &stack{admin: adm, cleanupRequests: cleanupRequests, store: store, pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}
+}
+
+// e2eLabels adalah label aktif yang disiapkan setiap stack: "Label 1".."Label 5" dengan id 1..5
+// (identity di schema baru selalu mulai dari 1).
+const e2eLabels = 5
+
+func seedE2ELabels(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	for i := 1; i <= e2eLabels; i++ {
+		var id int
+		if err := pool.QueryRow(context.Background(), `INSERT INTO labels (name, color, sort_order) VALUES ($1, '#2bb3a3', $2) RETURNING id`,
+			"Label "+itoa(i), i-1).Scan(&id); err != nil || id != i {
+			t.Fatalf("seed label %d: id=%d err=%v", i, id, err)
+		}
+	}
+}
+
+func (o stackOpts) wrapStore(s usecase.PhotoStore) usecase.PhotoStore {
+	if o.deleteStore != nil {
+		return o.deleteStore(s)
+	}
+	return s
 }
 
 type presigned struct {

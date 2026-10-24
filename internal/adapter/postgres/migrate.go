@@ -48,6 +48,18 @@ func MigrateUp(ctx context.Context, db *sql.DB) (int, error) {
 	return len(res), err
 }
 
+// MigrateUpUnlocked sama dengan MigrateUp tetapi tanpa session locker. Hanya untuk schema uji yang
+// terisolasi (pgtest): kunci advisory goose berlaku untuk seluruh database, sehingga paket test yang
+// berjalan paralel saling menunggu dan bisa melewati batas waktu walau schema-nya berbeda.
+func MigrateUpUnlocked(ctx context.Context, db *sql.DB) (int, error) {
+	p, err := goose.NewProvider(goose.DialectPostgres, db, migrations.FS)
+	if err != nil {
+		return 0, err
+	}
+	res, err := p.Up(ctx)
+	return len(res), err
+}
+
 // MigrateDown membatalkan satu migrasi terakhir; mengembalikan versi yang dibatalkan.
 func MigrateDown(ctx context.Context, db *sql.DB) (int64, error) {
 	p, err := provider(db)

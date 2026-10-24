@@ -91,7 +91,10 @@ func sampleView() *usecase.SubmissionView {
 			Photos: []domain.PhotoWithAnnotations{{
 				Photo: domain.Photo{ID: uuid.MustParse(photoA), Position: 0, ContentType: "image/webp", SizeBytes: 412345,
 					Width: 1920, Height: 1440, StorageKey: "2026/10/24/rahasia.webp", SHA256: bytes.Repeat([]byte{1}, 32), OwnerID: &owner},
-				Annotations: []domain.Annotation{{Text: "kotak 1", X: 0.12, Y: 0.3, W: 0.25, H: 0.18}},
+				Annotations: []domain.Annotation{
+					{LabelID: 3, Label: &domain.Label{ID: 3, Name: "Retak", Color: "#e4572e"}, X: 0.12, Y: 0.3, W: 0.25, H: 0.18},
+					{Text: "catatan lama", X: 0.5, Y: 0.5, W: 0.1, H: 0.1}, // baris dari masa teks bebas
+				},
 			}, {
 				Photo:       domain.Photo{ID: uuid.MustParse(photoB), Position: 1, ContentType: "image/jpeg", SizeBytes: 1000, Width: 10, Height: 10},
 				Annotations: nil,
@@ -137,16 +140,13 @@ func TestGetSubmissionHandler(t *testing.T) {
 		EditableUntil string `json:"editable_until"`
 		Editable      bool   `json:"editable"`
 		Photos        []struct {
-			PhotoID     string `json:"photo_id"`
-			Position    int    `json:"position"`
-			ContentType string `json:"content_type"`
-			SizeBytes   int64  `json:"size_bytes"`
-			Width       int    `json:"width"`
-			Height      int    `json:"height"`
-			Annotations []struct {
-				Text       string  `json:"text"`
-				X, Y, W, H float64 `json:"-"`
-			} `json:"annotations"`
+			PhotoID     string           `json:"photo_id"`
+			Position    int              `json:"position"`
+			ContentType string           `json:"content_type"`
+			SizeBytes   int64            `json:"size_bytes"`
+			Width       int              `json:"width"`
+			Height      int              `json:"height"`
+			Annotations []map[string]any `json:"annotations"`
 		} `json:"photos"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
@@ -159,8 +159,15 @@ func TestGetSubmissionHandler(t *testing.T) {
 	if len(got.Photos) != 2 || got.Photos[0].PhotoID != photoA || got.Photos[0].Width != 1920 || got.Photos[1].Position != 1 {
 		t.Fatalf("foto: %s", w.Body.String())
 	}
-	if len(got.Photos[0].Annotations) != 1 || got.Photos[0].Annotations[0].Text != "kotak 1" {
-		t.Fatalf("anotasi: %s", w.Body.String())
+	anns := got.Photos[0].Annotations
+	lbl, _ := anns[0]["label"].(map[string]any)
+	if len(anns) != 2 || len(anns[0]) != 6 || lbl["id"] != 3.0 || lbl["name"] != "Retak" || lbl["color"] != "#e4572e" ||
+		lbl["archived"] != false || len(lbl) != 4 || anns[0]["text"] != nil {
+		t.Fatalf("anotasi berlabel: %s", w.Body.String())
+	}
+	// baris lama: label null, text apa adanya (spec-labels-admin §4.3)
+	if v, ok := anns[1]["label"]; !ok || v != nil || anns[1]["text"] != "catatan lama" {
+		t.Fatalf("anotasi lama: %s", w.Body.String())
 	}
 	// foto tanpa anotasi: [] (bukan null) agar klien tidak perlu menangani null
 	if !strings.Contains(w.Body.String(), `"annotations":[]`) {

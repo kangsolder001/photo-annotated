@@ -35,7 +35,13 @@ type User struct {
 	LastLoginAt     *time.Time
 	// PasswordHash adalah hash bcrypt; kosong bila pengguna belum pernah membuat password.
 	PasswordHash string
+	// BlockedAt diisi admin saat memblokir annotator (spec-labels-admin §5.8); nil = tidak diblokir.
+	BlockedAt     *time.Time
+	BlockedReason string
 }
+
+// Blocked: akun diblokir admin. Sesi ditolak dan login dengan password benar → ACCOUNT_BLOCKED.
+func (u *User) Blocked() bool { return u.BlockedAt != nil }
 
 const (
 	MinPasswordLen = 8

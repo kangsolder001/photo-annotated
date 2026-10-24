@@ -71,12 +71,17 @@ func TestExampleConfigIsValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// nomor superadmin di contoh sengaja placeholder yang ditolak validasi
+	if _, err := Parse(raw, env(fullEnv())); err == nil || !strings.Contains(err.Error(), "admin.superadmin.phone") {
+		t.Fatalf("placeholder nomor superadmin harus ditolak: %v", err)
+	}
+	raw = []byte(strings.Replace(string(raw), "GANTI-dengan-nomor-HP-superadmin", "0812-3456-7890", 1))
 	cfg, err := Parse(raw, env(fullEnv()))
 	if err != nil {
-		t.Fatalf("config.json.example harus selalu valid: %v", err)
+		t.Fatalf("config.json.example (setelah nomor superadmin diisi) harus valid: %v", err)
 	}
-	if cfg.Auth.Mode != AuthModeOTP || !cfg.Admin.Enabled {
-		t.Fatalf("contoh seharusnya mode otp + admin: %+v", cfg.Auth)
+	if cfg.Auth.Mode != AuthModeOTP || !cfg.Admin.Enabled || cfg.Admin.Superadmin.Phone != "6281234567890" {
+		t.Fatalf("contoh seharusnya mode otp + admin dengan nomor kanonik: %+v %+v", cfg.Auth, cfg.Admin.Superadmin)
 	}
 	// tanpa env penimpa, placeholder "GANTI" di contoh harus ditolak (tidak boleh terpakai di produksi)
 	_, err = Parse(raw, env(map[string]string{}))
@@ -109,10 +114,17 @@ func TestParseFailures(t *testing.T) {
 		{"trusted proxy tidak valid", strings.Replace(minimalNone, `"allowed_origins": ["https://app.example.com"]`, `"allowed_origins": ["https://app.example.com"], "trusted_proxies": ["bukan-ip"]`, 1), nil, []string{"app.trusted_proxies[0]"}},
 		{"origin berpath", strings.Replace(minimalNone, `https://app.example.com`, `https://app.example.com/app`, 1), nil, []string{"allowed_origins[0]"}},
 		{"public_base_url diakhiri slash", strings.Replace(minimalNone, `https://api.example.com`, `https://api.example.com/`, 1), nil, []string{"app.public_base_url"}},
-		{"admin plaintext", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "admin": {"enabled": true, "username": "a", "password_bcrypt": "rahasia123"}`, 1), nil, []string{"admin.password_bcrypt: harus hash bcrypt"}},
-		{"admin tanpa ADMIN_TOKEN_SECRET", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "admin": {"enabled": true, "username": "a", "password_bcrypt": "$2a$10$FCu4N2Hbf06J0yoSrrEd5ukjWw1w/U3I4RxiGQwtHuzwOAm/1IXmy"}`, 1), func(m map[string]string) { delete(m, "ADMIN_TOKEN_SECRET") }, []string{"ADMIN_TOKEN_SECRET"}},
+		{"admin field lama username/password", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "admin": {"enabled": false, "username": "a", "password_bcrypt": "$2a$10$FCu4N2Hbf06J0yoSrrEd5ukjWw1w/U3I4RxiGQwtHuzwOAm/1IXmy"}`, 1), nil, []string{"login admin kini lewat OTP", "admin.superadmin.phone"}},
+		{"admin tanpa nomor superadmin", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "admin": {"enabled": true, "superadmin": {"name": "Admin"}}, "wa_notif": {"base_url": "http://wa:3030"}`, 1), nil, []string{"admin.superadmin.phone"}},
+		{"admin nomor bukan seluler Indonesia", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "admin": {"enabled": true, "superadmin": {"name": "Admin", "phone": "+1 555 0100"}}, "wa_notif": {"base_url": "http://wa:3030"}`, 1), nil, []string{"admin.superadmin.phone"}},
+		{"admin nama kosong", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "admin": {"enabled": true, "superadmin": {"name": " ", "phone": "081234567890"}}, "wa_notif": {"base_url": "http://wa:3030"}`, 1), nil, []string{"admin.superadmin.name"}},
+		{"admin template tanpa {code}", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "admin": {"enabled": true, "superadmin": {"name": "Admin", "phone": "081234567890"}, "otp_message_template": "kode admin"}, "wa_notif": {"base_url": "http://wa:3030"}`, 1), nil, []string{"admin.otp_message_template"}},
+		{"admin tanpa ADMIN_TOKEN_SECRET", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "admin": {"enabled": true, "superadmin": {"name": "Admin", "phone": "081234567890"}}, "wa_notif": {"base_url": "http://wa:3030"}`, 1), func(m map[string]string) { delete(m, "ADMIN_TOKEN_SECRET") }, []string{"ADMIN_TOKEN_SECRET"}},
+		// login admin lewat OTP di mode none tetap butuh wa-notif dan pepper
+		{"admin mode none tanpa wa-notif & pepper", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "admin": {"enabled": true, "superadmin": {"name": "Admin", "phone": "081234567890"}}`, 1), func(m map[string]string) { delete(m, "OTP_PEPPER"); delete(m, "WA_NOTIF_TOKEN") }, []string{"wa_notif.base_url", "OTP_PEPPER", "WA_NOTIF_TOKEN", "admin.enabled"}},
 		{"turnstile tanpa secret", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "turnstile": {"enabled": true}`, 1), func(m map[string]string) { delete(m, "TURNSTILE_SECRET") }, []string{"TURNSTILE_SECRET"}},
-		{"teks anotasi melebihi batas DB", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "limits": {"max_annotation_text_len": 1001}`, 1), nil, []string{"limits.max_annotation_text_len"}},
+		{"max_annotation_text_len sudah dihapus", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "limits": {"max_annotation_text_len": 1000}`, 1), nil, []string{"limits.max_annotation_text_len", "hapus field ini"}},
+		{"max_labels nol", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "limits": {"max_labels": 0}`, 1), nil, []string{"max_labels"}},
 		{"orphan_min_age lebih pendek dari masa berlaku URL upload", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "retention": {"orphan_min_age": "1m"}`, 1), nil, []string{"retention.orphan_min_age"}},
 		{"orphan_sweep_interval nol", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "retention": {"orphan_sweep_interval": "0s"}`, 1), nil, []string{"orphan_sweep_interval"}},
 		{"tmp_max_age nol", strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "retention": {"tmp_max_age": "0s"}`, 1), nil, []string{"tmp_max_age"}},
@@ -244,5 +256,20 @@ func TestLoadRejectsWorldReadableConfig(t *testing.T) {
 	}
 	if _, err := Load(p, env(fullEnv())); err != nil {
 		t.Fatalf("mode 640 harus diterima: %v", err)
+	}
+}
+
+func TestParseAdminSuperadmin(t *testing.T) {
+	raw := strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"},
+  "admin": {"enabled": true, "superadmin": {"name": "  Super Admin ", "phone": "+62 0812-3456-7890"}},
+  "wa_notif": {"base_url": "http://wa:3030"}`, 1)
+	cfg, err := Parse([]byte(raw), env(fullEnv()))
+	if err != nil {
+		t.Fatalf("admin pada mode none harus diterima: %v", err)
+	}
+	a := cfg.Admin
+	if a.Superadmin.Phone != "6281234567890" || a.Superadmin.Name != "Super Admin" || a.TokenTTL.Std() != 8*time.Hour ||
+		!strings.Contains(a.OTPMessageTemplate, "ADMIN") {
+		t.Fatalf("superadmin tidak dinormalisasi/default salah: %+v", a)
 	}
 }

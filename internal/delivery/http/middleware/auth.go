@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -16,9 +17,9 @@ type SessionAuthenticator interface {
 	Authenticate(ctx context.Context, token string) (*domain.Session, error)
 }
 
-// AdminVerifier dipenuhi oleh *usecase.AdminAuth.
+// AdminVerifier dipenuhi oleh *usecase.AdminLogin.
 type AdminVerifier interface {
-	VerifyToken(token string) bool
+	VerifyToken(token string) (expiresAt time.Time, ok bool)
 }
 
 // Access menyatakan siapa yang boleh memakai sebuah rute (spec §9.2).
@@ -75,14 +76,16 @@ func (a *Authenticator) Require(acc Access) gin.HandlerFunc {
 			unauthorized(c)
 			return
 		}
-		if a.admin != nil && a.admin.VerifyToken(token) {
-			if !acc.Admin {
-				httpx.AbortError(c, http.StatusForbidden, "ADMIN_READ_ONLY", "the admin account can only read and export")
+		if a.admin != nil {
+			if exp, ok := a.admin.VerifyToken(token); ok {
+				if !acc.Admin {
+					httpx.AbortError(c, http.StatusForbidden, "ADMIN_READ_ONLY", "the admin account cannot change user data")
+					return
+				}
+				httpx.SetAdmin(c, exp)
+				c.Next()
 				return
 			}
-			httpx.SetAdmin(c)
-			c.Next()
-			return
 		}
 		if a.sessions == nil || !acc.User {
 			unauthorized(c)

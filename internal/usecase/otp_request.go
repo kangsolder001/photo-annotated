@@ -35,14 +35,13 @@ type OTPTicket struct {
 	EstimatedWait time.Duration
 }
 
-// OTPRequest membuat challenge OTP. OTP hanya dipakai untuk membuktikan kepemilikan nomor saat
-// registrasi dan saat reset password; login biasa memakai nomor + password (PasswordLogin).
-// Pengiriman tidak dilakukan di sini: challenge disimpan queued dan dikirim dispatcher (spec §4.0).
-type OTPRequest struct {
-	users   UserRepo
+// otpCore adalah antrean OTP bersama: OTP pengguna (registrasi/reset) dan login superadmin memakai
+// repo, kode turunan, kanal, batas per nomor, max_queue, dan daily_global_cap yang sama (tidak ada
+// antrean kedua). Catatan challenge palsu (decoys) terpisah per jenis, karena challenge asli jenis
+// berbeda pada nomor yang sama juga tidak saling membatalkan.
+type otpCore struct {
 	otps    OTPRepo
 	codes   OTPCodes
-	hasher  PasswordHasher
 	channel *Channel
 	phones  *PhoneLimiter
 	clock   Clock
@@ -50,15 +49,28 @@ type OTPRequest struct {
 	decoys  *decoys
 }
 
+func newOTPCore(otps OTPRepo, codes OTPCodes, channel *Channel, phones *PhoneLimiter, clock Clock, cfg OTPRequestConfig) *otpCore {
+	if cfg.MaxQueue < 1 || cfg.DailyGlobalCap < 1 || cfg.SendInterval <= 0 || cfg.ResendCooldown < 0 || cfg.CodeTTL <= 0 {
+		panic("usecase: OTPRequestConfig tidak valid")
+	}
+	return &otpCore{otps: otps, codes: codes, channel: channel, phones: phones, clock: clock, cfg: cfg,
+		decoys: newDecoys(maxDecoys, cfg.CodeTTL)}
+}
+
+// OTPRequest membuat challenge OTP. OTP hanya dipakai untuk membuktikan kepemilikan nomor saat
+// registrasi dan saat reset password; login biasa memakai nomor + password (PasswordLogin).
+// Pengiriman tidak dilakukan di sini: challenge disimpan queued dan dikirim dispatcher (spec §4.0).
+type OTPRequest struct {
+	*otpCore
+	users  UserRepo
+	hasher PasswordHasher
+}
+
 // maxDecoys membatasi memori untuk challenge palsu (± 100 byte per entri).
 const maxDecoys = 10_000
 
 func NewOTPRequest(users UserRepo, otps OTPRepo, codes OTPCodes, hasher PasswordHasher, channel *Channel, phones *PhoneLimiter, clock Clock, cfg OTPRequestConfig) *OTPRequest {
-	if cfg.MaxQueue < 1 || cfg.DailyGlobalCap < 1 || cfg.SendInterval <= 0 || cfg.ResendCooldown < 0 || cfg.CodeTTL <= 0 {
-		panic("usecase: OTPRequestConfig tidak valid")
-	}
-	return &OTPRequest{users: users, otps: otps, codes: codes, hasher: hasher, channel: channel, phones: phones, clock: clock, cfg: cfg,
-		decoys: newDecoys(maxDecoys, cfg.CodeTTL)}
+	return &OTPRequest{otpCore: newOTPCore(otps, codes, channel, phones, clock, cfg), users: users, hasher: hasher}
 }
 
 var (
@@ -123,7 +135,8 @@ func (o *OTPRequest) Forgot(ctx context.Context, rawPhone string, clientIP *neti
 		return nil, err
 	}
 	u, err := o.users.GetByPhone(ctx, phone)
-	if errors.Is(err, domain.ErrNotFound) || (err == nil && u.Status != domain.UserActive) {
+	// akun diblokir tidak bisa mereset password untuk membuka blokir: challenge palsu, tanpa pesan
+	if errors.Is(err, domain.ErrNotFound) || (err == nil && (u.Status != domain.UserActive || u.Blocked())) {
 		return o.decoy(phone, domain.OTPPurposeReset, ahead), nil
 	}
 	if err != nil {
@@ -136,6 +149,9 @@ func (o *OTPRequest) Forgot(ctx context.Context, rawPhone string, clientIP *neti
 // sehingga FE tidak perlu menyimpan password untuk kirim ulang. Challenge lama menjadi expired.
 func (o *OTPRequest) Resend(ctx context.Context, challengeID uuid.UUID, clientIP *netip.Addr) (*OTPTicket, error) {
 	c, err := o.otps.Get(ctx, challengeID)
+	if err == nil && c.Purpose == domain.OTPPurposeAdminLogin {
+		err = domain.ErrNotFound // challenge admin hanya dikenal lewat /admin/otp/*
+	}
 	if errors.Is(err, domain.ErrNotFound) {
 		d, ok := o.decoys.get(challengeID)
 		if !ok {
@@ -157,9 +173,14 @@ func (o *OTPRequest) Resend(ctx context.Context, challengeID uuid.UUID, clientIP
 	if err != nil {
 		return nil, err
 	}
-	if c.Purpose == domain.OTPPurposeRegister {
+	switch c.Purpose {
+	case domain.OTPPurposeRegister:
 		// sudah diselesaikan lewat challenge lain: tidak ada yang perlu dikirim lagi
 		if u, err := o.users.Get(ctx, c.UserID); err != nil || u.Status != domain.UserPending {
+			return o.decoy(c.Phone, c.Purpose, ahead), nil
+		}
+	case domain.OTPPurposeReset:
+		if u, err := o.users.Get(ctx, c.UserID); err != nil || u.Blocked() {
 			return o.decoy(c.Phone, c.Purpose, ahead), nil
 		}
 	}
@@ -172,7 +193,7 @@ func (o *OTPRequest) Resend(ctx context.Context, challengeID uuid.UUID, clientIP
 // admit menjalankan pemeriksaan yang sama untuk semua nomor: kanal, kapasitas global, lalu batas per
 // nomor (terakhir, agar penolakan karena kapasitas tidak menghabiskan jatah nomor itu). Mengembalikan
 // jumlah challenge yang sedang mengantre.
-func (o *OTPRequest) admit(ctx context.Context, phone string) (int, error) {
+func (o *otpCore) admit(ctx context.Context, phone string) (int, error) {
 	if !o.channel.Available() {
 		return 0, errOTPUnavailable
 	}
@@ -199,7 +220,7 @@ func (o *OTPRequest) admit(ctx context.Context, phone string) (int, error) {
 // issue menyimpan challenge baru dari template (pengguna, tujuan, data registrasi); challenge aktif
 // lama milik nomor itu menjadi expired. Bila gagal disimpan, jatah nomor dikembalikan karena tidak
 // ada kode yang akan dikirim.
-func (o *OTPRequest) issue(ctx context.Context, tmpl *domain.OTPChallenge, clientIP *netip.Addr, ahead int, now time.Time) (*OTPTicket, error) {
+func (o *otpCore) issue(ctx context.Context, tmpl *domain.OTPChallenge, clientIP *netip.Addr, ahead int, now time.Time) (*OTPTicket, error) {
 	id := uuid.New()
 	c := *tmpl
 	c.ID, c.CodeHash = id, o.codes.Hash(id, o.codes.Code(id))
@@ -215,14 +236,14 @@ func (o *OTPRequest) issue(ctx context.Context, tmpl *domain.OTPChallenge, clien
 }
 
 // decoy membagikan challenge palsu yang statusnya berjalan seperti yang asli (lihat decoys).
-func (o *OTPRequest) decoy(phone string, purpose domain.OTPPurpose, ahead int) *OTPTicket {
+func (o *otpCore) decoy(phone string, purpose domain.OTPPurpose, ahead int) *OTPTicket {
 	t := o.ticket(uuid.New(), ahead)
 	now := o.clock.Now()
 	o.decoys.add(t.ChallengeID, phone, purpose, now, now.Add(t.EstimatedWait))
 	return t
 }
 
-func (o *OTPRequest) ticket(id uuid.UUID, ahead int) *OTPTicket {
+func (o *otpCore) ticket(id uuid.UUID, ahead int) *OTPTicket {
 	// challenge ini menunggu yang di depannya ditambah gilirannya sendiri
 	return &OTPTicket{ChallengeID: id, ResendAfter: o.cfg.ResendCooldown, EstimatedWait: time.Duration(ahead+1) * o.cfg.SendInterval}
 }

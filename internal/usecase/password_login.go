@@ -37,7 +37,10 @@ func NewPasswordLogin(users UserRepo, sessions SessionRepo, hasher PasswordHashe
 		attempts: ratelimit.NewWithOptions(cfg.AttemptsPerPhone, cfg.Window, 100_000, clock.Now)}
 }
 
-var errInvalidLogin = domain.Unauthorized("INVALID_CREDENTIALS", "phone number or password is incorrect")
+var (
+	errInvalidLogin   = domain.Unauthorized("INVALID_CREDENTIALS", "phone number or password is incorrect")
+	errAccountBlocked = domain.Forbidden("ACCOUNT_BLOCKED", "this account has been blocked; contact the admin")
+)
 
 // Login memeriksa nomor + password. Nomor tak terdaftar, belum diverifikasi, belum punya password,
 // atau password salah menghasilkan pesan dan waktu respons yang sama (bcrypt selalu dijalankan).
@@ -64,6 +67,10 @@ func (l *PasswordLogin) Login(ctx context.Context, rawPhone, password string, cl
 	}
 	if !l.hasher.Compare(hash, password) { // hash kosong: tetap menjalankan bcrypt tiruan
 		return nil, errInvalidLogin
+	}
+	// diperiksa hanya setelah password terbukti benar, agar status blokir tidak bocor ke orang lain
+	if u.Blocked() {
+		return nil, errAccountBlocked
 	}
 	now := l.clock.Now()
 	token, tokenHash, err := newSessionToken()

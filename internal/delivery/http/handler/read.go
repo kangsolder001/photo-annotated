@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"photo-annotated/internal/delivery/http/httpx"
+	"photo-annotated/internal/domain"
 	"photo-annotated/internal/usecase"
 )
 
@@ -38,6 +39,33 @@ func sessionUser(c *gin.Context) *uuid.UUID {
 	return nil
 }
 
+// labelRefDTO adalah label sebuah kotak, termasuk label yang sudah diarsipkan.
+type labelRefDTO struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	Color    string `json:"color"`
+	Archived bool   `json:"archived"`
+}
+
+// annotationDTO adalah kotak saat dibaca: label lengkap (nama/warna terkini) atau, untuk baris lama
+// dari masa teks bebas, label null dan text berisi catatannya (spec-labels-admin §4.3, §5.1).
+type annotationDTO struct {
+	Label *labelRefDTO `json:"label"`
+	Text  *string      `json:"text"`
+	X     float64      `json:"x"`
+	Y     float64      `json:"y"`
+	W     float64      `json:"w"`
+	H     float64      `json:"h"`
+}
+
+func toAnnotationDTO(a domain.Annotation) annotationDTO {
+	out := annotationDTO{X: a.X, Y: a.Y, W: a.W, H: a.H, Text: optString(a.Text)}
+	if a.Label != nil {
+		out.Label = &labelRefDTO{ID: a.Label.ID, Name: a.Label.Name, Color: a.Label.Color, Archived: a.Label.Archived()}
+	}
+	return out
+}
+
 type photoViewDTO struct {
 	PhotoID     uuid.UUID       `json:"photo_id"`
 	Position    int             `json:"position"`
@@ -46,6 +74,12 @@ type photoViewDTO struct {
 	Width       int             `json:"width"`
 	Height      int             `json:"height"`
 	Annotations []annotationDTO `json:"annotations"`
+}
+
+// userReviewDTO: status review yang dilihat pemilik (tanpa reviewed_at, spec-labels-admin §5.7).
+type userReviewDTO struct {
+	Status string  `json:"status"`
+	Reason *string `json:"reason"`
 }
 
 // submissionViewDTO sengaja tidak memuat field internal (storage_key, sha256, owner_id, client_ip).
@@ -57,6 +91,19 @@ type submissionViewDTO struct {
 	EditableUntil time.Time      `json:"editable_until"`
 	Editable      bool           `json:"editable"`
 	Photos        []photoViewDTO `json:"photos"`
+	Review        userReviewDTO  `json:"review"`
+}
+
+func toPhotoView(p domain.PhotoWithAnnotations) photoViewDTO {
+	pd := photoViewDTO{
+		PhotoID: p.Photo.ID, Position: p.Photo.Position, ContentType: p.Photo.ContentType,
+		SizeBytes: p.Photo.SizeBytes, Width: p.Photo.Width, Height: p.Photo.Height,
+		Annotations: make([]annotationDTO, len(p.Annotations)),
+	}
+	for j, a := range p.Annotations {
+		pd.Annotations[j] = toAnnotationDTO(a)
+	}
+	return pd
 }
 
 // GetSubmission menangani GET /api/v1/submissions/{id} (spec §5.3).
@@ -77,16 +124,10 @@ func (h *ReadHandler) GetSubmission(c *gin.Context) {
 		EditableUntil: v.EditableUntil.UTC(), Editable: v.Editable,
 		Photos: make([]photoViewDTO, len(v.Detail.Photos)),
 	}
+	rv := toReviewDTO(v.Detail.Submission.Review)
+	dto.Review = userReviewDTO{Status: rv.Status, Reason: rv.Reason}
 	for i, p := range v.Detail.Photos {
-		pd := photoViewDTO{
-			PhotoID: p.Photo.ID, Position: p.Photo.Position, ContentType: p.Photo.ContentType,
-			SizeBytes: p.Photo.SizeBytes, Width: p.Photo.Width, Height: p.Photo.Height,
-			Annotations: make([]annotationDTO, len(p.Annotations)),
-		}
-		for j, a := range p.Annotations {
-			pd.Annotations[j] = annotationDTO{Text: a.Text, X: a.X, Y: a.Y, W: a.W, H: a.H}
-		}
-		dto.Photos[i] = pd
+		dto.Photos[i] = toPhotoView(p)
 	}
 	c.JSON(http.StatusOK, dto)
 }

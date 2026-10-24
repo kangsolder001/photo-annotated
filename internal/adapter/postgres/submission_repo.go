@@ -28,6 +28,26 @@ func NewSubmissionRepo(pool *pgxpool.Pool) *SubmissionRepo {
 
 const submissionColumns = `id, owner_id, client_request_id, client_ip, version, created_at, updated_at`
 
+// reviewColumns dibaca bersama submission (prefix tabel disesuaikan pemanggil).
+const reviewColumns = `review_status, review_reason, reviewed_at`
+
+// scanReview mengisi Review dari kolom review_status, review_reason, reviewed_at.
+type reviewScan struct {
+	status string
+	reason *string
+	at     *time.Time
+}
+
+func (r *reviewScan) dst() []any { return []any{&r.status, &r.reason, &r.at} }
+
+func (r *reviewScan) review() domain.Review {
+	out := domain.Review{Status: domain.ReviewStatus(r.status), ReviewedAt: r.at}
+	if r.reason != nil {
+		out.Reason = *r.reason
+	}
+	return out
+}
+
 func (r *SubmissionRepo) Create(ctx context.Context, s *domain.Submission) error {
 	_, err := r.db(ctx).Exec(ctx, `INSERT INTO submissions (`+submissionColumns+`) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
 		s.ID, s.OwnerID, s.ClientRequestID, s.ClientIP, s.Version, s.CreatedAt, s.UpdatedAt)
@@ -49,9 +69,14 @@ func (r *SubmissionRepo) GetByClientRequestID(ctx context.Context, id uuid.UUID)
 }
 
 func (r *SubmissionRepo) getBy(ctx context.Context, column string, id uuid.UUID) (*domain.Submission, error) {
-	var s domain.Submission
-	err := r.db(ctx).QueryRow(ctx, `SELECT `+submissionColumns+` FROM submissions WHERE `+column+` = $1`, id).
-		Scan(&s.ID, &s.OwnerID, &s.ClientRequestID, &s.ClientIP, &s.Version, &s.CreatedAt, &s.UpdatedAt)
+	var (
+		s  domain.Submission
+		rv reviewScan
+	)
+	// submission yang dihapus admin (deleted_at) tidak terlihat oleh siapa pun (spec-labels-admin §5.5)
+	err := r.db(ctx).QueryRow(ctx, `SELECT `+submissionColumns+`, `+reviewColumns+` FROM submissions WHERE `+column+` = $1 AND deleted_at IS NULL`, id).
+		Scan(append([]any{&s.ID, &s.OwnerID, &s.ClientRequestID, &s.ClientIP, &s.Version, &s.CreatedAt, &s.UpdatedAt}, rv.dst()...)...)
+	s.Review = rv.review()
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("submission %s: %w", id, domain.ErrNotFound)
 	}
@@ -66,13 +91,15 @@ func (r *SubmissionRepo) getBy(ctx context.Context, column string, id uuid.UUID)
 func (r *SubmissionRepo) GetDetail(ctx context.Context, id uuid.UUID) (*domain.SubmissionDetail, error) {
 	rows, err := r.db(ctx).Query(ctx, `
 		SELECT s.id, s.owner_id, s.client_request_id, s.client_ip, s.version, s.created_at, s.updated_at,
+		       s.review_status, s.review_reason, s.reviewed_at,
 		       p.id, p.submission_id, p.owner_id, p.position, p.storage_key, p.content_type, p.size_bytes,
 		       p.width, p.height, p.uploaded_at, p.sha256, p.status, p.created_at,
-		       a.text, a.x, a.y, a.w, a.h
+		       a.id, a.label_id, a.text, a.x, a.y, a.w, a.h, l.name, l.color, l.archived_at
 		  FROM submissions s
 		  LEFT JOIN photos p      ON p.submission_id = s.id AND p.status = 'attached'
 		  LEFT JOIN annotations a ON a.photo_id = p.id
-		 WHERE s.id = $1
+		  LEFT JOIN labels l      ON l.id = a.label_id
+		 WHERE s.id = $1 AND s.deleted_at IS NULL
 		 ORDER BY p.position, p.id, a.id`, id)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: get submission detail: %w", err)
@@ -88,15 +115,21 @@ func (r *SubmissionRepo) GetDetail(ctx context.Context, id uuid.UUID) (*domain.S
 			pkey, pct, pstatus  *string
 			puploaded, pcreated *time.Time
 			psha                []byte
-			atext               *string
+			aid                 *int64
+			alabel              *int
+			atext, lname, lcol  *string
 			ax, ay, aw, ah      *float64
+			larchived           *time.Time
+			rv                  reviewScan
 		)
 		if err := rows.Scan(&s.ID, &s.OwnerID, &s.ClientRequestID, &s.ClientIP, &s.Version, &s.CreatedAt, &s.UpdatedAt,
+			&rv.status, &rv.reason, &rv.at,
 			&pid, &psub, &powner, &ppos, &pkey, &pct, &psize, &pw, &ph, &puploaded, &psha, &pstatus, &pcreated,
-			&atext, &ax, &ay, &aw, &ah); err != nil {
+			&aid, &alabel, &atext, &ax, &ay, &aw, &ah, &lname, &lcol, &larchived); err != nil {
 			return nil, fmt.Errorf("postgres: scan submission detail: %w", err)
 		}
 		if detail == nil {
+			s.Review = rv.review()
 			detail = &domain.SubmissionDetail{Submission: s, Photos: []domain.PhotoWithAnnotations{}}
 		}
 		if pid == nil {
@@ -112,9 +145,9 @@ func (r *SubmissionRepo) GetDetail(ctx context.Context, id uuid.UUID) (*domain.S
 				Annotations: []domain.Annotation{},
 			})
 		}
-		if atext != nil {
+		if aid != nil {
 			cur := &detail.Photos[len(detail.Photos)-1]
-			cur.Annotations = append(cur.Annotations, domain.Annotation{Text: *atext, X: *ax, Y: *ay, W: *aw, H: *ah})
+			cur.Annotations = append(cur.Annotations, annotationFrom(alabel, atext, lname, lcol, larchived, *ax, *ay, *aw, *ah))
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -126,14 +159,56 @@ func (r *SubmissionRepo) GetDetail(ctx context.Context, id uuid.UUID) (*domain.S
 	return detail, nil
 }
 
+// annotationFrom menyusun anotasi dari kolom hasil LEFT JOIN labels: berlabel (label terkini) atau
+// baris lama berteks bebas.
+func annotationFrom(labelID *int, text, name, color *string, archivedAt *time.Time, x, y, w, h float64) domain.Annotation {
+	a := domain.Annotation{X: x, Y: y, W: w, H: h}
+	if labelID != nil && name != nil && color != nil {
+		a.LabelID = *labelID
+		a.Label = &domain.Label{ID: *labelID, Name: *name, Color: *color, ArchivedAt: archivedAt}
+	}
+	if text != nil {
+		a.Text = *text
+	}
+	return a
+}
+
+func (r *SubmissionRepo) PhotoLabelIDs(ctx context.Context, photoIDs []uuid.UUID) (map[uuid.UUID]map[int]bool, error) {
+	out := make(map[uuid.UUID]map[int]bool, len(photoIDs))
+	if len(photoIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.db(ctx).Query(ctx,
+		`SELECT DISTINCT photo_id, label_id FROM annotations WHERE photo_id = ANY($1) AND label_id IS NOT NULL`, photoIDs)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: photo label ids: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			pid uuid.UUID
+			lid int
+		)
+		if err := rows.Scan(&pid, &lid); err != nil {
+			return nil, fmt.Errorf("postgres: scan photo label ids: %w", err)
+		}
+		if out[pid] == nil {
+			out[pid] = map[int]bool{}
+		}
+		out[pid][lid] = true
+	}
+	return out, rows.Err()
+}
+
 func (r *SubmissionRepo) AddAnnotations(ctx context.Context, photoID uuid.UUID, anns []domain.Annotation) error {
 	if len(anns) == 0 {
 		return nil
 	}
 	batch := &pgx.Batch{}
 	for _, a := range anns {
-		batch.Queue(`INSERT INTO annotations (photo_id, text, x, y, w, h) VALUES ($1,$2,$3,$4,$5,$6)`,
-			photoID, a.Text, a.X, a.Y, a.W, a.H)
+		// baris baru selalu label_id; text hanya untuk baris lama (tidak pernah ditulis lagi)
+		batch.Queue(`INSERT INTO annotations (photo_id, label_id, x, y, w, h) VALUES ($1,$2,$3,$4,$5,$6)`,
+			photoID, a.LabelID, a.X, a.Y, a.W, a.H)
 	}
 	res := r.db(ctx).SendBatch(ctx, batch)
 	var firstErr error
@@ -164,7 +239,9 @@ func (r *SubmissionRepo) ReplaceAnnotations(ctx context.Context, photoID uuid.UU
 func (r *SubmissionRepo) BumpVersion(ctx context.Context, id uuid.UUID, expected int, now time.Time) (int, error) {
 	var v int
 	err := r.db(ctx).QueryRow(ctx,
-		`UPDATE submissions SET version = version + 1, updated_at = $3 WHERE id = $1 AND version = $2 RETURNING version`,
+		// edit pengguna mengubah isi: review kembali pending (spec-labels-admin §5.7)
+		`UPDATE submissions SET version = version + 1, updated_at = $3, review_status = 'pending', review_reason = NULL, reviewed_at = NULL
+		  WHERE id = $1 AND version = $2 AND deleted_at IS NULL RETURNING version`,
 		id, expected, now).Scan(&v)
 	if err == nil {
 		return v, nil
@@ -173,7 +250,7 @@ func (r *SubmissionRepo) BumpVersion(ctx context.Context, id uuid.UUID, expected
 		return 0, fmt.Errorf("postgres: bump version: %w", err)
 	}
 	var exists bool
-	if qerr := r.db(ctx).QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM submissions WHERE id = $1)`, id).Scan(&exists); qerr != nil {
+	if qerr := r.db(ctx).QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM submissions WHERE id = $1 AND deleted_at IS NULL)`, id).Scan(&exists); qerr != nil {
 		return 0, fmt.Errorf("postgres: bump version: %w", qerr)
 	}
 	if !exists {
@@ -183,3 +260,25 @@ func (r *SubmissionRepo) BumpVersion(ctx context.Context, id uuid.UUID, expected
 }
 
 var _ = netip.Addr{} // ClientIP *netip.Addr dipetakan ke kolom inet oleh pgx
+
+// SetReview menyimpan keputusan review bila version masih sama dengan yang dilihat admin. Review tidak
+// mengubah version (isi submission tidak berubah).
+func (r *SubmissionRepo) SetReview(ctx context.Context, id uuid.UUID, version int, rv domain.Review) error {
+	tag, err := r.db(ctx).Exec(ctx, `
+		UPDATE submissions SET review_status = $3, review_reason = $4, reviewed_at = $5
+		 WHERE id = $1 AND version = $2 AND deleted_at IS NULL`, id, version, string(rv.Status), nullable(rv.Reason), rv.ReviewedAt)
+	if err != nil {
+		return fmt.Errorf("postgres: set review: %w", err)
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	var exists bool
+	if err := r.db(ctx).QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM submissions WHERE id = $1 AND deleted_at IS NULL)`, id).Scan(&exists); err != nil {
+		return fmt.Errorf("postgres: set review: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("submission %s: %w", id, domain.ErrNotFound)
+	}
+	return domain.Conflict("VERSION_CONFLICT", "the submission was changed since you loaded it; reload and review again")
+}

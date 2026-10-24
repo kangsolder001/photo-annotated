@@ -89,6 +89,9 @@ type CleanupRepo interface {
 	ExpireSubmissions(ctx context.Context, cutoff time.Time, limit int) (int, error)
 	// DeleteEmptyExpiredSubmissions menghapus submission kedaluwarsa yang sudah tidak punya baris foto.
 	DeleteEmptyExpiredSubmissions(ctx context.Context, cutoff time.Time, limit int) (int, error)
+	// DeleteEmptyDeletedSubmissions menghapus submission yang dihapus admin (deleted_at) dan sudah tidak
+	// punya baris foto.
+	DeleteEmptyDeletedSubmissions(ctx context.Context, limit int) (int, error)
 	// ExistingStorageKeys mengembalikan himpunan kunci yang punya baris foto (status apa pun).
 	ExistingStorageKeys(ctx context.Context, keys []string) (map[string]bool, error)
 }
@@ -250,15 +253,24 @@ type ExportCursor struct {
 type ExportPhoto struct {
 	SubmissionID uuid.UUID
 	CreatedAt    time.Time // waktu submission dibuat
+	Review       domain.ReviewStatus
 	Photo        domain.Photo
 	Annotations  []domain.Annotation
 }
 
+// ExportFilter membatasi data export. From inklusif, To eksklusif (atas created_at submission); nil =
+// tanpa batas. LabelID: hanya foto yang punya minimal satu kotak berlabel itu.
+type ExportFilter struct {
+	From, To *time.Time
+	LabelID  *int
+	Review   *domain.ReviewStatus // nil = semua status
+}
+
 // ExportRepo membaca data export per halaman, berurutan menurut ExportCursor.
 type ExportRepo interface {
-	// ExportPage mengembalikan paling banyak limit foto attached setelah after (nil = dari awal),
-	// dengan submission dibuat dalam [from, to) (nil = tanpa batas).
-	ExportPage(ctx context.Context, after *ExportCursor, from, to *time.Time, limit int) ([]ExportPhoto, error)
+	// ExportPage mengembalikan paling banyak limit foto attached setelah after (nil = dari awal) yang
+	// lolos filter. Anotasi memuat nama label terkini (Label) atau teks lama.
+	ExportPage(ctx context.Context, after *ExportCursor, f ExportFilter, limit int) ([]ExportPhoto, error)
 }
 
 // ExportEncoder menulis satu item export dalam format tertentu (mis. JSONL). Format lain (COCO, YOLO)
@@ -281,10 +293,11 @@ type StatsRepo interface {
 	Counts(ctx context.Context, since time.Time) (StatsCounts, error)
 }
 
-// AdminTokenSigner menerbitkan dan memverifikasi token admin stateless.
+// AdminTokenSigner menerbitkan dan memverifikasi token admin stateless (terikat ke nomor superadmin).
 type AdminTokenSigner interface {
 	Issue(expiresAt time.Time) string
-	Verify(token string, now time.Time) bool
+	// Verify mengembalikan waktu kedaluwarsa token bila sah dan belum kedaluwarsa.
+	Verify(token string, now time.Time) (expiresAt time.Time, ok bool)
 }
 
 // EditTokenSigner menurunkan dan memverifikasi token edit anonim (hanya auth.mode = none).
@@ -310,9 +323,16 @@ type SubmissionRepo interface {
 	GetDetail(ctx context.Context, id uuid.UUID) (*domain.SubmissionDetail, error)
 	// AddAnnotations menambahkan anotasi ke foto, mempertahankan urutan.
 	AddAnnotations(ctx context.Context, photoID uuid.UUID, anns []domain.Annotation) error
+	// PhotoLabelIDs mengembalikan label_id yang saat ini dipakai anotasi tiap foto (baris lama tanpa
+	// label diabaikan).
+	PhotoLabelIDs(ctx context.Context, photoIDs []uuid.UUID) (map[uuid.UUID]map[int]bool, error)
 	// ReplaceAnnotations mengganti seluruh anotasi sebuah foto (hapus lalu tambah).
 	ReplaceAnnotations(ctx context.Context, photoID uuid.UUID, anns []domain.Annotation) error
-	// BumpVersion menaikkan version dan updated_at bila version saat ini == expected.
+	// SetReview menyimpan review bila version == expected (tanpa menaikkan version). Tidak cocok →
+	// VERSION_CONFLICT; tidak ada / sudah dihapus → domain.ErrNotFound.
+	SetReview(ctx context.Context, id uuid.UUID, expected int, rv domain.Review) error
+	// BumpVersion menaikkan version dan updated_at bila version saat ini == expected, dan mengembalikan
+	// review ke pending (isi berubah sejak direview).
 	// Tidak cocok → domain.Conflict VERSION_CONFLICT; id tak ada → domain.ErrNotFound.
 	BumpVersion(ctx context.Context, id uuid.UUID, expected int, now time.Time) (newVersion int, err error)
 }
@@ -333,4 +353,197 @@ type URLSigner interface {
 	VerifyUpload(photoID uuid.UUID, exp int64, contentType string, sizeBytes int64, sig string) bool
 	SignView(photoID uuid.UUID, exp time.Time) string
 	VerifyView(photoID uuid.UUID, exp int64, sig string) bool
+}
+
+// LabelUsage adalah label beserta jumlah pemakaiannya (anotasi pada foto attached).
+type LabelUsage struct {
+	domain.Label
+	UsageCount int
+}
+
+// LabelRepo menyimpan label (spec-labels-admin §4, §6.1). Penulisan dilakukan di dalam transaksi
+// yang memegang LockForWrite, sehingga batas jumlah, urutan, dan nama unik tetap konsisten walau
+// dua admin (tab) menulis berbarengan.
+type LabelRepo interface {
+	// LockForWrite memegang kunci penulisan label sampai transaksi selesai (wajib di dalam WithTx).
+	LockForWrite(ctx context.Context) error
+	// ListActive: label aktif terurut sort_order lalu nama.
+	ListActive(ctx context.Context) ([]domain.Label, error)
+	// ListAll: semua label (aktif dulu menurut sort_order, lalu yang diarsipkan) dengan usage_count.
+	ListAll(ctx context.Context) ([]LabelUsage, error)
+	Get(ctx context.Context, id int) (*domain.Label, error)
+	// ForShare membaca label yang ada di ids dengan kunci FOR SHARE (wajib di dalam WithTx); id yang
+	// tidak ada tidak muncul di hasil.
+	ForShare(ctx context.Context, ids []int) (map[int]domain.Label, error)
+	CountActive(ctx context.Context) (int, error)
+	CountAll(ctx context.Context) (int, error)
+	// Create menyimpan label baru di urutan terakhir dan mengisi ID, SortOrder, CreatedAt, UpdatedAt.
+	// Nama yang sudah dipakai (tanpa beda huruf besar-kecil) → domain.Conflict LABEL_NAME_TAKEN.
+	Create(ctx context.Context, l *domain.Label) error
+	// Update mengganti name, description, color, archived_at, sort_order, updated_at.
+	Update(ctx context.Context, l *domain.Label) error
+	// MaxActiveOrder: sort_order terbesar di antara label aktif (-1 bila tidak ada).
+	MaxActiveOrder(ctx context.Context) (int, error)
+	// SetOrder memberi sort_order 0..n-1 sesuai urutan ids.
+	SetOrder(ctx context.Context, ids []int, now time.Time) error
+	// UsageAttached menghitung anotasi pada foto attached yang memakai label (usage_count).
+	UsageAttached(ctx context.Context, id int) (int, error)
+	// UsageAll menghitung anotasi yang memakai label, termasuk pada foto yang sudah deleted.
+	UsageAll(ctx context.Context, id int) (int, error)
+	// Delete menghapus label; dipakai anotasi → domain.Conflict LABEL_IN_USE.
+	Delete(ctx context.Context, id int) error
+}
+
+// AdminCursor adalah posisi keyset daftar submission admin: (created_at, id) sesuai arah urutan.
+type AdminCursor struct {
+	CreatedAt time.Time
+	ID        uuid.UUID
+}
+
+// AdminListQuery adalah filter GET /admin/submissions (spec-labels-admin §5.4).
+type AdminListQuery struct {
+	From, To  *time.Time // atas created_at; From inklusif, To eksklusif
+	LabelID   *int       // punya ≥ 1 kotak berlabel ini
+	UserID    *uuid.UUID // milik annotator ini
+	NameQ     string     // nama annotator mengandung (tanpa beda huruf besar-kecil); kosong = tanpa filter
+	PhoneQ    string     // awalan nomor kanonik; kosong = tanpa filter (NameQ/PhoneQ digabung OR)
+	Unlabeled bool       // masih punya kotak teks lama
+	Review    *domain.ReviewStatus
+	Oldest    bool // urut created_at naik (default: terbaru dulu)
+	Limit     int
+	After     *AdminCursor
+}
+
+// Annotator adalah identitas pemilik submission untuk dashboard (data pribadi: hanya admin).
+type Annotator struct {
+	ID                 uuid.UUID
+	Name, Email, Phone string
+	Blocked            bool
+}
+
+// LabelCount: jumlah kotak berlabel tertentu dalam satu submission.
+type LabelCount struct {
+	ID          int
+	Name, Color string
+	Count       int
+}
+
+// AdminSubmissionRow adalah satu baris daftar submission admin. Cover = foto attached pertama beserta
+// kotaknya (nil bila submission tidak punya foto attached).
+type AdminSubmissionRow struct {
+	Submission      domain.Submission
+	Annotator       *Annotator
+	PhotoCount      int
+	AnnotationCount int
+	LegacyTextCount int
+	Labels          []LabelCount
+	Cover           *domain.PhotoWithAnnotations
+}
+
+// AdminSubmissionRepo membaca submission untuk dashboard admin.
+type AdminSubmissionRepo interface {
+	// List mengembalikan paling banyak q.Limit submission (yang punya ≥ 1 foto attached) sesuai filter
+	// dan urutan keyset.
+	List(ctx context.Context, q AdminListQuery) ([]AdminSubmissionRow, error)
+	// Annotator mengembalikan identitas pemilik, atau nil bila tidak ada (mode none / akun dihapus).
+	Annotator(ctx context.Context, userID uuid.UUID) (*Annotator, error)
+}
+
+// DeletionMark adalah hasil langkah 1 hapus permanen: apa yang sudah disembunyikan di dalam transaksi
+// dan file mana yang perlu dihapus setelah commit.
+type DeletionMark struct {
+	SubmissionID       uuid.UUID
+	PhotosDeleted      int        // foto attached yang dihapus
+	AnnotationsDeleted int        // anotasi yang dihapus
+	SubmissionDeleted  bool       // submission ikut dihapus (deleted_at diisi)
+	Files              []PhotoRef // semua baris foto berstatus deleted yang filenya perlu dihapus
+}
+
+// DeletionRepo menjalankan langkah hapus permanen (spec-labels-admin §5.5). Mark* wajib di dalam
+// transaksi: baris submission dikunci FOR UPDATE sehingga edit yang berbarengan menunggu lalu 404.
+type DeletionRepo interface {
+	// MarkSubmission menandai submission deleted_at, semua fotonya deleted, dan menghapus anotasinya.
+	// Submission tidak ada / sudah dihapus → domain.ErrNotFound.
+	MarkSubmission(ctx context.Context, id uuid.UUID, now time.Time) (*DeletionMark, error)
+	// MarkPhoto menandai satu foto attached deleted, menghapus anotasinya, menaikkan version, dan
+	// merapatkan position foto sisanya; bila tidak ada lagi foto attached, submission ikut ditandai.
+	// Foto tidak ada / bukan attached → domain.ErrNotFound.
+	MarkPhoto(ctx context.Context, photoID uuid.UUID, now time.Time) (*DeletionMark, error)
+	// DeletePhotoRow menghapus baris foto berstatus deleted (setelah filenya terhapus).
+	DeletePhotoRow(ctx context.Context, id uuid.UUID) error
+	// DeleteSubmissionIfEmpty menghapus baris submission ber-deleted_at yang tidak punya foto lagi.
+	DeleteSubmissionIfEmpty(ctx context.Context, id uuid.UUID) (bool, error)
+	// MarkUserSubmissions menjalankan langkah 1 untuk semua submission milik pengguna (yang accepted
+	// dilewati kecuali includeAccepted). Wajib di dalam transaksi; file dan baris dibersihkan cleanup.
+	MarkUserSubmissions(ctx context.Context, userID uuid.UUID, includeAccepted bool, now time.Time) (UserDataMark, error)
+}
+
+// AdminUserQuery adalah filter GET /admin/users (spec-labels-admin §5.8). Pengguna pending (belum
+// verifikasi) tidak pernah ikut.
+type AdminUserQuery struct {
+	NameQ, PhoneQ string // seperti AdminListQuery (digabung OR)
+	Blocked       *bool  // nil = aktif dan diblokir
+	Limit         int
+	After         *AdminCursor // keyset (created_at DESC, id DESC)
+}
+
+// UserStats dihitung dari submission yang belum dihapus.
+type UserStats struct {
+	Submissions, Annotations    int
+	Accepted, Rejected, Pending int
+	LastSubmissionAt            *time.Time
+}
+
+// AdminUserRow adalah satu annotator beserta statistiknya.
+type AdminUserRow struct {
+	User  domain.User
+	Stats UserStats
+}
+
+// AdminUserRepo membaca dan memblokir annotator.
+type AdminUserRepo interface {
+	ListUsers(ctx context.Context, q AdminUserQuery) ([]AdminUserRow, error)
+	// GetUser: hanya pengguna aktif (sudah verifikasi); selain itu domain.ErrNotFound.
+	GetUser(ctx context.Context, id uuid.UUID) (*AdminUserRow, error)
+	// Block mengisi blocked_at/alasan bila belum diblokir (changed=false bila sudah). Pengguna aktif saja.
+	Block(ctx context.Context, id uuid.UUID, reason string, now time.Time) (changed bool, err error)
+	// Unblock mengosongkan blokir (changed=false bila memang tidak diblokir).
+	Unblock(ctx context.Context, id uuid.UUID) (changed bool, err error)
+}
+
+// UserDataMark meringkas langkah 1 hapus data annotator.
+type UserDataMark struct {
+	Submissions, Photos, Annotations int
+}
+
+// LabelStatsFilter: rentang created_at submission dan status review (nil = semua).
+type LabelStatsFilter struct {
+	From, To *time.Time
+	Review   *domain.ReviewStatus
+}
+
+// LabelStat: angka satu label (semua label ikut, termasuk arsip dan yang belum pernah dipakai).
+type LabelStat struct {
+	Label                            domain.Label
+	Annotations, Photos, Submissions int
+}
+
+// LabelStatsTotals: total atas foto attached pada submission yang belum dihapus dan lolos filter.
+type LabelStatsTotals struct {
+	Submissions, Photos, Annotations, LegacyTextAnnotations int
+}
+
+// DataCounts adalah ringkasan data untuk status sistem (spec-labels-admin §5.10).
+type DataCounts struct {
+	Submissions, ReviewPending, Accepted, Rejected int
+	RetentionDue7d                                 int
+	UsersActive, UsersBlocked                      int
+	FilesPendingDelete                             int // foto deleted yang filenya belum terhapus
+}
+
+// AdminStatsRepo menghitung statistik dashboard.
+type AdminStatsRepo interface {
+	LabelStats(ctx context.Context, f LabelStatsFilter) (LabelStatsTotals, []LabelStat, error)
+	// DataCounts: dueBefore = batas created_at submission yang akan terhapus retensi dalam 7 hari.
+	DataCounts(ctx context.Context, dueBefore time.Time) (DataCounts, error)
 }

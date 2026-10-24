@@ -235,11 +235,11 @@ func TestDeletePhotoRowOnlyRejectedOrDeleted(t *testing.T) {
 	_ = r.subs.Create(ctx, s)
 	attached := r.uploadedPhoto(t, nil)
 	_ = r.photos.Attach(ctx, attached.ID, s.ID, 0, nil)
-	_ = r.subs.AddAnnotations(ctx, attached.ID, []domain.Annotation{{Text: "x", X: 0, Y: 0, W: 0.5, H: 0.5}})
+	_ = r.subs.AddAnnotations(ctx, attached.ID, []domain.Annotation{{LabelID: lab1, X: 0, Y: 0, W: 0.5, H: 0.5}})
 	pending := r.pendingPhoto(t, now())
 	gone := r.uploadedPhoto(t, nil)
 	_ = r.photos.Attach(ctx, gone.ID, s.ID, 1, nil)
-	_ = r.subs.AddAnnotations(ctx, gone.ID, []domain.Annotation{{Text: "y", X: 0, Y: 0, W: 0.5, H: 0.5}})
+	_ = r.subs.AddAnnotations(ctx, gone.ID, []domain.Annotation{{LabelID: lab1, X: 0, Y: 0, W: 0.5, H: 0.5}})
 	_, _ = r.pool.Exec(ctx, `UPDATE photos SET status='deleted' WHERE id=$1`, gone.ID)
 
 	for _, id := range []uuid.UUID{attached.ID, pending.ID, gone.ID} {
@@ -283,7 +283,7 @@ func (r *cleanRig) submissionWithPhotos(t *testing.T, created time.Time, nPhotos
 		if err := r.photos.Attach(ctx, p.ID, s.ID, i, nil); err != nil {
 			t.Fatal(err)
 		}
-		_ = r.subs.AddAnnotations(ctx, p.ID, []domain.Annotation{{Text: "a", X: 0, Y: 0, W: 0.5, H: 0.5}})
+		_ = r.subs.AddAnnotations(ctx, p.ID, []domain.Annotation{{LabelID: lab1, X: 0, Y: 0, W: 0.5, H: 0.5}})
 		ps = append(ps, p)
 	}
 	r.setCreated(t, "submissions", s.ID, created)

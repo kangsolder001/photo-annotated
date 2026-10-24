@@ -16,6 +16,7 @@ import (
 	"photo-annotated/internal/adapter/export"
 	"photo-annotated/internal/adapter/postgres"
 	"photo-annotated/internal/adapter/signer"
+	"photo-annotated/internal/domain"
 	"photo-annotated/internal/testutil/pgtest"
 	"photo-annotated/internal/usecase"
 )
@@ -134,7 +135,7 @@ func TestExportOrderPagingAndShape(t *testing.T) {
 	for k := range row {
 		keys = append(keys, k)
 	}
-	if len(row) != 5 || row["created_at"] != "2026-10-20T08:00:00Z" {
+	if len(row) != 6 || row["created_at"] != "2026-10-20T08:00:00Z" || row["review_status"] != "pending" {
 		t.Fatalf("kunci baris = %v", keys)
 	}
 	img := row["image"].(map[string]any)
@@ -144,8 +145,9 @@ func TestExportOrderPagingAndShape(t *testing.T) {
 	}
 	anns := row["annotations"].([]any)
 	a := anns[0].(map[string]any)
-	if a["text"] != "kotak <A> & teks" {
-		t.Fatalf("teks = %q", a["text"])
+	// baris lama (teks bebas): label_id dan label null, text apa adanya
+	if a["text"] != "kotak <A> & teks" || a["label_id"] != nil || a["label"] != nil || len(a) != 5 {
+		t.Fatalf("anotasi lama = %v", a)
 	}
 	if b, _ := json.Marshal(a["bbox_px"]); string(b) != "[230,432,480,259]" {
 		t.Fatalf("bbox_px = %s (contoh spec: [230,432,480,259])", b)
@@ -170,7 +172,7 @@ func TestExportFiltersAndURLs(t *testing.T) {
 	r.seed(t, t0.Add(2*time.Hour), 1)
 
 	from, to := t0.Add(time.Hour), t0.Add(2*time.Hour)
-	rows := runExport(t, r.uc(500), usecase.ExportQuery{From: &from, To: &to, IncludeURLs: true})
+	rows := runExport(t, r.uc(500), usecase.ExportQuery{ExportFilter: usecase.ExportFilter{From: &from, To: &to}, IncludeURLs: true})
 	if len(rows) != 2 || rows[0]["submission_id"] != mid.String() {
 		t.Fatalf("filter [from,to): %d baris", len(rows))
 	}
@@ -217,6 +219,10 @@ func TestExportTenThousandPhotosStableMemory(t *testing.T) {
 	enc := export.NewJSONL(w)
 	repo := &pageCounter{ExportRepo: postgres.NewExportRepo(r.pool)}
 	uc := usecase.NewExport(repo, r.signer, r.clock, usecase.ExportConfig{PublicBaseURL: "https://x", URLTTL: time.Hour, PageSize: 500})
+	// Buang sisa penyiapan test (buffer parser migrasi goose ±16 MB tertahan di sync.Pool, yang baru
+	// dilepas pada GC kedua) agar halaman pertama tidak terukur sebagai lonjakan.
+	runtime.GC()
+	runtime.GC()
 	n, err := uc.Run(bg, usecase.ExportQuery{}, enc, func() error {
 		runtime.GC()
 		runtime.ReadMemStats(&ms)
@@ -253,9 +259,73 @@ type pageCounter struct {
 	calls, maxPage int
 }
 
-func (p *pageCounter) ExportPage(ctx context.Context, after *usecase.ExportCursor, from, to *time.Time, limit int) ([]usecase.ExportPhoto, error) {
-	rows, err := p.ExportRepo.ExportPage(ctx, after, from, to, limit)
+func (p *pageCounter) ExportPage(ctx context.Context, after *usecase.ExportCursor, f usecase.ExportFilter, limit int) ([]usecase.ExportPhoto, error) {
+	rows, err := p.ExportRepo.ExportPage(ctx, after, f, limit)
 	p.calls++
 	p.maxPage = max(p.maxPage, len(rows))
 	return rows, err
+}
+
+// Kotak berlabel diekspor dengan label_id (kelas stabil) dan nama label saat export; filter label_id
+// memilih foto yang punya kotak berlabel itu, dengan kotak lain di foto yang sama tetap ikut.
+func TestExportLabelsAndLabelFilter(t *testing.T) {
+	r := newExportRig(t)
+	labels := postgres.NewLabelRepo(r.pool)
+	mk := func(name string) int {
+		l := &domain.Label{Name: name, Color: "#e4572e", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+		if err := labels.Create(bg, l); err != nil {
+			t.Fatal(err)
+		}
+		return l.ID
+	}
+	retak, penyok := mk("Retak"), mk("Penyok")
+	_, p1 := pgtest.InsertLabeledAnnotation(t, r.pool, retak, "attached")
+	if _, err := r.pool.Exec(bg, `INSERT INTO annotations (photo_id, label_id, x, y, w, h) VALUES ($1, $2, 0.5, 0.5, 0.1, 0.1)`, p1, penyok); err != nil {
+		t.Fatal(err)
+	}
+	pgtest.InsertLabeledAnnotation(t, r.pool, penyok, "attached")
+	// ganti nama berlaku ke export berikutnya
+	if _, err := r.pool.Exec(bg, `UPDATE labels SET name = 'Retak halus' WHERE id = $1`, retak); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := runExport(t, r.uc(500), usecase.ExportQuery{ExportFilter: usecase.ExportFilter{LabelID: &retak}})
+	if len(rows) != 1 || rows[0]["photo_id"] != p1.String() {
+		t.Fatalf("filter label_id: %v", rows)
+	}
+	anns := rows[0]["annotations"].([]any)
+	a0, a1 := anns[0].(map[string]any), anns[1].(map[string]any)
+	if len(anns) != 2 || a0["label_id"] != float64(retak) || a0["label"] != "Retak halus" || a0["text"] != nil ||
+		a1["label_id"] != float64(penyok) || a1["label"] != "Penyok" {
+		t.Fatalf("anotasi berlabel = %v", anns)
+	}
+	if rows := runExport(t, r.uc(500), usecase.ExportQuery{ExportFilter: usecase.ExportFilter{LabelID: &penyok}}); len(rows) != 2 {
+		t.Fatalf("filter penyok = %d baris", len(rows))
+	}
+	if rows := runExport(t, r.uc(500), usecase.ExportQuery{}); len(rows) != 2 {
+		t.Fatalf("tanpa filter = %d baris", len(rows))
+	}
+}
+
+// AC 18: export review_status=accepted hanya memuat submission yang diterima; tiap baris memuat status.
+func TestExportReviewStatusFilter(t *testing.T) {
+	r := newExportRig(t)
+	acc := r.seed(t, time.Date(2026, 10, 20, 8, 0, 0, 0, time.UTC), 2)
+	r.seed(t, time.Date(2026, 10, 21, 8, 0, 0, 0, time.UTC), 1)
+	if _, err := r.pool.Exec(bg, `UPDATE submissions SET review_status = 'accepted', reviewed_at = now() WHERE id = $1`, acc); err != nil {
+		t.Fatal(err)
+	}
+	accepted := domain.ReviewAccepted
+	rows := runExport(t, r.uc(500), usecase.ExportQuery{ExportFilter: usecase.ExportFilter{Review: &accepted}})
+	if len(rows) != 2 {
+		t.Fatalf("export accepted = %d baris", len(rows))
+	}
+	for _, row := range rows {
+		if row["submission_id"] != acc.String() || row["review_status"] != "accepted" {
+			t.Fatalf("baris = %v", row)
+		}
+	}
+	if all := runExport(t, r.uc(500), usecase.ExportQuery{}); len(all) != 3 {
+		t.Fatalf("tanpa filter = %d baris", len(all))
+	}
 }

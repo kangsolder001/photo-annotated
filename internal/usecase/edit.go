@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +21,7 @@ type EditConfig struct {
 type Edit struct {
 	photos PhotoRepo
 	subs   SubmissionRepo
+	labels LabelRepo
 	tx     TxManager
 	gate   photoGate
 	authz  authorizer
@@ -27,9 +29,9 @@ type Edit struct {
 	cfg    EditConfig
 }
 
-func NewEdit(photos PhotoRepo, subs SubmissionRepo, tx TxManager, store PhotoStore, editTokens EditTokenSigner, clock Clock, cfg EditConfig) *Edit {
+func NewEdit(photos PhotoRepo, subs SubmissionRepo, labels LabelRepo, tx TxManager, store PhotoStore, editTokens EditTokenSigner, clock Clock, cfg EditConfig) *Edit {
 	return &Edit{
-		photos: photos, subs: subs, tx: tx, gate: photoGate{photos: photos, store: store},
+		photos: photos, subs: subs, labels: labels, tx: tx, gate: photoGate{photos: photos, store: store},
 		authz: authorizer{editTokens}, clock: clock, cfg: cfg,
 	}
 }
@@ -94,7 +96,7 @@ func (u *Edit) Edit(ctx context.Context, in EditInput) (*EditOutput, error) {
 	}
 	freshPhotos, err := u.gate.load(ctx, fresh, sub.OwnerID)
 	if err != nil {
-		return nil, err
+		return nil, u.goneOr(ctx, sub.ID, err)
 	}
 	if err := u.gate.checkFiles(ctx, fresh, freshPhotos); err != nil {
 		return nil, err
@@ -113,6 +115,21 @@ func (u *Edit) Edit(ctx context.Context, in EditInput) (*EditOutput, error) {
 			return err
 		}
 		newVersion = v
+		// Label arsip tetap boleh untuk kotak pada foto yang di versi sebelumnya sudah memakai label itu
+		// (spec-labels-admin §4.2): pengguna tidak terkunci dari submission miliknya hanya karena admin
+		// mengarsipkan label di tengah jendela edit. Dibaca setelah BumpVersion (baris submission terkunci).
+		kept := make([]uuid.UUID, 0, len(current))
+		for _, p := range current {
+			kept = append(kept, p.ID)
+		}
+		prev, err := u.subs.PhotoLabelIDs(ctx, kept)
+		if err != nil {
+			return err
+		}
+		keepArchived := func(i, labelID int) bool { return prev[in.Photos[i].PhotoID][labelID] }
+		if err := checkLabels(ctx, u.labels, anns, keepArchived); err != nil {
+			return err
+		}
 		// foto yang dibuang: tandai deleted dan hapus anotasinya sekarang (filenya oleh cleanup)
 		for _, p := range current {
 			if _, keep := requested[p.ID]; keep {
@@ -145,7 +162,19 @@ func (u *Edit) Edit(ctx context.Context, in EditInput) (*EditOutput, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, u.goneOr(ctx, sub.ID, err)
 	}
 	return &EditOutput{SubmissionID: sub.ID, Version: newVersion, UpdatedAt: now}, nil
+}
+
+// goneOr: bila submission dihapus admin di tengah edit, foto-fotonya ikut hilang dan pemeriksaan foto
+// gagal dengan error yang menyesatkan (mis. PHOTO_NOT_FOUND). Dalam kasus itu jawab 404 seperti
+// pembacaan lain atas submission yang sudah dihapus (spec-labels-admin §5.5).
+func (u *Edit) goneOr(ctx context.Context, id uuid.UUID, err error) error {
+	if de, ok := domain.AsError(err); ok && de.Kind != domain.KindNotFound {
+		if _, gerr := u.subs.Get(ctx, id); errors.Is(gerr, domain.ErrNotFound) {
+			return notFound()
+		}
+	}
+	return err
 }

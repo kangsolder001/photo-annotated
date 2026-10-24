@@ -30,8 +30,11 @@ func (r *SessionRepo) Create(ctx context.Context, s *domain.Session) error {
 
 func (r *SessionRepo) GetByTokenHash(ctx context.Context, hash []byte) (*domain.Session, error) {
 	var s domain.Session
+	// pengguna yang diblokir ditolak walau sesinya belum sempat dicabut (tetap satu query)
 	err := r.db(ctx).QueryRow(ctx,
-		`SELECT id, user_id, token_hash, created_at, expires_at, revoked_at, client_ip FROM sessions WHERE token_hash = $1`, hash).
+		`SELECT s.id, s.user_id, s.token_hash, s.created_at, s.expires_at, s.revoked_at, s.client_ip
+		   FROM sessions s JOIN users u ON u.id = s.user_id
+		  WHERE s.token_hash = $1 AND u.blocked_at IS NULL`, hash).
 		Scan(&s.ID, &s.UserID, &s.TokenHash, &s.CreatedAt, &s.ExpiresAt, &s.RevokedAt, &s.ClientIP)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("session: %w", domain.ErrNotFound)

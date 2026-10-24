@@ -22,11 +22,13 @@ const (
 	jsonWriteDeadline = 15 * time.Second
 	// export: batas waktu menulis satu halaman ke klien (deadline digeser tiap halaman)
 	exportPageGrace = 60 * time.Second
+	// hapus massal: semua file dihapus sebelum respons ditulis
+	bulkDeleteDeadline = 5 * time.Minute
 )
 
-// AdminAuth dipenuhi oleh *usecase.AdminAuth: login admin dan verifikasi token admin.
+// AdminAuth dipenuhi oleh *usecase.AdminLogin: login superadmin lewat OTP dan verifikasi token admin.
 type AdminAuth interface {
-	handler.AdminLoginer
+	handler.AdminLoginService
 	middleware.AdminVerifier
 }
 
@@ -50,6 +52,8 @@ type Deps struct {
 	SubmissionsPerMin int               // batas rate limit POST /submissions per IP
 
 	Reader handler.Reader // usecase baca submission & foto (spec §5.3–5.5)
+	// Label terkontrol (spec-labels-admin §4); nil = rute /labels dan /admin/labels tidak dipasang.
+	Labels handler.LabelService
 	Editor handler.Editor // usecase edit submission (spec §5.4)
 
 	// Auth OTP (spec §5.8); nil bila auth.mode = none sehingga rute /auth/* menjadi 404.
@@ -68,9 +72,24 @@ type Deps struct {
 	// kali untuk satu submission); nil = tanpa Turnstile.
 	UploadTurnstile usecase.TurnstileVerifier
 
-	// Admin statis (spec §5.9); nil bila admin.enabled = false sehingga /admin/* menjadi 404.
+	// Superadmin (spec-labels-admin §3); nil bila admin.enabled = false sehingga /admin/* menjadi 404.
+	// Login admin memakai OTPChannel, Turnstile, dan OTPVerifyPerMin yang sama dengan auth pengguna.
 	Admin            AdminAuth
-	AdminLoginPerMin int
+	AdminLoginPerMin int    // request + resend OTP admin per IP
+	AuthMode         string // auth.mode, untuk GET /admin/me
+
+	// Hasil anotasi untuk dashboard (spec-labels-admin §5.4); hanya aktif bila Admin juga diisi.
+	AdminSubmissions handler.AdminSubmissionReader
+
+	// Kelola annotator (spec-labels-admin §5.8); nil pada auth.mode = none sehingga /admin/users* 404.
+	AdminUsers handler.AdminUserService
+
+	// Statistik label dan status sistem (spec-labels-admin §5.9–5.10); hanya aktif bila Admin juga diisi.
+	LabelStats handler.LabelStatsService
+	System     handler.SystemReporter
+
+	// Hapus permanen oleh admin (spec-labels-admin §5.5); hanya aktif bila Admin juga diisi.
+	AdminDelete handler.AdminDeleter
 
 	// Export dataset (spec §5.7); hanya aktif bila Admin juga diisi.
 	Exporter handler.Exporter
@@ -156,6 +175,13 @@ func NewRouter(d Deps) *gin.Engine {
 	api.GET("/submissions/:id", chain(read, []gin.HandlerFunc{reads.GetSubmission})...)
 	api.GET("/photos/:id/url", chain(read, []gin.HandlerFunc{reads.PhotoURL})...)
 
+	var labels *handler.LabelHandler
+	if d.Labels != nil {
+		labels = handler.NewLabelHandler(d.Labels, d.Logger)
+		// akses sama dengan presign (tanpa Turnstile karena hanya baca); token admin juga boleh
+		api.GET("/labels", chain(read, []gin.HandlerFunc{labels.Active})...)
+	}
+
 	if d.OTPRequester != nil {
 		if d.OTPRequestPerMin < 1 || d.OTPChannel == nil || d.OTPVerifier == nil || d.Sessions == nil || d.OTPVerifyPerMin < 1 ||
 			d.PasswordLogin == nil || d.LoginPerMin < 1 {
@@ -181,11 +207,56 @@ func NewRouter(d Deps) *gin.Engine {
 	}
 
 	if d.Admin != nil {
-		if d.AdminLoginPerMin < 1 {
-			panic("httpapi: Deps.AdminLoginPerMin wajib diisi bila Admin diisi")
+		if d.AdminLoginPerMin < 1 || d.OTPVerifyPerMin < 1 || d.OTPChannel == nil {
+			panic("httpapi: Deps.AdminLoginPerMin, OTPVerifyPerMin, dan OTPChannel wajib diisi bila Admin diisi")
 		}
-		admin := handler.NewAdminHandler(d.Admin)
-		api.POST("/admin/login", middleware.RateLimit(middleware.NewRateLimiter(d.AdminLoginPerMin)), admin.Login)
+		adminAuth := handler.NewAdminAuthHandler(handler.AdminAuthDeps{
+			Login: d.Admin, Channel: d.OTPChannel, Turnstile: d.Turnstile, AuthMode: d.AuthMode, Log: d.Logger,
+		})
+		// request dan resend sama-sama memicu pesan WhatsApp: satu limiter per IP (admin_login).
+		adminOTPLimit := middleware.RateLimit(middleware.NewRateLimiter(d.AdminLoginPerMin))
+		api.POST("/admin/otp/request", adminOTPLimit, adminAuth.Request)
+		api.POST("/admin/otp/resend", adminOTPLimit, adminAuth.Resend)
+		api.GET("/admin/otp/:id", adminAuth.Status)
+		api.POST("/admin/otp/verify", middleware.RateLimit(middleware.NewRateLimiter(d.OTPVerifyPerMin)), adminAuth.Verify)
+		api.GET("/admin/channel-status", adminAuth.ChannelStatus)
+		adminOnly := authn.Require(middleware.Access{Admin: true})
+		api.GET("/admin/me", adminOnly, adminAuth.Me)
+		if labels != nil {
+			api.GET("/admin/labels", adminOnly, labels.AdminList)
+			api.POST("/admin/labels", adminOnly, labels.Create)
+			api.PUT("/admin/labels/order", adminOnly, labels.Reorder)
+			api.PUT("/admin/labels/:id", adminOnly, labels.Update)
+			api.DELETE("/admin/labels/:id", adminOnly, labels.Delete)
+		}
+		if d.AdminSubmissions != nil {
+			subsAdmin := handler.NewAdminSubmissionHandler(d.AdminSubmissions, d.Logger)
+			api.GET("/admin/submissions", adminOnly, subsAdmin.List)
+			api.GET("/admin/submissions/:id", adminOnly, subsAdmin.Detail)
+			api.PUT("/admin/submissions/:id/review", adminOnly, subsAdmin.Review)
+			api.POST("/admin/submissions/review", adminOnly, subsAdmin.ReviewMany)
+		}
+		if d.LabelStats != nil && d.System != nil {
+			stats := handler.NewAdminStatsHandler(d.LabelStats, d.System)
+			api.GET("/admin/stats/labels", adminOnly, stats.Labels)
+			api.GET("/admin/system", adminOnly, stats.System)
+		}
+		if d.AdminUsers != nil {
+			users := handler.NewAdminUserHandler(d.AdminUsers, d.Logger)
+			api.GET("/admin/users", adminOnly, users.List)
+			api.GET("/admin/users/:id", adminOnly, users.Get)
+			api.POST("/admin/users/:id/block", adminOnly, users.Block)
+			api.POST("/admin/users/:id/unblock", adminOnly, users.Unblock)
+			api.POST("/admin/users/:id/delete-data", adminOnly, users.DeleteData)
+		}
+		if d.AdminDelete != nil {
+			dels := handler.NewAdminDeleteHandler(d.AdminDelete, d.Logger)
+			api.DELETE("/admin/submissions/:id", adminOnly, dels.DeleteSubmission)
+			api.DELETE("/admin/photos/:id", adminOnly, dels.DeletePhoto)
+			// Hapus massal (50 submission × 5 foto = 250 file): deadline tulis diperpanjang seperti export.
+			r.POST("/api/v1/admin/submissions/delete", middleware.Deadlines(jsonReadDeadline, bulkDeleteDeadline),
+				middleware.BodyLimit(middleware.JSONBodyLimit), adminOnly, dels.DeleteMany)
+		}
 	}
 
 	if d.Admin != nil && d.Exporter != nil {

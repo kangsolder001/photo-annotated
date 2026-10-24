@@ -63,8 +63,8 @@ func submitBody(reqID uuid.UUID, photos ...uuid.UUID) string {
 	var ps []string
 	for i, p := range photos {
 		ps = append(ps, `{"photo_id":"`+p.String()+`","annotations":[`+
-			`{"text":"foto `+string(rune('A'+i))+` kotak 1","x":0.12,"y":0.30,"w":0.25,"h":0.18},`+
-			`{"text":"baris1\nbaris2","x":0.55,"y":0.10,"w":0.30,"h":0.12}]}`)
+			`{"label_id":`+itoa(1+i)+`,"x":0.12,"y":0.30,"w":0.25,"h":0.18},`+
+			`{"label_id":5,"x":0.55,"y":0.10,"w":0.30,"h":0.12}]}`)
 	}
 	return `{"photos":[` + strings.Join(ps, ",") + `],"client_request_id":"` + reqID.String() + `"}`
 }
@@ -93,7 +93,8 @@ func TestE2ESubmitFullFlow(t *testing.T) {
 	}
 	if len(d.Photos) != 2 || d.Photos[0].Photo.ID != a || d.Photos[1].Photo.ID != b ||
 		d.Photos[0].Photo.Status != domain.PhotoAttached || len(d.Photos[0].Annotations) != 2 ||
-		d.Photos[0].Annotations[1].Text != "baris1\nbaris2" || d.Photos[1].Annotations[0].Text != "foto B kotak 1" {
+		d.Photos[0].Annotations[1].LabelID != 5 || d.Photos[1].Annotations[0].Label == nil ||
+		d.Photos[1].Annotations[0].Label.Name != "Label 2" || d.Photos[1].Annotations[0].Text != "" {
 		t.Fatalf("detail: %+v", d)
 	}
 	if d.Submission.ClientIP == nil {
@@ -136,18 +137,31 @@ func TestE2ESubmitRejectsBadInputs(t *testing.T) {
 		}
 	})
 	t.Run("bbox keluar dari foto", func(t *testing.T) {
-		body := `{"photos":[{"photo_id":"` + good.String() + `","annotations":[{"text":"ok","x":0.9,"y":0,"w":0.5,"h":0.5}]}],"client_request_id":"` + uuid.NewString() + `"}`
+		body := `{"photos":[{"photo_id":"` + good.String() + `","annotations":[{"label_id":1,"x":0.9,"y":0,"w":0.5,"h":0.5}]}],"client_request_id":"` + uuid.NewString() + `"}`
 		r := st.submit(t, body)
 		if r.Status != 422 || r.Code != "INVALID_BBOX" || !strings.Contains(r.Message, "photos[0].annotations[0]") {
 			t.Fatalf("%+v", r)
 		}
 	})
-	t.Run("teks anotasi kosong", func(t *testing.T) {
-		body := `{"photos":[{"photo_id":"` + good.String() + `","annotations":[{"text":"  ","x":0,"y":0,"w":0.5,"h":0.5}]}],"client_request_id":"` + uuid.NewString() + `"}`
-		if r := st.submit(t, body); r.Status != 422 || r.Code != "INVALID_ANNOTATION_TEXT" {
-			t.Fatalf("%+v", r)
-		}
-	})
+	// spec-labels-admin §4.2: teks bebas tidak diterima lagi; label wajib ada dan aktif
+	for name, tc := range map[string]struct {
+		ann    string
+		status int
+		code   string
+	}{
+		"field text":        {`{"text":"Retak","x":0,"y":0,"w":0.5,"h":0.5}`, 400, "INVALID_JSON"},
+		"text + label_id":   {`{"label_id":1,"text":"Retak","x":0,"y":0,"w":0.5,"h":0.5}`, 400, "INVALID_JSON"},
+		"tanpa label_id":    {`{"x":0,"y":0,"w":0.5,"h":0.5}`, 422, "INVALID_LABEL"},
+		"label tidak ada":   {`{"label_id":999,"x":0,"y":0,"w":0.5,"h":0.5}`, 422, "INVALID_LABEL"},
+		"label bukan angka": {`{"label_id":"1","x":0,"y":0,"w":0.5,"h":0.5}`, 400, "INVALID_JSON"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := `{"photos":[{"photo_id":"` + good.String() + `","annotations":[` + tc.ann + `]}],"client_request_id":"` + uuid.NewString() + `"}`
+			if r := st.submit(t, body); r.Status != tc.status || r.Code != tc.code {
+				t.Fatalf("%+v", r)
+			}
+		})
+	}
 	t.Run("tanpa foto", func(t *testing.T) {
 		r := st.submit(t, `{"photos":[],"client_request_id":"`+uuid.NewString()+`"}`)
 		if r.Status != 422 || r.Code != "INVALID_PHOTO_COUNT" {

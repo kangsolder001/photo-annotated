@@ -52,7 +52,7 @@ func (s *stack) edit(t testing.TB, id uuid.UUID, token, body string) editResp {
 func editBody(version int, photos ...uuid.UUID) string {
 	var ps []string
 	for i, p := range photos {
-		ps = append(ps, `{"photo_id":"`+p.String()+`","annotations":[{"text":"hasil edit foto `+string(rune('A'+i))+`","x":0.2,"y":0.2,"w":0.3,"h":0.3}]}`)
+		ps = append(ps, `{"photo_id":"`+p.String()+`","annotations":[{"label_id":`+itoa(3+i%3)+`,"x":0.2,"y":0.2,"w":0.3,"h":0.3}]}`)
 	}
 	return `{"version":` + itoa(version) + `,"photos":[` + strings.Join(ps, ",") + `]}`
 }
@@ -67,7 +67,9 @@ func (s *stack) readVersion(t testing.TB, sub e2eSubmission) (version int, texts
 		Version int `json:"version"`
 		Photos  []struct {
 			PhotoID     uuid.UUID `json:"photo_id"`
-			Annotations []struct{ Text string }
+			Annotations []struct {
+				Label *struct{ Name string } `json:"label"`
+			}
 		} `json:"photos"`
 	}
 	if err := json.Unmarshal(raw, &v); err != nil {
@@ -76,7 +78,11 @@ func (s *stack) readVersion(t testing.TB, sub e2eSubmission) (version int, texts
 	for _, p := range v.Photos {
 		photoIDs = append(photoIDs, p.PhotoID)
 		for _, a := range p.Annotations {
-			texts = append(texts, a.Text)
+			name := ""
+			if a.Label != nil {
+				name = a.Label.Name
+			}
+			texts = append(texts, name)
 		}
 	}
 	return v.Version, texts, photoIDs
@@ -96,7 +102,7 @@ func TestE2EEditFullFlow(t *testing.T) {
 	if v != 2 || len(ids) != 2 || ids[0] != extra || ids[1] != sub.Photo[0] {
 		t.Fatalf("hasil: v=%d ids=%v", v, ids)
 	}
-	if len(texts) != 2 || texts[0] != "hasil edit foto A" || texts[1] != "hasil edit foto B" {
+	if len(texts) != 2 || texts[0] != "Label 3" || texts[1] != "Label 4" {
 		t.Fatalf("anotasi: %v", texts)
 	}
 
@@ -159,7 +165,7 @@ func TestE2EEditValidation(t *testing.T) {
 		"tanpa foto":   {`{"version":1,"photos":[]}`, "INVALID_PHOTO_COUNT"},
 		"versi hilang": {`{"photos":[{"photo_id":"` + sub.Photo[0].String() + `"}]}`, "INVALID_VERSION"},
 		"foto tak ada": {editBody(1, uuid.New()), "PHOTO_NOT_FOUND"},
-		"bbox salah":   {`{"version":1,"photos":[{"photo_id":"` + sub.Photo[0].String() + `","annotations":[{"text":"x","x":0.9,"y":0,"w":0.5,"h":0.5}]}]}`, "INVALID_BBOX"},
+		"bbox salah":   {`{"version":1,"photos":[{"photo_id":"` + sub.Photo[0].String() + `","annotations":[{"label_id":1,"x":0.9,"y":0,"w":0.5,"h":0.5}]}]}`, "INVALID_BBOX"},
 		"foto kembar":  {editBody(1, sub.Photo[0], sub.Photo[0]), "DUPLICATE_PHOTO"},
 	} {
 		r := st.edit(t, sub.ID, sub.Token, tc.body)

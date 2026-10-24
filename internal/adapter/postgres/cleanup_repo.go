@@ -66,6 +66,8 @@ func (r *CleanupRepo) ExpireSubmissions(ctx context.Context, cutoff time.Time, l
 		WITH expired AS (
 			SELECT s.id FROM submissions s
 			 WHERE s.created_at < $1
+			   -- submission yang diterima admin tidak ikut retensi (spec-labels-admin §5.7)
+			   AND s.review_status <> 'accepted'
 			   AND EXISTS (SELECT 1 FROM photos p WHERE p.submission_id = s.id AND p.status <> 'deleted')
 			 ORDER BY s.created_at
 			 LIMIT $2
@@ -115,4 +117,23 @@ func (r *CleanupRepo) ExistingStorageKeys(ctx context.Context, keys []string) (m
 		out[k] = true
 	}
 	return out, rows.Err()
+}
+
+// DeleteEmptyDeletedSubmissions menghapus submission yang dihapus admin (deleted_at) dan sudah tidak
+// punya baris foto lagi (file-file-nya sudah terhapus lebih dulu).
+func (r *CleanupRepo) DeleteEmptyDeletedSubmissions(ctx context.Context, limit int) (int, error) {
+	tag, err := r.db(ctx).Exec(ctx, `
+		DELETE FROM submissions
+		 WHERE id IN (
+			SELECT s.id FROM submissions s
+			 WHERE s.deleted_at IS NOT NULL
+			   AND NOT EXISTS (SELECT 1 FROM photos p WHERE p.submission_id = s.id)
+			 ORDER BY s.deleted_at
+			 LIMIT $1
+			 FOR UPDATE OF s SKIP LOCKED
+		)`, limit)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: delete removed submissions: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
 }

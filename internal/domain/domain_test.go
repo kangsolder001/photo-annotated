@@ -3,7 +3,6 @@ package domain_test
 import (
 	"errors"
 	"math"
-	"strings"
 	"testing"
 	"time"
 
@@ -235,76 +234,27 @@ func TestValidateBBox(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- teks anotasi
+// ---------------------------------------------------------------- anotasi berlabel
 
-func TestNormalizeAnnotationText(t *testing.T) {
-	const max = 1000
-	good := map[string]string{
-		"Kerusakan di sisi kiri": "Kerusakan di sisi kiri",
-		"  dipangkas  ":          "dipangkas",
-		"baris1\nbaris2":         "baris1\nbaris2",
-		"baris1\r\nbaris2":       "baris1\nbaris2",
-		"\n\nisi\n\n":            "isi",
-		"emoji 👨‍👩‍👧 keluarga":   "emoji 👨‍👩‍👧 keluarga", // ZWJ (Cf) harus tetap boleh
-		"日本語のテキスト":               "日本語のテキスト",
-		"a":                      "a",
-		strings.Repeat("x", max): strings.Repeat("x", max),
-		strings.Repeat("あ", max): strings.Repeat("あ", max), // dihitung per rune, bukan byte
-	}
-	for in, want := range good {
-		got, err := domain.NormalizeAnnotationText(in, max)
-		if err != nil || got != want {
-			t.Errorf("Normalize(%.30q) = %.30q, %v; want %.30q", in, got, err, want)
-		}
-	}
-
-	bad := map[string]string{
-		"kosong":               "",
-		"hanya spasi":          "   \t  ",
-		"hanya newline":        "\n\r\n",
-		"terlalu panjang":      strings.Repeat("x", max+1),
-		"terlalu panjang rune": strings.Repeat("あ", max+1),
-		"null byte":            "ab\x00cd",
-		"tab":                  "a\tb",
-		"carriage return":      "a\rb",
-		"escape":               "a\x1bb",
-		"C1 control":           "a\u0085b",
-		"UTF-8 rusak":          "a\xffb",
-		"RLO bidi override":    "kode‮exe.txt",
-		"isolate bidi":         "a⁦b",
-		"DEL":                  "a\x7fb",
-	}
-	for name, in := range bad {
-		_, err := domain.NormalizeAnnotationText(in, max)
-		if err == nil {
-			t.Errorf("%s: seharusnya ditolak (%q)", name, in)
-			continue
-		}
-		if codeOf(t, err) != "INVALID_ANNOTATION_TEXT" {
-			t.Errorf("%s: code = %s", name, codeOf(t, err))
-		}
-	}
-}
-
-func TestAnnotationValidateReturnsNormalizedCopy(t *testing.T) {
-	orig := domain.Annotation{Text: "  halo \r\n dunia  ", X: 0.1, Y: 0.1, W: 0.2, H: 0.2}
-	got, err := orig.Validate(100)
+// Anotasi dari klien wajib membawa label_id; teks bebas tidak lagi ditulis (spec-labels-admin §4.2).
+func TestAnnotationValidate(t *testing.T) {
+	orig := domain.Annotation{LabelID: 3, Text: "diabaikan", X: 0.1, Y: 0.1, W: 0.2, H: 0.2}
+	got, err := orig.Validate()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Text != "halo \n dunia" {
-		t.Fatalf("teks = %q", got.Text)
+	if got.LabelID != 3 || got.Text != "" || got.X != orig.X || got.W != orig.W || got.Label != nil {
+		t.Fatalf("salinan = %+v", got)
 	}
-	if orig.Text != "  halo \r\n dunia  " {
+	if orig.Text != "diabaikan" {
 		t.Fatal("Validate tidak boleh mengubah nilai asli")
 	}
-	if got.X != orig.X || got.W != orig.W {
-		t.Fatal("koordinat harus dipertahankan")
-	}
-	if _, err := (domain.Annotation{Text: "ok", X: 2, Y: 0, W: 0.1, H: 0.1}).Validate(100); codeOf(t, err) != "INVALID_BBOX" {
+	if _, err := (domain.Annotation{LabelID: 3, X: 2, Y: 0, W: 0.1, H: 0.1}).Validate(); codeOf(t, err) != "INVALID_BBOX" {
 		t.Fatalf("bbox salah harus menghasilkan INVALID_BBOX: %v", err)
 	}
-	if _, err := (domain.Annotation{Text: "", X: 0.1, Y: 0.1, W: 0.1, H: 0.1}).Validate(100); codeOf(t, err) != "INVALID_ANNOTATION_TEXT" {
-		t.Fatalf("teks kosong harus menghasilkan INVALID_ANNOTATION_TEXT: %v", err)
+	for _, id := range []int{0, -1} {
+		if _, err := (domain.Annotation{LabelID: id, X: 0.1, Y: 0.1, W: 0.1, H: 0.1}).Validate(); codeOf(t, err) != "INVALID_LABEL" {
+			t.Fatalf("label_id %d harus menghasilkan INVALID_LABEL: %v", id, err)
+		}
 	}
 }

@@ -97,12 +97,12 @@ type otpTicketResponse struct {
 
 func seconds(d time.Duration) int { return int(math.Ceil(d.Seconds())) }
 
-// verifyHuman menjalankan Turnstile bila diaktifkan. Bila gagal, respons sudah ditulis.
-func (h *AuthHandler) verifyHuman(c *gin.Context, token string) bool {
-	if h.turnstile == nil {
+// verifyHuman menjalankan Turnstile bila diaktifkan (ts tidak nil). Bila gagal, respons sudah ditulis.
+func verifyHuman(c *gin.Context, ts usecase.TurnstileVerifier, token string) bool {
+	if ts == nil {
 		return true
 	}
-	if err := h.turnstile.Verify(c.Request.Context(), token, httpx.ClientIP(c)); err != nil {
+	if err := ts.Verify(c.Request.Context(), token, httpx.ClientIP(c)); err != nil {
 		httpx.WriteError(c, err)
 		return false
 	}
@@ -130,7 +130,7 @@ func writeTicket(c *gin.Context, t *usecase.OTPTicket, err error) {
 // Register menangani POST /api/v1/auth/register (spec §5.8).
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req registerRequest
-	if !httpx.DecodeJSON(c, &req) || !h.verifyHuman(c, req.TurnstileToken) {
+	if !httpx.DecodeJSON(c, &req) || !verifyHuman(c, h.turnstile, req.TurnstileToken) {
 		return
 	}
 	t, err := h.otp.Register(c.Request.Context(), usecase.RegisterInput{
@@ -142,7 +142,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 // Forgot menangani POST /api/v1/auth/password/forgot: kirim kode reset password.
 func (h *AuthHandler) Forgot(c *gin.Context) {
 	var req forgotRequest
-	if !httpx.DecodeJSON(c, &req) || !h.verifyHuman(c, req.TurnstileToken) {
+	if !httpx.DecodeJSON(c, &req) || !verifyHuman(c, h.turnstile, req.TurnstileToken) {
 		return
 	}
 	t, err := h.otp.Forgot(c.Request.Context(), req.Phone, clientAddr(c))
@@ -152,7 +152,7 @@ func (h *AuthHandler) Forgot(c *gin.Context) {
 // Resend menangani POST /api/v1/auth/otp/resend: kode baru untuk challenge yang sama tujuannya.
 func (h *AuthHandler) Resend(c *gin.Context) {
 	var req resendRequest
-	if !httpx.DecodeJSON(c, &req) || !h.verifyHuman(c, req.TurnstileToken) {
+	if !httpx.DecodeJSON(c, &req) || !verifyHuman(c, h.turnstile, req.TurnstileToken) {
 		return
 	}
 	t, err := h.otp.Resend(c.Request.Context(), req.ChallengeID, clientAddr(c))
@@ -183,11 +183,15 @@ type otpStatusResponse struct {
 // OTPStatus menangani GET /api/v1/auth/otp/{challenge_id} (spec §5.8), dipantau FE tiap 2 detik.
 // Id yang tidak dikenal (termasuk yang bukan UUID) dijawab queued agar tidak membuka informasi.
 func (h *AuthHandler) OTPStatus(c *gin.Context) {
+	writeOTPStatus(c, h.otp.Status)
+}
+
+func writeOTPStatus(c *gin.Context, status func(context.Context, uuid.UUID) (*usecase.OTPStatusView, error)) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		id = uuid.Nil
 	}
-	v, err := h.otp.Status(c.Request.Context(), id)
+	v, err := status(c.Request.Context(), id)
 	if err != nil {
 		httpx.WriteError(c, err)
 		return

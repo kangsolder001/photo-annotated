@@ -93,11 +93,20 @@ func (d *decoys) get(id uuid.UUID) (decoy, bool) {
 	return v, ok
 }
 
-// Status mengembalikan status pengiriman challenge. Id yang tidak dikenal menghasilkan queued agar
-// tidak membuka informasi.
+// Status mengembalikan status pengiriman challenge pengguna. Id yang tidak dikenal (termasuk challenge
+// login admin) menghasilkan queued agar tidak membuka informasi.
 func (o *OTPRequest) Status(ctx context.Context, id uuid.UUID) (*OTPStatusView, error) {
+	return o.status(ctx, id, false)
+}
+
+// status: admin memilih jenis challenge yang dikenal endpoint pemanggil; jenis lain diperlakukan
+// seperti id yang tidak dikenal.
+func (o *otpCore) status(ctx context.Context, id uuid.UUID, admin bool) (*OTPStatusView, error) {
 	now := o.clock.Now()
 	c, err := o.otps.Get(ctx, id)
+	if err == nil && (c.Purpose == domain.OTPPurposeAdminLogin) != admin {
+		err = domain.ErrNotFound
+	}
 	if errors.Is(err, domain.ErrNotFound) {
 		if d, ok := o.decoys.get(id); ok {
 			return o.decoyView(d, now), nil
@@ -122,7 +131,7 @@ func (o *OTPRequest) Status(ctx context.Context, id uuid.UUID) (*OTPStatusView, 
 	return v, nil
 }
 
-func (o *OTPRequest) decoyView(d decoy, now time.Time) *OTPStatusView {
+func (o *otpCore) decoyView(d decoy, now time.Time) *OTPStatusView {
 	v := &OTPStatusView{Status: domain.OTPQueued, ResendAfter: o.resendAfter(d.createdAt, now)}
 	if d.burned && now.Before(d.sentAt) {
 		v.Status = domain.OTPExpired // diganti sebelum "terkirim", seperti challenge asli yang diganti saat antre
@@ -138,6 +147,6 @@ func (o *OTPRequest) decoyView(d decoy, now time.Time) *OTPStatusView {
 	return v
 }
 
-func (o *OTPRequest) resendAfter(createdAt, now time.Time) time.Duration {
+func (o *otpCore) resendAfter(createdAt, now time.Time) time.Duration {
 	return max(0, createdAt.Add(o.cfg.ResendCooldown).Sub(now))
 }

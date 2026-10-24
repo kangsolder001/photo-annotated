@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 
 	"photo-annotated/internal/delivery/http/httpx"
-	"photo-annotated/internal/domain"
 	"photo-annotated/internal/usecase"
 )
 
@@ -45,17 +44,7 @@ func (h *EditHandler) Put(c *gin.Context) {
 	if !httpx.DecodeJSON(c, &req) {
 		return
 	}
-	in := usecase.EditInput{
-		SubmissionID: id, Caller: callerFrom(c), Version: req.Version,
-		Photos: make([]usecase.SubmitPhoto, len(req.Photos)),
-	}
-	for i, p := range req.Photos {
-		sp := usecase.SubmitPhoto{PhotoID: p.PhotoID, Annotations: make([]domain.Annotation, len(p.Annotations))}
-		for j, a := range p.Annotations {
-			sp.Annotations[j] = domain.Annotation{Text: a.Text, X: a.X, Y: a.Y, W: a.W, H: a.H}
-		}
-		in.Photos[i] = sp
-	}
+	in := usecase.EditInput{SubmissionID: id, Caller: callerFrom(c), Version: req.Version, Photos: toSubmitPhotos(req.Photos)}
 	out, err := h.editor.Edit(c.Request.Context(), in)
 	if err != nil {
 		httpx.WriteError(c, err)
