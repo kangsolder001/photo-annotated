@@ -33,6 +33,8 @@ type Deps struct {
 	Submitter         handler.Submitter // usecase submit (spec §5.2)
 	SubmissionsPerMin int               // batas rate limit POST /submissions per IP
 
+	Reader handler.Reader // usecase baca submission & foto (spec §5.3–5.5)
+
 	Uploader       handler.Uploader // usecase upload (spec §5.1b)
 	MaxUploadBytes int64            // batas ukuran file (config limits.max_upload_bytes)
 	UploadTimeout  time.Duration    // deadline baca total upload (config limits.upload_timeout)
@@ -42,8 +44,8 @@ type Deps struct {
 func NewRouter(d Deps) *gin.Engine {
 	if d.Logger == nil || d.DB == nil || d.Presigner == nil || d.PresignPerMin < 1 ||
 		d.Uploader == nil || d.MaxUploadBytes < 1 || d.UploadTimeout <= 0 ||
-		d.Submitter == nil || d.SubmissionsPerMin < 1 {
-		panic("httpapi: Deps.Logger, DB, Presigner, PresignPerMin, Uploader, MaxUploadBytes, UploadTimeout, Submitter, dan SubmissionsPerMin wajib diisi")
+		d.Submitter == nil || d.SubmissionsPerMin < 1 || d.Reader == nil {
+		panic("httpapi: Deps.Logger, DB, Presigner, PresignPerMin, Uploader, MaxUploadBytes, UploadTimeout, Submitter, SubmissionsPerMin, dan Reader wajib diisi")
 	}
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -76,6 +78,13 @@ func NewRouter(d Deps) *gin.Engine {
 
 	submissions := handler.NewSubmissionHandler(d.Submitter)
 	api.POST("/submissions", middleware.RateLimit(middleware.NewRateLimiter(d.SubmissionsPerMin)), submissions.Create)
+
+	reads := handler.NewReadHandler(d.Reader)
+	api.GET("/submissions/:id", reads.GetSubmission)
+	api.GET("/photos/:id/url", reads.PhotoURL)
+
+	// Konten foto: di luar grup JSON karena deadline tulisnya harus lebih panjang (klien lambat).
+	r.GET("/api/v1/photos/:id/content", middleware.Deadlines(0, d.UploadTimeout), reads.PhotoContent)
 
 	// Upload foto: di luar grup JSON (tanpa batas body 64 KB dan tanpa deadline baca 10 detik).
 	// Batas ukuran ditegakkan usecase (tepat sebesar yang dideklarasikan); deadline baca total

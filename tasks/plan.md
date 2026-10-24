@@ -215,12 +215,14 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [x] test usecase terhadap Postgres + localfs sungguhan, handler (fake), e2e HTTP asli (presign→PUT→submit, replay, balapan); [x] di Pi dengan `curl` (SSD & DB asli): 201 → replay 200 → 409 → 422; 1 submission, 2 anotasi, file 42 byte di SSD; log tanpa `edit_token`/`sig`
 **Dependencies:** 12, 13 · **Files:** `usecase/submit.go`, `adapter/signer/edittoken.go`, `handler/submission.go` + test · **Scope:** M
 
-#### Task 15: Baca submission + lihat foto
+#### Task 15: Baca submission + lihat foto — **SELESAI**
 **Description:** `GET /submissions/{id}` (dengan `version`, `editable_until`), `GET /photos/{id}/url`, `GET /photos/{id}/content` (`ServeContent`, header `nosniff`, deadline tulis diperpanjang). Otorisasi pemilik via `X-Edit-Token`; resource orang lain → 404.
 **Acceptance criteria:**
-- [ ] Tanpa/ salah `X-Edit-Token` → 404; `Range` request berfungsi; `sig` view kedaluwarsa → 410
-- [ ] URL view tidak bisa dipakai sebagai URL upload (awalan tujuan berbeda)
-**Verification:** [ ] `go test ./… -race`; [ ] `curl -r 0-99` pada konten foto
+- [x] Tanpa token, token salah, token submission lain, dan id tak ada → `404` dengan badan yang persis sama (bukan oracle); foto `pending`/`deleted`/`rejected`/milik submission lain → `404` pada `/url`; kredensial dimodelkan `Caller{EditToken, UserID, Admin}` sehingga user dan admin (T22–T24) tinggal diisi middleware
+- [x] `GET /submissions/{id}`: satu snapshot konsisten, foto berurutan, anotasi lengkap, `editable_until`/`editable` memakai jam server (batas diuji: `-1ns` true, tepat batas false); field internal tak bocor (`storage_key`, `sha256`, owner, ip)
+- [x] `/content`: `Range`→206 (dan 416), `If-None-Match`→304, `ETag`=SHA-256, `nosniff`, `inline`, `Cache-Control`; `sig` salah/hilang/id tak dikenal → 403 seragam; `exp` lewat → 410; file ditutup tepat sekali
+- [x] URL lihat tidak berlaku untuk upload dan sebaliknya (domain pesan HMAC terpisah, diuji dua arah, termasuk e2e)
+**Verification:** [x] `go test ./… -race` (101 test, 0 skip); [x] e2e HTTP asli; [x] di Pi (SSD & DB asli): 200 / 404 seragam / konten identik 42 byte / `Range` 206 `0-3/42` / `If-None-Match` 304 / sig diubah 403; log tanpa `edit_token`/`sig`
 **Dependencies:** 14 · **Files:** `usecase/{get,photourl,photo_content}.go`, `handler/{submission_get,photo}.go` · **Scope:** M
 
 #### Task 16: `PUT /submissions/{id}` (edit)

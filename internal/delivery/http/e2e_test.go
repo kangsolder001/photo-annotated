@@ -40,6 +40,7 @@ const (
 
 type stackOpts struct {
 	minFree   int64
+	viewTTL   time.Duration
 	uploadTTL time.Duration
 	maxConc   int
 	maxBytes  int64
@@ -61,6 +62,9 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	t.Helper()
 	if o.uploadTTL == 0 {
 		o.uploadTTL = 10 * time.Minute
+	}
+	if o.viewTTL == 0 {
+		o.viewTTL = 5 * time.Minute
 	}
 	if o.maxConc == 0 {
 		o.maxConc = 200
@@ -96,6 +100,9 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	}))
 	t.Cleanup(srv.Close)
 
+	reader := usecase.NewReader(subs, repo, store, sg, et, usecase.SystemClock{}, usecase.ReadConfig{
+		PublicBaseURL: srv.URL, EditWindow: 24 * time.Hour, ViewURLTTL: o.viewTTL,
+	})
 	presign := usecase.NewPresign(repo, store, sg, usecase.SystemClock{}, usecase.PresignConfig{
 		PublicBaseURL: srv.URL, MaxUploadBytes: o.maxBytes, UploadURLTTL: o.uploadTTL,
 	})
@@ -109,6 +116,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		Presigner:      presign, PresignPerMin: 1_000_000,
 		Uploader: upload, MaxUploadBytes: o.maxBytes, UploadTimeout: time.Minute,
 		Submitter: submit, SubmissionsPerMin: 1_000_000,
+		Reader: reader,
 	})
 	inner.Store(&h)
 	return &stack{pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}

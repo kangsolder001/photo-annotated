@@ -87,18 +87,25 @@ func run() error {
 		}
 		editTokens = et
 	}
-	submit := usecase.NewSubmit(photos, postgres.NewSubmissionRepo(pool), postgres.NewTxManager(pool), store, editTokens,
+	subs := postgres.NewSubmissionRepo(pool)
+	submit := usecase.NewSubmit(photos, subs, postgres.NewTxManager(pool), store, editTokens,
 		usecase.SystemClock{}, usecase.SubmitConfig{
 			MaxPhotos:              cfg.Limits.MaxPhotosPerSubmission,
 			MaxAnnotationsPerPhoto: cfg.Limits.MaxAnnotationsPerPhoto,
 			MaxAnnotationTextLen:   cfg.Limits.MaxAnnotationTextLen,
 		})
+	reader := usecase.NewReader(subs, photos, store, urlSigner, editTokens, usecase.SystemClock{}, usecase.ReadConfig{
+		PublicBaseURL: cfg.App.PublicBaseURL,
+		EditWindow:    cfg.Edit.Window.Std(),
+		ViewURLTTL:    cfg.Storage.ViewURLTTL.Std(),
+	})
 	upload := usecase.NewUpload(photos, store, urlSigner, imagecheck.Inspector{}, usecase.SystemClock{},
 		usecase.UploadConfig{MaxConcurrent: cfg.Limits.MaxConcurrentUploads})
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Logger: log, TrustedProxies: trusted, DB: pool, AllowedOrigins: cfg.App.AllowedOrigins,
 		Presigner: presign, PresignPerMin: cfg.Limits.RateLimitPerMin.Presign,
+		Reader:    reader,
 		Submitter: submit, SubmissionsPerMin: cfg.Limits.RateLimitPerMin.Submissions,
 		Uploader: upload, MaxUploadBytes: cfg.Limits.MaxUploadBytes, UploadTimeout: cfg.Limits.UploadTimeout.Std(),
 	})

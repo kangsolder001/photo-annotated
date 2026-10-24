@@ -42,6 +42,24 @@ func (s *Signer) mac(msg []byte) []byte {
 	return m.Sum(nil)
 }
 
+func viewMessage(photoID uuid.UUID, exp int64) []byte {
+	return []byte("view\n" + photoID.String() + "\n" + strconv.FormatInt(exp, 10))
+}
+
+// SignView menghasilkan tanda tangan base64url untuk GET /photos/{id}/content.
+func (s *Signer) SignView(photoID uuid.UUID, exp time.Time) string {
+	return base64.RawURLEncoding.EncodeToString(s.mac(viewMessage(photoID, exp.Unix())))
+}
+
+// VerifyView memeriksa tanda tangan lihat foto (constant-time); kedaluwarsa diperiksa pemanggil.
+func (s *Signer) VerifyView(photoID uuid.UUID, exp int64, sig string) bool {
+	got, err := base64.RawURLEncoding.DecodeString(sig)
+	if err != nil || len(got) != sha256.Size {
+		return false
+	}
+	return hmac.Equal(got, s.mac(viewMessage(photoID, exp)))
+}
+
 // SignUpload menghasilkan tanda tangan base64url untuk PUT /uploads/{photo_id}.
 func (s *Signer) SignUpload(photoID uuid.UUID, exp time.Time, contentType string, sizeBytes int64) string {
 	return base64.RawURLEncoding.EncodeToString(s.mac(message("upload", photoID, exp.Unix(), contentType, sizeBytes)))

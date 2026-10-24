@@ -291,7 +291,21 @@ Response `201` (submission baru) atau `200` (replay):
 Rate limit: 10 request per menit per IP (`limits.rate_limit_per_min.submissions`).
 
 ### 5.3 `GET /submissions/{id}`
-Mengembalikan metadata foto dan anotasi (termasuk `version` dan `editable_until` = `created_at + edit.window`). Akses: pemilik atau admin (§9.2).
+Mengembalikan submission dengan foto (berurutan menurut `position`, hanya yang berstatus `attached`) dan anotasinya sebagai satu snapshot konsisten:
+```json
+{
+  "id": "7d2a...", "version": 2,
+  "created_at": "2026-10-24T12:00:00Z", "updated_at": "2026-10-24T13:00:00Z",
+  "editable_until": "2026-10-25T12:00:00Z", "editable": true,
+  "photos": [
+    { "photo_id": "0b6c...", "position": 0, "content_type": "image/webp", "size_bytes": 412345, "width": 1920, "height": 1440,
+      "annotations": [ { "text": "Kerusakan di sisi kiri", "x": 0.12, "y": 0.30, "w": 0.25, "h": 0.18 } ] }
+  ]
+}
+```
+- `editable_until` = `created_at + edit.window`; `editable` dihitung dengan **jam server** (bukan jam klien) sehingga tepat pada batas dianggap sudah tertutup.
+- Field internal (`storage_key`, `sha256`, `owner_id`, `client_ip`, `client_request_id`) tidak pernah dikirim. Foto tanpa anotasi memuat `"annotations": []`.
+- Akses: pemegang `X-Edit-Token` yang sah (mode `none`), pemilik (mode `otp`), atau admin (§9.2). Tanpa kredensial yang cocok **dan** id yang tidak ada dijawab `404` dengan badan yang persis sama, sehingga keberadaan submission tidak bisa ditebak.
 
 ### 5.4 `PUT /submissions/{id}`
 
@@ -306,10 +320,10 @@ Response `200`: `{ "submission_id": "...", "version": 2, "updated_at": "..." }`
 Akses: hanya pemilik (§9.2), dan hanya dalam jendela edit 24 jam (§4.4); di luar itu `403 EDIT_WINDOW_CLOSED`.
 
 ### 5.5 `GET /photos/{id}/url`
-Response: `{ "url": "...", "expires_at": "..." }` — URL bertanda tangan ke `GET /photos/{id}/content?exp=…&sig=…`, berlaku 5 menit (`storage.view_url_ttl`). Akses: pemilik submission atau admin (dicek saat URL diterbitkan).
+Response: `{ "url": "...", "expires_at": "..." }` — URL bertanda tangan ke `GET /photos/{id}/content?exp=…&sig=…`, berlaku 5 menit (`storage.view_url_ttl`). Akses: sama dengan §5.3, dicek saat URL diterbitkan. Hanya foto `attached` yang punya URL; foto `pending` (belum punya submission), `deleted`, `rejected`, foto milik submission lain, dan id yang tidak ada semuanya `404` seragam.
 
 #### `GET /photos/{id}/content?exp=…&sig=…`
-Melayani file foto lewat `http.ServeContent` (mendukung `Range` dan `If-Modified-Since`). Otorisasi hanya tanda tangan URL (tanpa header `Authorization`, agar bisa dipakai di `<img>`). Header respons: `Content-Type` dari DB, `X-Content-Type-Options: nosniff`, `Content-Disposition: inline`, `Cache-Control: private, max-age=300`. Foto berstatus `deleted`/`rejected` → `404`. Deadline tulis diperpanjang lewat `ResponseController` karena `WriteTimeout` 15 detik terlalu pendek untuk klien lambat.
+Melayani file foto lewat `http.ServeContent` (mendukung `Range` → `206`, `If-None-Match`/`If-Modified-Since` → `304`). Otorisasi hanya tanda tangan URL (tanpa header `Authorization`, agar bisa dipakai di `<img>`). Tanda tangan salah, parameter hilang/cacat, atau **id yang tidak dikenal** → `403 INVALID_SIGNATURE` (jawaban sama); tanda tangan sah tetapi lewat `exp` → `410 URL_EXPIRED`. Header respons: `Content-Type` dari DB, `ETag` = SHA-256 foto (isi tidak berubah setelah `attached`), `X-Content-Type-Options: nosniff`, `Content-Disposition: inline`, `Cache-Control: private, max-age=300`. Foto yang kemudian dihapus → `404`; file hilang dari SSD → `404 PHOTO_FILE_MISSING`. Tanda tangan lihat dan tanda tangan upload memakai domain pesan berbeda, jadi tidak saling berlaku. Deadline tulis diperpanjang lewat `ResponseController` karena `WriteTimeout` 15 detik terlalu pendek untuk klien lambat.
 
 ### 5.6 Operasional
 - `GET /healthz` — liveness (proses hidup).

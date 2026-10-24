@@ -130,4 +130,6 @@ type ImageInspector interface {
 type URLSigner interface {
 	SignUpload(photoID uuid.UUID, exp time.Time, contentType string, sizeBytes int64) string
 	VerifyUpload(photoID uuid.UUID, exp int64, contentType string, sizeBytes int64, sig string) bool
+	SignView(photoID uuid.UUID, exp time.Time) string
+	VerifyView(photoID uuid.UUID, exp int64, sig string) bool
 }

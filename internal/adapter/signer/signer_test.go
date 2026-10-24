@@ -152,3 +152,44 @@ func TestEditTokenAndUploadSignatureAreSeparateDomains(t *testing.T) {
 		t.Fatal("tanda tangan upload tidak boleh lolos sebagai token edit")
 	}
 }
+
+// ---------------------------------------------------------------- tanda tangan lihat foto
+
+func TestSignVerifyView(t *testing.T) {
+	s := newSigner(t, secret)
+	sig := s.SignView(id, exp)
+	if len(sig) != 43 || strings.ContainsAny(sig, "+/=") {
+		t.Fatalf("sig = %q", sig)
+	}
+	if !s.VerifyView(id, exp.Unix(), sig) {
+		t.Fatal("tanda tangan sah harus lolos")
+	}
+	other := uuid.MustParse("11111111-2222-3333-4444-555555555555")
+	for name, ok := range map[string]bool{
+		"foto lain":   s.VerifyView(other, exp.Unix(), sig),
+		"exp lain":    s.VerifyView(id, exp.Unix()+1, sig),
+		"secret lain": newSigner(t, strings.Repeat("z", 48)).VerifyView(id, exp.Unix(), sig),
+		"kosong":      s.VerifyView(id, exp.Unix(), ""),
+		"sampah":      s.VerifyView(id, exp.Unix(), "!!!"),
+		"pendek":      s.VerifyView(id, exp.Unix(), sig[:20]),
+		"padding":     s.VerifyView(id, exp.Unix(), sig+"="),
+	} {
+		if ok {
+			t.Errorf("%s: tidak boleh lolos", name)
+		}
+	}
+}
+
+// Satu tujuan tidak boleh dipakai untuk tujuan lain: URL lihat foto tidak bisa dipakai untuk
+// upload, dan sebaliknya.
+func TestViewAndUploadSignaturesAreSeparateDomains(t *testing.T) {
+	s := newSigner(t, secret)
+	view := s.SignView(id, exp)
+	if s.VerifyUpload(id, exp.Unix(), "image/webp", 1, view) {
+		t.Fatal("tanda tangan lihat tidak boleh lolos sebagai upload")
+	}
+	up := s.SignUpload(id, exp, "image/webp", 1)
+	if s.VerifyView(id, exp.Unix(), up) {
+		t.Fatal("tanda tangan upload tidak boleh lolos sebagai lihat")
+	}
+}
