@@ -1,0 +1,139 @@
+/* Dashboard admin (dimuat bersama chunk admin). Desktop dulu, tetap penuh di HP (spec-labels-admin §7.3):
+   ≥ 1024 px sidebar tetap; 768–1023 px sidebar bisa diciutkan jadi ikon; < 768 px bar atas + drawer.
+   Semua warna dari token tema (global.css), jadi ikut terang/gelap. */
+
+.page-loading { padding: 2rem 1rem; }
+
+.admin-shell { min-height: 100dvh; display: grid; grid-template-columns: 240px minmax(0, 1fr); }
+.admin-shell.is-collapsed { grid-template-columns: 72px minmax(0, 1fr); }
+.admin-main { min-width: 0; max-width: none; margin: 0; padding: 1.25rem 1.5rem 6rem; outline: none; }
+.admin-page { max-width: 1400px; margin: 0 auto; }
+.admin-page > h1 { font-size: 1.5rem; }
+.page-head { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.page-head h1 { margin: 0; font-size: 1.5rem; }
+
+.skip-link { position: absolute; left: -999px; top: 0; z-index: 100; background: var(--surface); padding: 0.5rem 1rem; }
+.skip-link:focus { left: 0.5rem; top: 0.5rem; }
+
+.admin-sidebar {
+  position: sticky; top: 0; height: 100dvh; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;
+  padding: 0.75rem; background: var(--surface); border-right: 1px solid var(--border); z-index: 20;
+}
+.admin-sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 0.25rem; min-height: 44px; }
+.admin-sidebar-head .brand { font-weight: 700; padding-left: 0.4rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.admin-sidebar nav { display: flex; flex-direction: column; gap: 0.15rem; }
+.admin-sidebar nav a, .admin-logout {
+  display: flex; align-items: center; gap: 0.75rem; min-height: 44px; padding: 0 0.75rem; border-radius: 10px;
+  color: var(--text); text-decoration: none; font: inherit; background: none; border: 0; cursor: pointer; white-space: nowrap; width: 100%;
+}
+.admin-sidebar nav a svg, .admin-logout svg { width: 1.15em; flex: none; }
+.admin-sidebar nav a:hover, .admin-logout:hover { background: var(--primary-soft); }
+.admin-sidebar nav a.active { background: var(--primary-soft); color: var(--primary); font-weight: 600; }
+.admin-sidebar nav a:focus-visible, .admin-logout:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
+.admin-sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+.admin-sidebar .theme-inline button { flex-direction: column; gap: 0.1rem; padding: 0.25rem 0.2rem; font-size: 0.75rem; min-height: 48px; }
+.admin-who { color: var(--muted); font-size: 0.9rem; padding: 0 0.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.is-collapsed .nav-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.is-collapsed .admin-sidebar { padding: 0.75rem 0.5rem; align-items: center; }
+.is-collapsed .admin-sidebar-head { flex-direction: column; }
+.is-collapsed .admin-sidebar nav a, .is-collapsed .admin-logout { justify-content: center; padding: 0; width: 48px; }
+.is-collapsed .theme-menu-list { left: 0; right: auto; bottom: calc(100% + 4px); top: auto; }
+
+.admin-topbar {
+  position: sticky; top: 0; z-index: 15; display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.4rem 0.75rem; padding-top: max(0.4rem, env(safe-area-inset-top));
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.admin-topbar-title { margin: 0; font-size: 1.1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 767px) {
+  .admin-shell, .admin-shell.is-collapsed { display: block; }
+  .admin-main { padding: 1rem 1rem 7rem; }
+  .admin-page > h1, .page-head h1 { display: none; } /* judul sudah di bar atas */
+  .admin-sidebar { position: fixed; inset: 0 auto 0 0; width: min(300px, 85vw); box-shadow: 0 0 24px rgb(0 0 0 / 30%); }
+  .admin-sidebar[hidden] { display: none; }
+  .admin-drawer-backdrop { position: fixed; inset: 0; z-index: 19; background: rgb(0 0 0 / 45%); }
+}
+
+/* ---- login admin */
+.admin-login { max-width: 440px; margin: 0 auto; padding: 1rem; }
+.admin-login-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+.admin-login-head .brand { font-weight: 700; }
+
+/* ---- tabel & kartu */
+.table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.admin-table { width: 100%; border-collapse: collapse; }
+.admin-table th, .admin-table td { padding: 0.5rem 0.75rem; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--border); }
+.admin-table th { font-size: 0.85rem; color: var(--muted); font-weight: 600; background: var(--bg); }
+.admin-table tr:last-child td { border-bottom: 0; }
+.admin-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.admin-table tr.is-archived td { color: var(--muted); }
+.admin-table a { font-weight: 600; }
+@media (max-width: 1023px) { .col-secondary { display: none; } }
+.row-actions { display: flex; gap: 0.35rem; flex-wrap: wrap; justify-content: flex-end; }
+.admin-table code { white-space: nowrap; }
+.order-btns { display: inline-flex; }
+.label-name { font-weight: 600; overflow-wrap: anywhere; }
+.swatch { display: inline-block; width: 1.1rem; height: 1.1rem; border-radius: 4px; vertical-align: middle; box-shadow: 0 0 0 1px rgb(0 0 0 / 35%); flex: none; }
+.swatch-lg { width: 2rem; height: 2rem; border-radius: 6px; }
+.card-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.75rem; }
+.card-list > li { margin: 0; }
+.label-card-head { display: flex; align-items: center; gap: 0.6rem; }
+.label-card-head .label-name { flex: 1; min-width: 0; }
+.label-card.is-archived { opacity: 0.85; }
+
+.badge { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.82rem; font-weight: 600; white-space: nowrap; }
+.badge-ok { background: var(--primary-soft); color: var(--ok); }
+.badge-warn { background: var(--warn-soft); color: var(--warn); }
+.badge-danger { background: var(--danger-soft); color: var(--danger); }
+.badge-muted { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+
+.btn-danger-solid { background: var(--danger); border-color: var(--danger); color: var(--surface); }
+.btn-danger-solid:disabled { opacity: 0.45; }
+
+/* ---- isian label */
+.label-form { display: flex; flex-direction: column; gap: 0.75rem; }
+fieldset.field { border: 0; padding: 0; margin: 0; }
+fieldset.field legend { font-weight: 600; padding: 0; margin-bottom: 0.3rem; }
+.check { display: flex; align-items: center; gap: 0.5rem; font-weight: 400; min-height: 44px; cursor: pointer; }
+.check input { width: 1.25rem; height: 1.25rem; min-height: 0; accent-color: var(--primary); flex: none; }
+.color-input { width: 56px; min-width: 56px; padding: 0.2rem; cursor: pointer; }
+.color-hex { width: 8rem; font-family: ui-monospace, monospace; }
+
+/* ---- menu baris */
+.row-menu { position: relative; flex: none; }
+.row-menu-list {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 12rem; display: flex; flex-direction: column; padding: 0.25rem;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: var(--shadow);
+}
+.row-menu-list button { display: flex; align-items: center; gap: 0.6rem; min-height: 44px; padding: 0 0.75rem; border: 0; border-radius: 8px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.row-menu-list button:hover { background: var(--primary-soft); }
+.row-menu-list button.danger { color: var(--danger); }
+.row-menu-list button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ---- dialog: modal di tengah; sheet layar penuh dari bawah di HP */
+.dialog-backdrop { position: fixed; inset: 0; z-index: 50; background: rgb(0 0 0 / 50%); display: grid; place-items: center; padding: 1rem; }
+.dialog {
+  width: min(520px, 100%); max-height: calc(100dvh - 2rem); display: flex; flex-direction: column;
+  background: var(--surface); color: var(--text); border-radius: var(--radius); box-shadow: 0 10px 40px rgb(0 0 0 / 35%); outline: none;
+}
+.dialog-wide { width: min(760px, 100%); }
+.dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.5rem 0.5rem 0.25rem 1rem; }
+.dialog-head h2 { margin: 0; }
+.dialog-body { padding: 0.5rem 1rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem; }
+.dialog-foot { display: flex; gap: 0.5rem; justify-content: flex-end; flex-wrap: wrap; padding: 0.75rem 1rem; padding-bottom: max(0.75rem, env(safe-area-inset-bottom)); border-top: 1px solid var(--border); }
+@media (max-width: 767px) {
+  .dialog-backdrop { padding: 0; place-items: end stretch; }
+  .dialog, .dialog-wide { width: 100%; max-height: 100dvh; min-height: 60dvh; border-radius: var(--radius) var(--radius) 0 0; }
+  .dialog-foot > .btn { flex: 1; }
+}
+
+/* ---- notifikasi */
+.toasts { position: fixed; z-index: 60; right: 1rem; bottom: 1rem; display: flex; flex-direction: column; gap: 0.5rem; max-width: min(420px, calc(100vw - 2rem)); }
+.toast { display: flex; align-items: center; gap: 0.6rem; padding: 0.25rem 0.25rem 0.25rem 0.9rem; border-radius: 10px; background: var(--surface); border: 1px solid var(--border-strong); box-shadow: var(--shadow); }
+.toast > span { flex: 1; }
+.toast-ok > svg { color: var(--ok); }
+.toast-warn > svg { color: var(--warn); }
+.toast-error > svg { color: var(--danger); }
+@media (max-width: 767px) { .toasts { left: 1rem; right: 1rem; bottom: 5.5rem; max-width: none; } }
+.nowrap { white-space: nowrap; }

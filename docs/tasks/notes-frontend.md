@@ -97,3 +97,58 @@ warna kotak + deskripsi, tanpa isian teks, kotak ditandai, label arsip "(diarsip
 preview` mode none, API di-mock lewat route interception): unggah 2 foto, 3 kotak (2 berlabel, 1
 kosong) di 360/768/1440 px × terang/gelap — tanpa scroll horizontal, kotak terlihat jelas di kedua
 tema, dropdown dan deskripsi terbaca.
+
+#### Task 42: FE admin — login OTP, layout lazy responsif, halaman label — **SELESAI**
+**Hasil:**
+- **Lazy chunk:** `App.tsx` memuat `features/admin/AdminApp` lewat `React.lazy` di rute `/admin/*`
+  (di luar layout user). `npm run build` kini menjalankan `scripts/check-bundle.mjs` setelah `vite
+  build`: build gagal bila chunk entry yang dimuat `index.html` memuat penanda kode admin
+  (`/api/v1/admin`, `pa.admin.session`, teks/kelas khusus admin) atau chunk `AdminApp-*.js` tidak ada.
+  Hasil: bundle user `index-*.js` 376,7 kB (gzip ±124 kB), chunk admin `AdminApp-*.js` 25,7 kB +
+  CSS 7,5 kB (CSS admin ikut lazy).
+- **Token admin** di `sessionStorage["pa.admin.session"]` (`features/admin/session.ts`), terpisah dari
+  token user (`localStorage`). `api/client.ts` menerima `token`/`onUnauthorized` sehingga request admin
+  tidak pernah membawa token user dan 401 hanya membuang token admin → `/admin/masuk?next=<rute>`
+  (Keluar manual → `/admin/masuk` tanpa `next`).
+- **Login `/admin/masuk`:** nomor HP + Turnstile → `POST /admin/otp/request` → layar kode (status
+  dipantau `GET /admin/otp/{id}` tiap 2 detik, hitung mundur kirim ulang, `POST /admin/otp/resend`,
+  banner kanal dari `GET /admin/channel-status`) → `POST /admin/otp/verify` → token. Bagian OTP user
+  dipakai ulang setelah diekstrak dari `OtpPage`: `useOtpStatus` (polling; kirim ulang dengan
+  `challenge_id` sama memulai pantauan baru), `useNow`, `resendCooldown`, `OtpCodeInput`, `describeStatus`,
+  `ChannelBanner` (kini menerima fungsi `check`). Challenge berjalan di `sessionStorage["pa.admin.otp"]`.
+  Pesan netral "Kode hanya dikirim bila nomor ini adalah nomor superadmin…" (anti-enumerasi).
+- **Layout (`AdminLayout`, `admin.css`):** ≥ 1024 px sidebar tetap (Beranda, Anotasi, Label,
+  Annotator, Statistik + pilihan tema inline + nama admin + Keluar); 768–1023 px sidebar default ciut
+  jadi ikon (tombol lebarkan/ciutkan, label nav jadi `aria-label`/tooltip); < 768 px bar atas (tombol
+  menu `bars` + judul halaman) dan drawer (tutup dengan Escape/latar/tombol). Menu Annotator hanya
+  bila `GET /admin/me` → `auth_mode: "otp"`. Skip link, `usePageTitle` (judul bar atas + tab).
+- **UI bersama admin (`features/admin/ui`):** `Dialog` (modal tengah; sheet layar penuh dari bawah di
+  HP; Escape, jebakan fokus, fokus dikembalikan), `ToastProvider` (notifikasi hasil, ikon + teks),
+  `RowMenu` (menu `ellipsis-vertical`), `useMediaQuery`/`useIsPhone`.
+- **`/admin/label`:** desktop/tablet tabel (warna + kode, nama, deskripsi — disembunyikan < 1024 px,
+  jumlah pemakaian, status, aksi); HP daftar kartu dengan menu titik tiga. Tambah (nama, deskripsi,
+  warna otomatis dari palet server atau pilih sendiri `<input type=color>` + kode hex), ubah inline,
+  naik/turun urutan (`PUT /admin/labels/order` berisi semua id label aktif; tampilan langsung
+  diperbarui), arsip/buka arsip (`PUT` replace lengkap), hapus hanya bila pemakaian 0 lewat dialog
+  konfirmasi (selain itu hanya "Arsipkan"). Peringatan "Label ini dipakai di N kotak…" saat mengganti
+  nama label terpakai. Validasi klien = backend (nama 1–50, deskripsi ≤ 200, warna `#rrggbb` huruf
+  kecil). Error `LABEL_NAME_TAKEN`, `LABEL_LIMIT`, `LABEL_IN_USE` (muat ulang), `LABEL_ORDER_STALE`
+  (muat ulang + minta ulangi) diberi pesan sendiri (`features/admin/errors.ts`).
+- Klien API admin lengkap untuk semua task berikutnya sudah ditulis di sini (`features/admin/api.ts`,
+  `types.ts`, persis bentuk JSON spec §5).
+**Keputusan / asumsi kontrak:**
+- `POST /admin/labels` tanpa `color` bila "otomatis" dicentang (server memilih dari palet).
+- `PUT /admin/labels/order` dianggap membalas 2xx tanpa isi yang dipakai FE.
+- `GET /admin/labels` diurutkan ulang di FE (aktif per `sort_order` lalu nama, arsip di bawah) agar
+  tidak bergantung urutan server.
+- Login admin memakai `body.turnstile_token` (seperti `/auth/register`), bukan header.
+**Test:** `admin.test.tsx` (sesi di sessionStorage terpisah, lazy route tanpa token → `/admin/masuk`,
+token admin dipakai & token user tidak, 401 → keluar ke `/admin/masuk?next=`, menu Annotator per
+`auth_mode`, Keluar; alur login: request → status terkirim → kode salah "Sisa 4 percobaan" → benar →
+token + redirect `next`; kanal mati + `WA_UNAVAILABLE` → kirim ulang langsung aktif, Ganti nomor),
+`LabelsPage.test.tsx` (urutan, kolom, tombol hapus vs arsip, tambah otomatis/warna sendiri, validasi,
+`LABEL_NAME_TAKEN`, peringatan ganti nama + body PUT, reorder + `LABEL_ORDER_STALE`, arsip/buka arsip,
+hapus + `LABEL_IN_USE`, tampilan kartu HP + menu).
+**Verification:** [x] typecheck; [x] `npm test` (335); [x] build + cek bundle. [x] Visual 360/768/1440 ×
+terang/gelap (`/admin/label`, `/admin/masuk`): tanpa scroll horizontal; ditemukan & diperbaiki: `main`
+global (maks 760 px) ikut membatasi dashboard, pilihan tema terpotong di sidebar 240 px.

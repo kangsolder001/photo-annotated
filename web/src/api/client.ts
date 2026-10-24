@@ -34,6 +34,10 @@ interface RequestOptions {
   headers?: Record<string, string>;
   /** Kirim token sesi (mode otp) bila ada. Default true. */
   auth?: boolean;
+  /** Token lain (mis. token admin) menggantikan token sesi user; null = tanpa token. */
+  token?: string | null;
+  /** Dipanggil saat request bertoken dibalas 401 (default: sesi user dihapus). */
+  onUnauthorized?(): void;
   signal?: AbortSignal;
 }
 
@@ -41,7 +45,7 @@ interface RequestOptions {
 export async function request<T>(method: string, path: string, opts: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json", ...opts.headers };
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";
-  const token = opts.auth === false ? null : session.token();
+  const token = opts.token !== undefined ? opts.token : opts.auth === false ? null : session.token();
   if (token) headers.Authorization = `Bearer ${token}`;
 
   let res: Response;
@@ -74,6 +78,6 @@ export async function request<T>(method: string, path: string, opts: RequestOpti
     parseRetryAfter(res.headers.get("Retry-After")),
     err?.details,
   );
-  if (res.status === 401 && token) session.expire();
+  if (res.status === 401 && token) (opts.onUnauthorized ?? session.expire)();
   throw apiErr;
 }
