@@ -134,6 +134,12 @@ func (v *OTPVerify) login(ctx context.Context, c *domain.OTPChallenge, newPasswo
 		}
 		switch c.Purpose {
 		case domain.OTPPurposeReset:
+			// kode reset yang terkirim sebelum akun diblokir tidak boleh membuka akses lagi
+			if u, err := v.users.Get(ctx, c.UserID); err != nil {
+				return err
+			} else if u.Blocked() {
+				return errAccountBlocked
+			}
 			if err := v.users.SetPassword(ctx, c.UserID, newPasswordHash); err != nil {
 				return err
 			}

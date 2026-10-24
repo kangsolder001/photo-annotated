@@ -20,16 +20,21 @@ var _ usecase.UserRepo = (*UserRepo)(nil)
 
 func NewUserRepo(pool *pgxpool.Pool) *UserRepo { return &UserRepo{base{pool}} }
 
-const userColumns = `id, name, email, phone, status, phone_verified_at, created_at, last_login_at, password_hash`
+const userColumns = `id, name, email, phone, status, phone_verified_at, created_at, last_login_at, password_hash, blocked_at, blocked_reason`
 
 func scanUser(row pgx.Row) (*domain.User, error) {
 	var (
 		u      domain.User
 		status string
 		hash   *string
+		reason *string
 	)
-	if err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &status, &u.PhoneVerifiedAt, &u.CreatedAt, &u.LastLoginAt, &hash); err != nil {
+	if err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &status, &u.PhoneVerifiedAt, &u.CreatedAt, &u.LastLoginAt, &hash,
+		&u.BlockedAt, &reason); err != nil {
 		return nil, err
+	}
+	if reason != nil {
+		u.BlockedReason = *reason
 	}
 	u.Status = domain.UserStatus(status)
 	if hash != nil {

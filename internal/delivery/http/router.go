@@ -81,6 +81,9 @@ type Deps struct {
 	// Hasil anotasi untuk dashboard (spec-labels-admin §5.4); hanya aktif bila Admin juga diisi.
 	AdminSubmissions handler.AdminSubmissionReader
 
+	// Kelola annotator (spec-labels-admin §5.8); nil pada auth.mode = none sehingga /admin/users* 404.
+	AdminUsers handler.AdminUserService
+
 	// Hapus permanen oleh admin (spec-labels-admin §5.5); hanya aktif bila Admin juga diisi.
 	AdminDelete handler.AdminDeleter
 
@@ -228,6 +231,14 @@ func NewRouter(d Deps) *gin.Engine {
 			api.GET("/admin/submissions/:id", adminOnly, subsAdmin.Detail)
 			api.PUT("/admin/submissions/:id/review", adminOnly, subsAdmin.Review)
 			api.POST("/admin/submissions/review", adminOnly, subsAdmin.ReviewMany)
+		}
+		if d.AdminUsers != nil {
+			users := handler.NewAdminUserHandler(d.AdminUsers, d.Logger)
+			api.GET("/admin/users", adminOnly, users.List)
+			api.GET("/admin/users/:id", adminOnly, users.Get)
+			api.POST("/admin/users/:id/block", adminOnly, users.Block)
+			api.POST("/admin/users/:id/unblock", adminOnly, users.Unblock)
+			api.POST("/admin/users/:id/delete-data", adminOnly, users.DeleteData)
 		}
 		if d.AdminDelete != nil {
 			dels := handler.NewAdminDeleteHandler(d.AdminDelete, d.Logger)

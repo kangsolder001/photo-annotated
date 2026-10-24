@@ -37,6 +37,11 @@ Tidak ada penyimpangan dari bentuk JSON spec. Detail yang spec tidak sebutkan da
   spasi dianggap kosong. Review **tidak** menaikkan `version`.
 - `GET /submissions/{id}` (pengguna) kini memuat `"review": { "status", "reason" }`.
 - Export: setiap baris memuat `"review_status"`; query `review_status` yang salah → `422 INVALID_QUERY`.
+- Kelola annotator: `block`/`unblock` membalas `200` dengan objek user (bentuk sama dengan item `GET /admin/users`).
+  Alasan blokir kosong/> 500/karakter kontrol → `422 INVALID_BLOCK_REASON`. `delete-data` membalas `202` juga
+  bila tidak ada yang dihapus (angka 0); body boleh kosong (`include_accepted` = false). User yang belum
+  verifikasi (pending) → `404` di semua `/admin/users/{id}*`. Reset password dengan kode yang terkirim sebelum
+  diblokir → `403 ACCOUNT_BLOCKED` (setelah kode benar).
 
 ## Perubahan config untuk deploy
 
@@ -206,3 +211,26 @@ SetReview konflik/404, BumpVersion mereset; usecase: alur review, versi lama 409
 mereset, edit pemilik mereset (juga accepted), review massal + validasi, antrean review, retensi melewati accepted +
 terhapus setelah batal diterima, export accepted; e2e: semua kode error, pemilik melihat status + alasan, filter daftar,
 retensi null, review massal, export, edit mereset, 401/404, log hygiene tanpa alasan)
+
+#### Task 47: Kelola annotator — **SELESAI**
+**Hasil:** migrasi `0010_user_block` (`users.blocked_at` + `blocked_reason`, CHECK keduanya terisi/kosong). `GET
+/admin/users` (q nama/nomor, `status` active/blocked, limit, cursor `(created_at DESC, id DESC)`), `GET
+/admin/users/{id}`, `POST …/block` (cabut semua sesi dalam transaksi yang sama), `…/unblock`, `…/delete-data`
+(langkah 1 hapus permanen untuk semua submission user dalam satu transaksi, accepted dipertahankan kecuali
+`include_accepted`, lalu cleanup diminta segera). Semua hanya terpasang pada `auth.mode = otp` (mode none → 404).
+Statistik per user dari submission yang belum dihapus. `annotator.blocked` di daftar/detail submission kini nyata.
+Log `admin action` `user.block/unblock/delete_data` (tanpa alasan).
+**Keputusan:**
+- Lookup sesi `JOIN users … AND blocked_at IS NULL` (tetap satu query): token lama langsung `401` walau
+  pencabutan sesi gagal/tertinggal.
+- Login: `ACCOUNT_BLOCKED` hanya setelah password terbukti benar; password salah tetap `401 INVALID_CREDENTIALS`.
+  Lupa password / kirim ulang reset untuk akun diblokir → challenge palsu tanpa pesan; registrasi ulang nomor
+  aktif sudah palsu sejak T35.
+- Cleanup segera: satu goroutine pemroses dengan kanal ber-buffer 1 (permintaan yang datang saat cleanup berjalan
+  digabung); aman berjalan bersamaan dengan cleanup terjadwal (`SKIP LOCKED`, hapus file idempoten).
+**Verification:** [x] `go vet`, `go build ./cmd/...`, `go test ./... -race` (repo: CHECK, blokir idempoten, lookup sesi
+menolak user diblokir lalu pulih, pending tidak bisa diblokir; usecase: sesi ditolak, reset dengan kode lama →
+ACCOUNT_BLOCKED, lupa password tanpa challenge asli; e2e: daftar + statistik + cari nomor + halaman + query salah,
+blokir (alasan wajib, ulang 200), sesi 401, login benar 403 / salah 401, register & lupa password tanpa pesan
+WhatsApp, filter blocked, buka blokir lalu login, hapus data mempertahankan accepted + cleanup menghapus file,
+include_accepted, akun tetap ada, 404/401, mode none 404, log hygiene)

@@ -1034,3 +1034,51 @@ func TestOTPAdminLoginSeparateFromUserChallenges(t *testing.T) {
 		}
 	}
 }
+
+func TestUserBlockConstraintAndSessionLookup(t *testing.T) {
+	r := newAuthRig(t)
+	u := r.user(t)
+	if err := r.users.CompleteRegistration(ctx, u.ID, "Budi", "budi@example.com", bcryptLike, now()); err != nil {
+		t.Fatal(err)
+	}
+	s := &domain.Session{ID: uuid.New(), UserID: u.ID, TokenHash: hash32(9), CreatedAt: now(), ExpiresAt: now().Add(time.Hour)}
+	if err := r.sessions.Create(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	for name, sql := range map[string]string{
+		"blocked_at tanpa alasan": `UPDATE users SET blocked_at = now() WHERE id = $1`,
+		"alasan tanpa blocked_at": `UPDATE users SET blocked_reason = 'x' WHERE id = $1`,
+		"alasan kosong":           `UPDATE users SET blocked_at = now(), blocked_reason = '' WHERE id = $1`,
+	} {
+		if _, err := r.pool.Exec(ctx, sql, u.ID); pgCode(err) != "23514" {
+			t.Errorf("%s harus ditolak CHECK: %v", name, err)
+		}
+	}
+	admins := postgres.NewAdminUserRepo(r.pool)
+	if changed, err := admins.Block(ctx, u.ID, "spam", now()); err != nil || !changed {
+		t.Fatalf("blokir: %v %v", changed, err)
+	}
+	if changed, err := admins.Block(ctx, u.ID, "lagi", now()); err != nil || changed {
+		t.Fatalf("blokir ulang harus tanpa perubahan: %v %v", changed, err)
+	}
+	got, _ := r.users.Get(ctx, u.ID)
+	if !got.Blocked() || got.BlockedReason != "spam" {
+		t.Fatalf("pengguna = %+v", got)
+	}
+	if _, err := r.sessions.GetByTokenHash(ctx, hash32(9)); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("sesi pengguna diblokir harus tidak ditemukan: %v", err)
+	}
+	if changed, err := admins.Unblock(ctx, u.ID); err != nil || !changed {
+		t.Fatalf("buka blokir: %v %v", changed, err)
+	}
+	if _, err := r.sessions.GetByTokenHash(ctx, hash32(9)); err != nil {
+		t.Fatalf("sesi setelah buka blokir: %v", err)
+	}
+	if _, err := admins.Block(ctx, uuid.New(), "x", now()); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("blokir id tak ada: %v", err)
+	}
+	pending := r.user(t) // belum verifikasi: tidak bisa diblokir/dilihat
+	if _, err := admins.Block(ctx, pending.ID, "x", now()); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("blokir pengguna pending: %v", err)
+	}
+}

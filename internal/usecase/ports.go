@@ -473,4 +473,45 @@ type DeletionRepo interface {
 	DeletePhotoRow(ctx context.Context, id uuid.UUID) error
 	// DeleteSubmissionIfEmpty menghapus baris submission ber-deleted_at yang tidak punya foto lagi.
 	DeleteSubmissionIfEmpty(ctx context.Context, id uuid.UUID) (bool, error)
+	// MarkUserSubmissions menjalankan langkah 1 untuk semua submission milik pengguna (yang accepted
+	// dilewati kecuali includeAccepted). Wajib di dalam transaksi; file dan baris dibersihkan cleanup.
+	MarkUserSubmissions(ctx context.Context, userID uuid.UUID, includeAccepted bool, now time.Time) (UserDataMark, error)
+}
+
+// AdminUserQuery adalah filter GET /admin/users (spec-labels-admin §5.8). Pengguna pending (belum
+// verifikasi) tidak pernah ikut.
+type AdminUserQuery struct {
+	NameQ, PhoneQ string // seperti AdminListQuery (digabung OR)
+	Blocked       *bool  // nil = aktif dan diblokir
+	Limit         int
+	After         *AdminCursor // keyset (created_at DESC, id DESC)
+}
+
+// UserStats dihitung dari submission yang belum dihapus.
+type UserStats struct {
+	Submissions, Annotations    int
+	Accepted, Rejected, Pending int
+	LastSubmissionAt            *time.Time
+}
+
+// AdminUserRow adalah satu annotator beserta statistiknya.
+type AdminUserRow struct {
+	User  domain.User
+	Stats UserStats
+}
+
+// AdminUserRepo membaca dan memblokir annotator.
+type AdminUserRepo interface {
+	ListUsers(ctx context.Context, q AdminUserQuery) ([]AdminUserRow, error)
+	// GetUser: hanya pengguna aktif (sudah verifikasi); selain itu domain.ErrNotFound.
+	GetUser(ctx context.Context, id uuid.UUID) (*AdminUserRow, error)
+	// Block mengisi blocked_at/alasan bila belum diblokir (changed=false bila sudah). Pengguna aktif saja.
+	Block(ctx context.Context, id uuid.UUID, reason string, now time.Time) (changed bool, err error)
+	// Unblock mengosongkan blokir (changed=false bila memang tidak diblokir).
+	Unblock(ctx context.Context, id uuid.UUID) (changed bool, err error)
+}
+
+// UserDataMark meringkas langkah 1 hapus data annotator.
+type UserDataMark struct {
+	Submissions, Photos, Annotations int
 }

@@ -135,7 +135,8 @@ func (o *OTPRequest) Forgot(ctx context.Context, rawPhone string, clientIP *neti
 		return nil, err
 	}
 	u, err := o.users.GetByPhone(ctx, phone)
-	if errors.Is(err, domain.ErrNotFound) || (err == nil && u.Status != domain.UserActive) {
+	// akun diblokir tidak bisa mereset password untuk membuka blokir: challenge palsu, tanpa pesan
+	if errors.Is(err, domain.ErrNotFound) || (err == nil && (u.Status != domain.UserActive || u.Blocked())) {
 		return o.decoy(phone, domain.OTPPurposeReset, ahead), nil
 	}
 	if err != nil {
@@ -172,9 +173,14 @@ func (o *OTPRequest) Resend(ctx context.Context, challengeID uuid.UUID, clientIP
 	if err != nil {
 		return nil, err
 	}
-	if c.Purpose == domain.OTPPurposeRegister {
+	switch c.Purpose {
+	case domain.OTPPurposeRegister:
 		// sudah diselesaikan lewat challenge lain: tidak ada yang perlu dikirim lagi
 		if u, err := o.users.Get(ctx, c.UserID); err != nil || u.Status != domain.UserPending {
+			return o.decoy(c.Phone, c.Purpose, ahead), nil
+		}
+	case domain.OTPPurposeReset:
+		if u, err := o.users.Get(ctx, c.UserID); err != nil || u.Blocked() {
 			return o.decoy(c.Phone, c.Purpose, ahead), nil
 		}
 	}

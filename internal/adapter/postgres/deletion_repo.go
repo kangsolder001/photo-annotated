@@ -159,3 +159,47 @@ func (r *DeletionRepo) DeleteSubmissionIfEmpty(ctx context.Context, id uuid.UUID
 	}
 	return tag.RowsAffected() == 1, nil
 }
+
+func (r *DeletionRepo) MarkUserSubmissions(ctx context.Context, userID uuid.UUID, includeAccepted bool, now time.Time) (usecase.UserDataMark, error) {
+	var m usecase.UserDataMark
+	rows, err := r.db(ctx).Query(ctx, `SELECT id FROM submissions
+		WHERE owner_id = $1 AND deleted_at IS NULL AND ($2 OR review_status <> 'accepted')
+		ORDER BY id FOR UPDATE`, userID, includeAccepted)
+	if err != nil {
+		return m, fmt.Errorf("postgres: lock user submissions: %w", err)
+	}
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return m, fmt.Errorf("postgres: scan submission id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return m, err
+	}
+	if len(ids) == 0 {
+		return m, nil
+	}
+	m.Submissions = len(ids)
+	tag, err := r.db(ctx).Exec(ctx, `DELETE FROM annotations a USING photos p WHERE a.photo_id = p.id AND p.submission_id = ANY($1)`, ids)
+	if err != nil {
+		return m, fmt.Errorf("postgres: delete annotations: %w", err)
+	}
+	m.Annotations = int(tag.RowsAffected())
+	tag, err = r.db(ctx).Exec(ctx, `UPDATE photos SET status = 'deleted' WHERE submission_id = ANY($1) AND status = 'attached'`, ids)
+	if err != nil {
+		return m, fmt.Errorf("postgres: mark photos deleted: %w", err)
+	}
+	m.Photos = int(tag.RowsAffected())
+	if _, err := r.db(ctx).Exec(ctx, `UPDATE photos SET status = 'deleted' WHERE submission_id = ANY($1) AND status <> 'deleted'`, ids); err != nil {
+		return m, fmt.Errorf("postgres: mark photos deleted: %w", err)
+	}
+	if _, err := r.db(ctx).Exec(ctx, `UPDATE submissions SET deleted_at = $2 WHERE id = ANY($1)`, ids, now); err != nil {
+		return m, fmt.Errorf("postgres: mark submissions deleted: %w", err)
+	}
+	return m, nil
+}

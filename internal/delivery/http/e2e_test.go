@@ -82,14 +82,17 @@ type adminParts struct {
 }
 
 type stack struct {
-	admin  adminParts
-	pool   *pgxpool.Pool
-	srv    *httptest.Server
-	subs   *postgres.SubmissionRepo
-	repo   *postgres.PhotoRepo
-	signer *signer.Signer
-	dir    string
-	client *http.Client
+	admin adminParts
+	// cleanupRequests: berapa kali hapus data annotator meminta cleanup segera
+	cleanupRequests *atomic.Int32
+	store           *localfs.Store
+	pool            *pgxpool.Pool
+	srv             *httptest.Server
+	subs            *postgres.SubmissionRepo
+	repo            *postgres.PhotoRepo
+	signer          *signer.Signer
+	dir             string
+	client          *http.Client
 }
 
 // newStack merakit seluruh backend dengan Postgres, localfs, signer, dan imagecheck sungguhan
@@ -178,7 +181,14 @@ func newStack(t *testing.T, o stackOpts) *stack {
 			channel = adm.channel
 		}
 	}
+	cleanupRequests := &atomic.Int32{}
+	var adminUsers handler.AdminUserService
+	if o.otp != nil && o.admin != nil {
+		adminUsers = usecase.NewAdminUsers(postgres.NewAdminUserRepo(pool), postgres.NewSessionRepo(pool), postgres.NewDeletionRepo(pool),
+			txm, usecase.SystemClock{}, func() { cleanupRequests.Add(1) })
+	}
 	var h http.Handler = httpapi.NewRouter(httpapi.Deps{
+		AdminUsers:     adminUsers,
 		Logger:         slog.New(slog.NewJSONHandler(logOut, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		TrustedProxies: []netip.Prefix{},
 		DB:             pool,
@@ -196,7 +206,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		NewJSONL: func(w io.Writer) handler.ExportStream { return export.NewJSONL(w) },
 	})
 	inner.Store(&h)
-	return &stack{admin: adm, pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}
+	return &stack{admin: adm, cleanupRequests: cleanupRequests, store: store, pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}
 }
 
 // e2eLabels adalah label aktif yang disiapkan setiap stack: "Label 1".."Label 5" dengan id 1..5

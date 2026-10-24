@@ -174,16 +174,6 @@ func run() error {
 	defer stop()
 	var jobs sync.WaitGroup
 
-	// OTP WhatsApp dipakai auth.mode=otp dan login admin (di semua mode): dispatcher dan probe
-	// wa-notif berjalan bila salah satunya aktif.
-	if cfg.Auth.Mode == config.AuthModeOTP || cfg.Admin.Enabled {
-		if err := startOTP(ctx, log, cfg, pool, &deps, &jobs); err != nil {
-			return err
-		}
-	}
-	router := httpapi.NewRouter(deps)
-	srv := httpapi.NewServer(cfg.App.HTTPAddr, router)
-
 	// Pekerjaan berkala (spec §8.3): pembersihan + retensi tiap cleanup_interval, sapuan file
 	// yatim tiap orphan_sweep_interval. Keduanya berhenti saat ctx dibatalkan (SIGTERM).
 	cleanup := usecase.NewCleanup(postgres.NewCleanupRepo(pool), store, usecase.SystemClock{}, usecase.CleanupConfig{
@@ -193,18 +183,53 @@ func run() error {
 		TmpMaxAge:     cfg.Retention.TmpMaxAge.Std(),
 		OrphanMinAge:  cfg.Retention.OrphanMinAge.Std(),
 	})
+	runCleanup := func(ctx context.Context) error {
+		rep, err := cleanup.RunOnce(ctx)
+		if !rep.Empty() || err != nil {
+			log.Info("cleanup", "stale_pending", rep.StalePendingClaimed, "retention_photos", rep.RetentionPhotos,
+				"files_deleted", rep.FilesDeleted, "file_failures", rep.FileDeleteFailures, "photo_rows_deleted", rep.PhotoRowsDeleted,
+				"submissions_deleted", rep.SubmissionsDeleted, "tmp_swept", rep.TmpSwept, "duration_ms", rep.Duration.Milliseconds())
+		}
+		return err
+	}
+	// Hapus data annotator (spec-labels-admin §5.8) meminta cleanup segera, tanpa menunggu interval.
+	// Satu goroutine pemroses: permintaan yang datang saat cleanup berjalan digabung menjadi satu putaran.
+	cleanupNow := make(chan struct{}, 1)
+	requestCleanup := func() {
+		select {
+		case cleanupNow <- struct{}{}:
+		default:
+		}
+	}
+	jobs.Add(1)
+	go func() {
+		defer jobs.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-cleanupNow:
+				if err := runCleanup(ctx); err != nil && ctx.Err() == nil {
+					log.Error("cleanup on demand", "error", err.Error())
+				}
+			}
+		}
+	}()
+
+	// OTP WhatsApp dipakai auth.mode=otp dan login admin (di semua mode): dispatcher dan probe
+	// wa-notif berjalan bila salah satunya aktif.
+	if cfg.Auth.Mode == config.AuthModeOTP || cfg.Admin.Enabled {
+		if err := startOTP(ctx, log, cfg, pool, &deps, &jobs, requestCleanup); err != nil {
+			return err
+		}
+	}
+	router := httpapi.NewRouter(deps)
+	srv := httpapi.NewServer(cfg.App.HTTPAddr, router)
+
 	jobs.Add(2)
 	go func() {
 		defer jobs.Done()
-		scheduler.Every(ctx, log, "cleanup", time.Minute, cfg.Retention.CleanupInterval.Std(), func(ctx context.Context) error {
-			rep, err := cleanup.RunOnce(ctx)
-			if !rep.Empty() || err != nil {
-				log.Info("cleanup", "stale_pending", rep.StalePendingClaimed, "retention_photos", rep.RetentionPhotos,
-					"files_deleted", rep.FilesDeleted, "file_failures", rep.FileDeleteFailures, "photo_rows_deleted", rep.PhotoRowsDeleted,
-					"submissions_deleted", rep.SubmissionsDeleted, "tmp_swept", rep.TmpSwept, "duration_ms", rep.Duration.Milliseconds())
-			}
-			return err
-		})
+		scheduler.Every(ctx, log, "cleanup", time.Minute, cfg.Retention.CleanupInterval.Std(), runCleanup)
 	}()
 	go func() {
 		defer jobs.Done()
@@ -254,7 +279,7 @@ func run() error {
 // startOTP merakit antrean OTP bersama (dispatcher pengiriman dan probe kanal WhatsApp), lalu alur
 // pengguna (auth.mode = otp: registrasi, reset, login password) dan/atau login superadmin
 // (admin.enabled). Dispatcher dan probe berjalan sampai ctx dibatalkan.
-func startOTP(ctx context.Context, log *slog.Logger, cfg *config.Config, pool *pgxpool.Pool, deps *httpapi.Deps, jobs *sync.WaitGroup) error {
+func startOTP(ctx context.Context, log *slog.Logger, cfg *config.Config, pool *pgxpool.Pool, deps *httpapi.Deps, jobs *sync.WaitGroup, requestCleanup func()) error {
 	o := cfg.Auth.OTP
 	codes, err := signer.NewOTPCodes(cfg.Secrets.OTPPepper, o.Length)
 	if err != nil {
@@ -307,6 +332,11 @@ func startOTP(ctx context.Context, log *slog.Logger, cfg *config.Config, pool *p
 		})
 		deps.AdminLoginPerMin = cfg.Limits.RateLimitPerMin.AdminLogin
 		deps.AuthMode = cfg.Auth.Mode
+		if cfg.Auth.Mode == config.AuthModeOTP {
+			// kelola annotator hanya ada bila ada akun pengguna
+			deps.AdminUsers = usecase.NewAdminUsers(postgres.NewAdminUserRepo(pool), postgres.NewSessionRepo(pool), postgres.NewDeletionRepo(pool),
+				postgres.NewTxManager(pool), usecase.SystemClock{}, requestCleanup)
+		}
 	}
 
 	jobs.Add(2)

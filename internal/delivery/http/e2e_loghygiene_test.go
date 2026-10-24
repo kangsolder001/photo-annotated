@@ -86,6 +86,12 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 	admin.get(t, "/api/v1/admin/submissions/"+sub.SubmissionID.String(), nil)
 	admin.send(t, "PUT", "/api/v1/admin/submissions/"+sub.SubmissionID.String()+"/review", `{"status":"rejected","reason":"ALASAN-REVIEW-RAHASIA Budi","version":2}`)
 	admin.send(t, "DELETE", "/api/v1/admin/submissions/"+sub.SubmissionID.String(), "")
+	_, users := admin.getJSON(t, "/api/v1/admin/users?q=Rahasia")
+	uid := users["items"].([]any)[0].(map[string]any)["id"].(string)
+	admin.send(t, "POST", "/api/v1/admin/users/"+uid+"/block", `{"reason":"ALASAN-BLOKIR-RAHASIA"}`)
+	admin.send(t, "POST", "/api/v1/admin/users/"+uid+"/unblock", "")
+	admin.send(t, "POST", "/api/v1/admin/users/"+uid+"/delete-data", `{"include_accepted":true}`)
+	s.postJSON(t, "/api/v1/auth/login", `{"phone":"0812-7777-1234","password":"PASSWORD-RAHASIA-1"}`)
 	_, fake := s.postJSON(t, "/api/v1/admin/otp/request", `{"phone":"0813-5555-6666","turnstile_token":"human"}`)
 	s.postJSON(t, "/api/v1/admin/otp/verify", `{"challenge_id":"`+fake["challenge_id"].(string)+`","code":"424242"}`)
 	s.getJSON(t, "/api/v1/admin/otp/"+fake["challenge_id"].(string))
@@ -99,14 +105,16 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 		!strings.Contains(out, `"msg":"admin login"`) || !strings.Contains(out, `"phone":"62813****2222"`) ||
 		!strings.Contains(out, `"action":"label.create"`) || !strings.Contains(out, `"action":"label.archive"`) ||
 		!strings.Contains(out, `"action":"label.reorder"`) || !strings.Contains(out, `"action":"label.delete"`) ||
-		!strings.Contains(out, `"action":"submission.delete"`) || !strings.Contains(out, `"action":"submission.review"`) {
+		!strings.Contains(out, `"action":"submission.delete"`) || !strings.Contains(out, `"action":"submission.review"`) ||
+		!strings.Contains(out, `"action":"user.block"`) || !strings.Contains(out, `"action":"user.unblock"`) ||
+		!strings.Contains(out, `"action":"user.delete_data"`) {
 		t.Fatalf("log kurang lengkap (user_id/code):\n%s", out)
 	}
 	secrets := map[string]string{
 		"kode OTP": code, "token sesi": token, "token admin": strings.TrimPrefix(adminTok, "Bearer "),
 		"nomor utuh": "6281277771234", "nomor input": "0812-7777-1234", "nama": "Rahasia Namanya",
 		"email":          "surel.rahasia",
-		"kode OTP admin": adminCode, "alasan review": "ALASAN-REVIEW-RAHASIA", "deskripsi label": "DESKRIPSI-LABEL", "nomor superadmin": testSuperadmin, "nomor superadmin input": testSuperadminInput,
+		"kode OTP admin": adminCode, "alasan review": "ALASAN-REVIEW-RAHASIA", "alasan blokir": "ALASAN-BLOKIR-RAHASIA", "deskripsi label": "DESKRIPSI-LABEL", "nomor superadmin": testSuperadmin, "nomor superadmin input": testSuperadminInput,
 		"nomor lain di login admin": "6281355556666", "kode admin salah": "424242",
 		"password daftar": "PASSWORD-RAHASIA-1", "token palsu": "token-palsu-rahasia", "tanda tangan URL": "sig=",
 		"header Authorization": "Bearer", "turnstile": `"human"`,

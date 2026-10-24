@@ -83,7 +83,7 @@ func (r *AdminSubmissionRepo) List(ctx context.Context, q usecase.AdminListQuery
 		where = append(where, `(s.created_at, s.id) `+cmp+` (`+a.add(q.After.CreatedAt)+`, `+a.add(q.After.ID)+`::uuid)`)
 	}
 	sql := `SELECT s.id, s.owner_id, s.version, s.created_at, s.updated_at, s.review_status, s.review_reason, s.reviewed_at,
-		       u.id, u.name, u.email, u.phone
+		       u.id, u.name, u.email, u.phone, u.blocked_at IS NOT NULL
 		  FROM submissions s LEFT JOIN users u ON u.id = s.owner_id
 		 WHERE ` + strings.Join(where, " AND ") + `
 		 ORDER BY s.created_at ` + order + `, s.id ` + order + `
@@ -103,14 +103,17 @@ func (r *AdminSubmissionRepo) List(ctx context.Context, q usecase.AdminListQuery
 			name, email, phone *string
 		)
 		s := &row.Submission
-		var rv reviewScan
+		var (
+			rv      reviewScan
+			blocked *bool
+		)
 		if err := rows.Scan(&s.ID, &s.OwnerID, &s.Version, &s.CreatedAt, &s.UpdatedAt, &rv.status, &rv.reason, &rv.at,
-			&uid, &name, &email, &phone); err != nil {
+			&uid, &name, &email, &phone, &blocked); err != nil {
 			return nil, fmt.Errorf("postgres: scan admin submission: %w", err)
 		}
 		s.Review = rv.review()
 		if uid != nil {
-			row.Annotator = &usecase.Annotator{ID: *uid, Name: *name, Email: *email, Phone: *phone}
+			row.Annotator = &usecase.Annotator{ID: *uid, Name: *name, Email: *email, Phone: *phone, Blocked: blocked != nil && *blocked}
 		}
 		row.Labels = []usecase.LabelCount{}
 		index[s.ID] = len(out)
@@ -230,8 +233,8 @@ func (r *AdminSubmissionRepo) fillCovers(ctx context.Context, ids []uuid.UUID, i
 
 func (r *AdminSubmissionRepo) Annotator(ctx context.Context, userID uuid.UUID) (*usecase.Annotator, error) {
 	var a usecase.Annotator
-	err := r.db(ctx).QueryRow(ctx, `SELECT id, name, email, phone FROM users WHERE id = $1`, userID).
-		Scan(&a.ID, &a.Name, &a.Email, &a.Phone)
+	err := r.db(ctx).QueryRow(ctx, `SELECT id, name, email, phone, blocked_at IS NOT NULL FROM users WHERE id = $1`, userID).
+		Scan(&a.ID, &a.Name, &a.Email, &a.Phone, &a.Blocked)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

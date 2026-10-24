@@ -411,3 +411,39 @@ func TestPasswordLogin(t *testing.T) {
 		t.Fatalf("setelah jendela lewat harus bisa login lagi: %v", err)
 	}
 }
+
+// Akun yang diblokir: sesi lama ditolak walau belum dicabut, lupa password tidak mengirim kode, dan kode
+// reset yang terkirim sebelum diblokir tidak membuka akses (spec-labels-admin §5.8).
+func TestBlockedUserCannotUseSessionsOrReset(t *testing.T) {
+	r, _ := newDispatchRig(t, stubToken)
+	id, code := r.sentChallenge(t, "081234567890")
+	res, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: id, Code: code})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.clock.t = r.clock.t.Add(2 * time.Minute) // lewat cooldown
+	tk, err := r.req.Forgot(bg, "081234567890", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.once(t, usecase.DispatchSent)
+	resetCode := r.stub.LastCodeFor("6281234567890")
+
+	if _, err := r.pool.Exec(bg, `UPDATE users SET blocked_at = now(), blocked_reason = 'uji' WHERE phone = '6281234567890'`); err != nil {
+		t.Fatal(err)
+	}
+	// sesi belum dicabut tetapi pengguna diblokir → 401
+	if _, err := r.sess.Authenticate(bg, res.Token); errCode(err) != "UNAUTHORIZED" {
+		t.Fatalf("sesi pengguna diblokir: %v", err)
+	}
+	if _, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: tk.ChallengeID, Code: resetCode, NewPassword: "passwordbaru1"}); errCode(err) != "ACCOUNT_BLOCKED" {
+		t.Fatalf("reset akun diblokir: %v", err)
+	}
+	r.clock.t = r.clock.t.Add(2 * time.Minute)
+	if _, err := r.req.Forgot(bg, "081234567890", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.otps.ClaimNext(bg, r.clock.t.Add(time.Hour)); err == nil {
+		t.Fatal("lupa password untuk akun diblokir tidak boleh membuat challenge asli")
+	}
+}
