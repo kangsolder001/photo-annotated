@@ -138,6 +138,20 @@ func TestLoggerFieldsAndNoSensitiveData(t *testing.T) {
 	}
 }
 
+func TestLoggerIncludesInternalError(t *testing.T) {
+	var buf bytes.Buffer
+	r := gin.New()
+	r.Use(middleware.Logger(slog.New(slog.NewJSONHandler(&buf, nil))))
+	r.GET("/x", func(c *gin.Context) {
+		_ = c.Error(io.ErrUnexpectedEOF)
+		c.Status(503)
+	})
+	r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/x", nil))
+	if !strings.Contains(buf.String(), "unexpected EOF") || !strings.Contains(buf.String(), `"error"`) {
+		t.Fatalf("error internal harus ada di log: %s", buf.String())
+	}
+}
+
 func TestRecoveryReturnsJSON500AndKeepsServing(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, nil))

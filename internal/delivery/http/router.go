@@ -24,10 +24,14 @@ const (
 type Deps struct {
 	Logger         *slog.Logger
 	TrustedProxies []netip.Prefix
+	DB             handler.Pinger // untuk /readyz
 }
 
 // NewRouter membuat engine dengan middleware dasar dan route operasional.
 func NewRouter(d Deps) *gin.Engine {
+	if d.Logger == nil || d.DB == nil {
+		panic("httpapi: Deps.Logger dan Deps.DB wajib diisi")
+	}
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	// IP klien ditentukan middleware sendiri; jangan biarkan gin mempercayai header apa pun.
@@ -47,6 +51,7 @@ func NewRouter(d Deps) *gin.Engine {
 
 	ops := r.Group("", middleware.Deadlines(jsonReadDeadline, jsonWriteDeadline))
 	ops.GET("/healthz", handler.Healthz)
+	ops.GET("/readyz", handler.Readyz(d.DB))
 
 	return r
 }

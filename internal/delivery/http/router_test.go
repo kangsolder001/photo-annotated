@@ -2,7 +2,9 @@ package httpapi_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,13 +16,53 @@ import (
 	httpapi "photo-annotated/internal/delivery/http"
 )
 
+type fakeDB struct{ err error }
+
+func (f fakeDB) Ping(context.Context) error { return f.err }
+
 func newTestRouter(t *testing.T) (http.Handler, *bytes.Buffer) {
+	return newTestRouterDB(t, fakeDB{})
+}
+
+func newTestRouterDB(t *testing.T, db fakeDB) (http.Handler, *bytes.Buffer) {
 	t.Helper()
 	var buf bytes.Buffer
 	return httpapi.NewRouter(httpapi.Deps{
 		Logger:         slog.New(slog.NewJSONHandler(&buf, nil)),
 		TrustedProxies: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")},
+		DB:             db,
 	}), &buf
+}
+
+func TestReadyz(t *testing.T) {
+	h, _ := newTestRouterDB(t, fakeDB{})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/readyz", nil))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"status":"ready"`) {
+		t.Fatalf("readyz sehat: %d %s", w.Code, w.Body.String())
+	}
+
+	h, buf := newTestRouterDB(t, fakeDB{err: errors.New("dial tcp 10.0.0.9:5432: password=hunter2 refused")})
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/readyz", nil))
+	if w.Code != 503 || !strings.Contains(w.Body.String(), "NOT_READY") {
+		t.Fatalf("readyz DB mati: %d %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "hunter2") || strings.Contains(w.Body.String(), "10.0.0.9") {
+		t.Fatalf("respons membocorkan detail error DB: %s", w.Body.String())
+	}
+	if !strings.Contains(buf.String(), `"status":503`) || !strings.Contains(buf.String(), "10.0.0.9") {
+		t.Fatalf("503 dan penyebabnya harus tercatat di log (bukan di respons): %s", buf.String())
+	}
+}
+
+func TestNewRouterRequiresDeps(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewRouter tanpa Deps wajib harus panic (bug wiring)")
+		}
+	}()
+	httpapi.NewRouter(httpapi.Deps{})
 }
 
 func TestHealthz(t *testing.T) {

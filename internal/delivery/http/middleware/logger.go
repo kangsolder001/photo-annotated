@@ -25,7 +25,7 @@ func Logger(log *slog.Logger) gin.HandlerFunc {
 		case status >= 400:
 			level = slog.LevelWarn
 		}
-		log.LogAttrs(c.Request.Context(), level, "request",
+		attrs := []slog.Attr{
 			slog.String("request_id", httpx.RequestID(c)),
 			slog.String("method", c.Request.Method),
 			slog.String("path", c.Request.URL.Path),
@@ -34,6 +34,11 @@ func Logger(log *slog.Logger) gin.HandlerFunc {
 			slog.Float64("duration_ms", float64(time.Since(start).Microseconds())/1000),
 			slog.String("client_ip", httpx.ClientIP(c)),
 			slog.Int("bytes", c.Writer.Size()),
-		)
+		}
+		// Error internal yang dicatat handler lewat c.Error(err): hanya masuk log, tidak ke klien.
+		if errs := c.Errors.ByType(gin.ErrorTypePrivate); len(errs) > 0 {
+			attrs = append(attrs, slog.String("error", errs.String()))
+		}
+		log.LogAttrs(c.Request.Context(), level, "request", attrs...)
 	}
 }

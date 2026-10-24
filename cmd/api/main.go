@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"photo-annotated/internal/adapter/postgres"
 	"photo-annotated/internal/config"
 	httpapi "photo-annotated/internal/delivery/http"
 )
@@ -44,7 +45,15 @@ func run() error {
 		trusted = append(trusted, p)
 	}
 
-	router := httpapi.NewRouter(httpapi.Deps{Logger: log, TrustedProxies: trusted})
+	startCtx, cancelStart := context.WithTimeout(context.Background(), 20*time.Second)
+	pool, err := postgres.NewPool(startCtx, cfg.Secrets.DatabaseURL, cfg.Database.MaxConns)
+	cancelStart()
+	if err != nil {
+		return err // gagal cepat: orkestrator (restart policy) akan mencoba lagi
+	}
+	defer pool.Close()
+
+	router := httpapi.NewRouter(httpapi.Deps{Logger: log, TrustedProxies: trusted, DB: pool})
 	srv := httpapi.NewServer(cfg.App.HTTPAddr, router)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

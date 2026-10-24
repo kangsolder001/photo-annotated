@@ -110,12 +110,14 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [x] `go test ./internal/... -race`; [x] binary dijalankan: `curl /healthz`, SIGTERM graceful, gagal-start saat secret kurang
 **Dependencies:** 5 · **Files:** `cmd/api/main.go`, `internal/delivery/http/router.go`, `.../middleware/{requestid,logger,recovery}.go` · **Scope:** M
 
-#### Task 7: Koneksi DB, tool migrasi, `/readyz`
+#### Task 7: Koneksi DB, tool migrasi, `/readyz` — **SELESAI**
 **Description:** `pgxpool` (MaxConns dari config), `cmd/migrate` (golang-migrate atau goose), migrasi `0001` kosong/ekstensi bila perlu, `GET /readyz` memeriksa DB saja.
 **Acceptance criteria:**
-- [ ] `cmd/migrate up/down` berjalan terhadap `photo_annotated_test`
-- [ ] `/readyz` 200 saat DB hidup, 503 saat DB mati
-**Verification:** [ ] `TEST_DATABASE_URL=… go test ./internal/adapter/postgres/... -race`; [ ] `curl /readyz`
+- [x] `cmd/migrate up/down/status` berjalan (goose, SQL disematkan, session lock) terhadap DB di Pi; up kedua idempoten; down lalu up ulang berhasil
+- [x] `/readyz` 200 saat DB hidup, 503 `NOT_READY` saat DB mati (tunnel diputus sungguhan); `/healthz` tetap 200; detail error hanya di log
+- [x] API gagal start jika DB tak terjangkau (`NewPool` ping saat startup)
+- [x] Helper `internal/testutil/pgtest`: schema acak per test + DROP saat selesai (0 schema yatim), test dilewati bila `TEST_DATABASE_URL` kosong
+**Verification:** [x] `TEST_DATABASE_URL=… go test ./... -race` (integrasi benar-benar jalan, bukan skip); [x] `curl /readyz` pada binary asli
 **Dependencies:** 3, 6 · **Files:** `cmd/migrate/main.go`, `internal/adapter/postgres/pool.go`, `migrations/0001_init.sql`, handler readyz · **Scope:** M
 
 #### Task 8: Middleware batas (rate limit, CORS, body limit)
