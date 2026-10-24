@@ -1,5 +1,6 @@
-import { faClock } from "@fortawesome/free-regular-svg-icons";
-import { faCheck, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faClock } from "@fortawesome/free-regular-svg-icons/faClock";
+import { faCheck } from "@fortawesome/free-solid-svg-icons/faCheck";
+import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { Icon } from "./Icon";
 
 export type ReviewStatusValue = "pending" | "accepted" | "rejected";

@@ -1,4 +1,4 @@
-import { faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { IconButton } from "../../../components/Icon";
 

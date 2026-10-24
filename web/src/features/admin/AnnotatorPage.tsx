@@ -1,4 +1,10 @@
-import { faArrowLeft, faBan, faEnvelope, faImages, faLockOpen, faPhone, faTrashCan } from "@fortawesome/free-solid-svg-icons";
+import { faArrowLeft } from "@fortawesome/free-solid-svg-icons/faArrowLeft";
+import { faBan } from "@fortawesome/free-solid-svg-icons/faBan";
+import { faEnvelope } from "@fortawesome/free-solid-svg-icons/faEnvelope";
+import { faImages } from "@fortawesome/free-solid-svg-icons/faImages";
+import { faLockOpen } from "@fortawesome/free-solid-svg-icons/faLockOpen";
+import { faPhone } from "@fortawesome/free-solid-svg-icons/faPhone";
+import { faTrashCan } from "@fortawesome/free-solid-svg-icons/faTrashCan";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Icon } from "../../components/Icon";

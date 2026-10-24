@@ -1,5 +1,7 @@
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
-import { faCircleHalfStroke, faMoon, faSun } from "@fortawesome/free-solid-svg-icons";
+import { faCircleHalfStroke } from "@fortawesome/free-solid-svg-icons/faCircleHalfStroke";
+import { faMoon } from "@fortawesome/free-solid-svg-icons/faMoon";
+import { faSun } from "@fortawesome/free-solid-svg-icons/faSun";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { theme, THEME_LABEL, type ThemePref } from "../lib/theme";
 import { Icon } from "./Icon";

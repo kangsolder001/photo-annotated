@@ -1,5 +1,5 @@
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
-import { faEllipsisVertical } from "@fortawesome/free-solid-svg-icons";
+import { faEllipsisVertical } from "@fortawesome/free-solid-svg-icons/faEllipsisVertical";
 import { useEffect, useId, useRef, useState } from "react";
 import { Icon } from "../../../components/Icon";
 

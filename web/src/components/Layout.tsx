@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { faCamera } from "@fortawesome/free-solid-svg-icons";
+import { faCamera } from "@fortawesome/free-solid-svg-icons/faCamera";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { api } from "../api/endpoints";
 import { config } from "../config";

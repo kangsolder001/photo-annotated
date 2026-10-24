@@ -1,4 +1,4 @@
-import { faTrashCan } from "@fortawesome/free-solid-svg-icons";
+import { faTrashCan } from "@fortawesome/free-solid-svg-icons/faTrashCan";
 import { useEffect, useRef } from "react";
 import { Icon } from "../../components/Icon";
 import { boxProblems, PROBLEM_TEXT, type Box } from "../../lib/annotation";

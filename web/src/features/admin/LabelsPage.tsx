@@ -1,6 +1,11 @@
-import {
-  faArrowDown, faArrowUp, faBoxArchive, faBoxOpen, faPen, faPlus, faRotate, faTrashCan,
-} from "@fortawesome/free-solid-svg-icons";
+import { faArrowDown } from "@fortawesome/free-solid-svg-icons/faArrowDown";
+import { faArrowUp } from "@fortawesome/free-solid-svg-icons/faArrowUp";
+import { faBoxArchive } from "@fortawesome/free-solid-svg-icons/faBoxArchive";
+import { faBoxOpen } from "@fortawesome/free-solid-svg-icons/faBoxOpen";
+import { faPen } from "@fortawesome/free-solid-svg-icons/faPen";
+import { faPlus } from "@fortawesome/free-solid-svg-icons/faPlus";
+import { faRotate } from "@fortawesome/free-solid-svg-icons/faRotate";
+import { faTrashCan } from "@fortawesome/free-solid-svg-icons/faTrashCan";
 import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
 import { Icon, IconButton } from "../../components/Icon";
 import { Banner, Spinner } from "../../components/ui";

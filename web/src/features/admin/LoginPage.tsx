@@ -1,4 +1,6 @@
-import { faArrowLeft, faPaperPlane, faRotate } from "@fortawesome/free-solid-svg-icons";
+import { faArrowLeft } from "@fortawesome/free-solid-svg-icons/faArrowLeft";
+import { faPaperPlane } from "@fortawesome/free-solid-svg-icons/faPaperPlane";
+import { faRotate } from "@fortawesome/free-solid-svg-icons/faRotate";
 import { useCallback, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Icon } from "../../components/Icon";

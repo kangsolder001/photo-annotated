@@ -1,7 +1,14 @@
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
-import {
-  faAnglesLeft, faAnglesRight, faBars, faChartSimple, faGauge, faImages, faRightFromBracket, faTags, faUsers, faXmark,
-} from "@fortawesome/free-solid-svg-icons";
+import { faAnglesLeft } from "@fortawesome/free-solid-svg-icons/faAnglesLeft";
+import { faAnglesRight } from "@fortawesome/free-solid-svg-icons/faAnglesRight";
+import { faBars } from "@fortawesome/free-solid-svg-icons/faBars";
+import { faChartSimple } from "@fortawesome/free-solid-svg-icons/faChartSimple";
+import { faGauge } from "@fortawesome/free-solid-svg-icons/faGauge";
+import { faImages } from "@fortawesome/free-solid-svg-icons/faImages";
+import { faRightFromBracket } from "@fortawesome/free-solid-svg-icons/faRightFromBracket";
+import { faTags } from "@fortawesome/free-solid-svg-icons/faTags";
+import { faUsers } from "@fortawesome/free-solid-svg-icons/faUsers";
+import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Icon, IconButton } from "../../components/Icon";

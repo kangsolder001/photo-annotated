@@ -1,4 +1,4 @@
-import { faRotate } from "@fortawesome/free-solid-svg-icons";
+import { faRotate } from "@fortawesome/free-solid-svg-icons/faRotate";
 import type { Label } from "../../api/types";
 import { Icon } from "../../components/Icon";
 import { Banner } from "../../components/ui";

@@ -1,4 +1,7 @@
-import { faCircleCheck, faCircleXmark, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faCircleCheck } from "@fortawesome/free-solid-svg-icons/faCircleCheck";
+import { faCircleXmark } from "@fortawesome/free-solid-svg-icons/faCircleXmark";
+import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons/faTriangleExclamation";
+import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon, IconButton } from "../../../components/Icon";
 

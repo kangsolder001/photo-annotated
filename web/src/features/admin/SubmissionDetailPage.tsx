@@ -1,4 +1,12 @@
-import { faArrowLeft, faEnvelope, faImages, faPhone, faRotate, faTrashCan, faUser, faUserSecret, faUserSlash } from "@fortawesome/free-solid-svg-icons";
+import { faArrowLeft } from "@fortawesome/free-solid-svg-icons/faArrowLeft";
+import { faEnvelope } from "@fortawesome/free-solid-svg-icons/faEnvelope";
+import { faImages } from "@fortawesome/free-solid-svg-icons/faImages";
+import { faPhone } from "@fortawesome/free-solid-svg-icons/faPhone";
+import { faRotate } from "@fortawesome/free-solid-svg-icons/faRotate";
+import { faTrashCan } from "@fortawesome/free-solid-svg-icons/faTrashCan";
+import { faUser } from "@fortawesome/free-solid-svg-icons/faUser";
+import { faUserSecret } from "@fortawesome/free-solid-svg-icons/faUserSecret";
+import { faUserSlash } from "@fortawesome/free-solid-svg-icons/faUserSlash";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Icon } from "../../components/Icon";

@@ -212,3 +212,44 @@ kbd { font: inherit; font-family: ui-monospace, monospace; font-size: 0.85em; pa
 .stat-tile { display: flex; flex-direction: column; gap: 0.1rem; margin: 0; }
 .stat-value { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .detail-grid > .stack > .card { margin-bottom: 0; }
+
+/* ---- beranda */
+.admin-page section { margin-bottom: 1.5rem; }
+.stat-link { color: var(--text); text-decoration: none; border-color: var(--border-strong); }
+.stat-link:hover { background: var(--primary-soft); }
+.stat-link.is-warn { background: var(--warn-soft); color: var(--warn); }
+.status-grid { list-style: none; margin: 0 0 0.5rem; padding: 0; display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+@media (max-width: 767px) { .status-grid { grid-template-columns: minmax(0, 1fr); } }
+.status-card { margin: 0; display: flex; flex-direction: column; gap: 0.35rem; border-left-width: 5px; }
+.status-card.level-ok { border-left-color: var(--ok); }
+.status-card.level-warn { border-left-color: var(--warn); }
+.status-card.level-danger { border-left-color: var(--danger); }
+.status-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+.status-title { font-weight: 600; display: inline-flex; gap: 0.5rem; align-items: center; }
+.status-summary { overflow-wrap: anywhere; }
+.meter { height: 10px; border-radius: 5px; background: var(--bg); border: 1px solid var(--border-strong); overflow: hidden; }
+.meter > div { height: 100%; background: var(--primary); }
+.level-warn .meter > div { background: var(--warn); }
+.level-danger .meter > div { background: var(--danger); }
+
+/* ---- statistik: batang horizontal + angka; di HP angka di bawah tiap batang */
+.bar-table { width: 100%; border-collapse: collapse; }
+.bar-table th, .bar-table td { padding: 0.45rem 0.5rem; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--border); }
+.bar-table thead th { font-size: 0.85rem; color: var(--muted); }
+.bar-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bar-name { min-width: 8rem; max-width: 18rem; }
+.bar-name-in { display: flex; align-items: center; gap: 0.45rem; font-weight: 600; }
+.bar-col { width: 40%; }
+.bar-track { height: 14px; }
+.bar { height: 100%; border-radius: 0 4px 4px 0; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 25%); }
+.bar-table tbody tr:hover { background: var(--primary-soft); }
+@media (max-width: 767px) {
+  .bar-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .bar-table, .bar-table tbody { display: block; }
+  .bar-table tr { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.2rem 0.5rem; padding: 0.6rem 0; border-bottom: 1px solid var(--border); }
+  .bar-table th, .bar-table td { border: 0; padding: 0; }
+  .bar-name { grid-column: 1 / -1; max-width: none; }
+  .bar-col { grid-column: 1 / -1; width: auto; }
+  .bar-table .num { text-align: left; font-size: 0.88rem; }
+  .bar-table .num::before { content: attr(data-label) " "; color: var(--muted); display: block; font-size: 0.78rem; }
+}

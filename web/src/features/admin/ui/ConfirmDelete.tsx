@@ -1,4 +1,4 @@
-import { faTrashCan } from "@fortawesome/free-solid-svg-icons";
+import { faTrashCan } from "@fortawesome/free-solid-svg-icons/faTrashCan";
 import { useId, useState, type ReactNode } from "react";
 import { Icon } from "../../../components/Icon";
 import { Banner } from "../../../components/ui";

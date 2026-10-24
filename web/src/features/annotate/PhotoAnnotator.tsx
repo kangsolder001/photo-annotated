@@ -1,4 +1,5 @@
-import { faHand, faVectorSquare } from "@fortawesome/free-solid-svg-icons";
+import { faHand } from "@fortawesome/free-solid-svg-icons/faHand";
+import { faVectorSquare } from "@fortawesome/free-solid-svg-icons/faVectorSquare";
 import { useState } from "react";
 import { Icon } from "../../components/Icon";
 import { limits } from "../../config";

@@ -1,4 +1,6 @@
-import { faMagnifyingGlass, faRotate, faUserSlash } from "@fortawesome/free-solid-svg-icons";
+import { faMagnifyingGlass } from "@fortawesome/free-solid-svg-icons/faMagnifyingGlass";
+import { faRotate } from "@fortawesome/free-solid-svg-icons/faRotate";
+import { faUserSlash } from "@fortawesome/free-solid-svg-icons/faUserSlash";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Icon } from "../../components/Icon";

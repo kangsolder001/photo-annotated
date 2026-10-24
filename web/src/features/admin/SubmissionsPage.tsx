@@ -1,7 +1,14 @@
-import { faClock } from "@fortawesome/free-regular-svg-icons";
-import {
-  faCheck, faCheckDouble, faDownload, faFilter, faMagnifyingGlass, faRotate, faTrashCan, faUserSecret, faUserSlash, faXmark,
-} from "@fortawesome/free-solid-svg-icons";
+import { faClock } from "@fortawesome/free-regular-svg-icons/faClock";
+import { faCheck } from "@fortawesome/free-solid-svg-icons/faCheck";
+import { faCheckDouble } from "@fortawesome/free-solid-svg-icons/faCheckDouble";
+import { faDownload } from "@fortawesome/free-solid-svg-icons/faDownload";
+import { faFilter } from "@fortawesome/free-solid-svg-icons/faFilter";
+import { faMagnifyingGlass } from "@fortawesome/free-solid-svg-icons/faMagnifyingGlass";
+import { faRotate } from "@fortawesome/free-solid-svg-icons/faRotate";
+import { faTrashCan } from "@fortawesome/free-solid-svg-icons/faTrashCan";
+import { faUserSecret } from "@fortawesome/free-solid-svg-icons/faUserSecret";
+import { faUserSlash } from "@fortawesome/free-solid-svg-icons/faUserSlash";
+import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Icon } from "../../components/Icon";

@@ -57,3 +57,11 @@ describe("tanpa sumber ikon/font dari luar", () => {
     expect(src).not.toMatch(/@font-face|@import\s+url|fonts\.googleapis|use\.fontawesome|kit\.fontawesome|cdnjs|jsdelivr|unpkg/);
   });
 });
+
+describe("ikon di-import per berkas", () => {
+  // `import { faX } from "@fortawesome/free-solid-svg-icons"` menaruh semua ikon yang dipakai (termasuk
+  // ikon dashboard) di chunk bersama = bundle user. Impor per berkas membuat ikon ikut chunk pemakainya.
+  it.each(shipped.map((f) => [relative(WEB, f), f]))("%s", (_name, f) => {
+    expect(readFileSync(f, "utf8")).not.toMatch(/from "@fortawesome\/free-(solid|regular)-svg-icons"/);
+  });
+});

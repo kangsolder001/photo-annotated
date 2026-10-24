@@ -271,3 +271,39 @@ menempel di bawah, bar aksi massal 4 tombol) dan 1440 px.
 **Test:** `annotators.test.tsx` (kolom + status, cari & filter → query, mode none tanpa request, blokir
 dengan alasan wajib → body, buka blokir, hapus data default/ikut diterima + `HAPUS` + body).
 **Verification:** [x] typecheck; [x] `npm test` (396); [x] build. [x] Visual 360/768/1440 × kedua tema.
+
+#### Task 51: FE admin — beranda status sistem + statistik label — **SELESAI**
+**Hasil:**
+- **`/admin` (Beranda):** `GET /admin/system` dimuat saat dibuka, tiap 30 detik selama tab terlihat,
+  saat tab kembali terlihat, dan lewat "Muat ulang". Ringkasan pekerjaan: "N menunggu review" dan "N
+  akan terhapus retensi dalam 7 hari" (tautan ke antrean review; yang kedua berlatar waspada bila > 0),
+  submission / diterima / ditolak, annotator aktif + diblokir (disembunyikan pada mode none). Kartu
+  status Database (`database`), SSD (`hard-drive`, bar pemakaian `role=meter`), Upload aktif
+  (`cloud-arrow-up`), WhatsApp/OTP (`message`), Cleanup (`broom`), Suhu CPU (`temperature-half`);
+  tiap kartu punya tingkat OK / Waspada / Bahaya sebagai ikon + teks + garis tepi berwarna token tema.
+  Baris bawah: waktu cek, versi API, waktu start, mode auth.
+- **Ambang (`systemStatus.ts`, sama dengan alert Grafana):** SSD terpakai > 80% → waspada; sisa <
+  `min_free_bytes` atau `available: false` → bahaya; kanal WhatsApp tidak tersedia → bahaya; antrean >
+  80% `max_queue` atau terkirim 24 jam > 80% `daily_cap` → waspada; suhu > 75 °C → waspada; DB `ok:
+  false` → bahaya; upload > 80% slot → waspada; cleanup terakhir gagal → waspada. Bagian yang berisi
+  `{ error }` → kartu "Tidak bisa dihitung" (bahaya; suhu: waspada) tanpa menjatuhkan kartu lain;
+  `cpu_temp_c: null` → "Tidak terbaca dari container" (OK).
+- **`/admin/statistik`:** filter tanggal + status review (default **Diterima (dataset)**, bisa "Semua"),
+  disimpan di URL. Kotak total (kotak, foto, submission, catatan lama). Tabel batang horizontal per
+  label (warna label, urut kotak terbanyak, lebar relatif terhadap label terbanyak, ujung membulat 4 px)
+  dengan angka kotak / porsi / foto / submission berdampingan di desktop; di HP angka tampil di bawah
+  tiap batang. Tooltip per baris (`title`). Label dengan 0 contoh (termasuk arsip) dipisah di bagian
+  "Belum ada contoh" di bawah.
+- **Ikon per berkas:** ditemukan saat build bahwa `import { faX } from "@fortawesome/free-solid-svg-icons"`
+  membuat Rollup menaruh **semua** ikon yang dipakai (termasuk ikon dashboard) di chunk entry, karena
+  modul ikon dipakai bersama. Semua impor ikon diubah ke per berkas
+  (`@fortawesome/free-solid-svg-icons/faBroom`, didukung `exports "./*"` paket), dijaga test di
+  `conventions.test.ts`, dan `check-bundle.mjs` kini juga memeriksa nama ikon khusus dashboard. Bundle
+  user turun ke 374,4 kB (gzip ±123 kB); chunk admin 104 kB (gzip ±30 kB; ikon per berkas berbentuk CJS
+  sehingga sedikit lebih besar).
+**Test:** `home.test.tsx` (ambang tiap kartu, bagian error tidak menjatuhkan yang lain, kartu ikon +
+teks status, meter SSD, tautan antrean, muat ulang 30 detik dengan timer palsu; statistik: default
+`accepted`, urutan, format angka/persen id-ID, label tanpa contoh di bawah, filter → query).
+**Verification:** [x] typecheck; [x] `npm test` (495); [x] build + cek bundle. [x] Visual 360/768/1440 ×
+kedua tema (Beranda, Statistik): tanpa scroll horizontal; diperbaiki: sel nama label `display:flex`
+merusak garis baris tabel.

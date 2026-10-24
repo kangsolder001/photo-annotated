@@ -7,7 +7,8 @@ const dist = new URL("../dist/", import.meta.url).pathname;
 const html = readFileSync(join(dist, "index.html"), "utf8");
 const entries = [...html.matchAll(/(?:src|href)="\/assets\/([^"]+\.(?:js|css))"/g)].map((m) => m[1]);
 // penanda yang hanya ada di kode admin
-const MARKERS = ["/api/v1/admin", "pa.admin.session", "Masuk admin", "admin-sidebar"];
+// (termasuk ikon yang hanya dipakai dashboard: ikon di-import per berkas agar ikut chunk admin)
+const MARKERS = ["/api/v1/admin", "pa.admin.session", "Masuk admin", "admin-sidebar", "temperature-half", "hard-drive", "ellipsis-vertical"];
 
 let failed = false;
 for (const f of entries) {

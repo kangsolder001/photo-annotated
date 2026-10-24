@@ -1,4 +1,8 @@
-import { faArrowLeft, faArrowRight, faCheck, faRotateLeft, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faArrowLeft } from "@fortawesome/free-solid-svg-icons/faArrowLeft";
+import { faArrowRight } from "@fortawesome/free-solid-svg-icons/faArrowRight";
+import { faCheck } from "@fortawesome/free-solid-svg-icons/faCheck";
+import { faRotateLeft } from "@fortawesome/free-solid-svg-icons/faRotateLeft";
+import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Icon } from "../../components/Icon";

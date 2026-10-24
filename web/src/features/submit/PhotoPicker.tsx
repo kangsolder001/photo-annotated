@@ -1,4 +1,5 @@
-import { faCamera, faImages } from "@fortawesome/free-solid-svg-icons";
+import { faCamera } from "@fortawesome/free-solid-svg-icons/faCamera";
+import { faImages } from "@fortawesome/free-solid-svg-icons/faImages";
 import { useRef } from "react";
 import { Icon } from "../../components/Icon";
 
