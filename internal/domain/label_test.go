@@ -80,3 +80,19 @@ func errCode(err error) string {
 	}
 	return ""
 }
+
+func TestPhonePrefix(t *testing.T) {
+	for in, want := range map[string]string{
+		"0812": "62812", "62812": "62812", "+62 812": "62812", "812": "62812", "0812-3456": "628123456",
+		"+62 0812": "62812", "006281": "6281", "6": "6", " 0811 ": "62811",
+	} {
+		if got, ok := domain.PhonePrefix(in); !ok || got != want {
+			t.Errorf("%q: %q %v, ingin %q", in, got, ok, want)
+		}
+	}
+	for _, in := range []string{"", "Budi", "08a", "+", "0812@x", "08-12x"} {
+		if _, ok := domain.PhonePrefix(in); ok {
+			t.Errorf("%q seharusnya bukan potongan nomor", in)
+		}
+	}
+}

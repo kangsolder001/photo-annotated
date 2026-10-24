@@ -79,6 +79,11 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 	admin.send(t, "PUT", "/api/v1/admin/labels/order", `{"ids":[`+strings.Join(order, ",")+`]}`)
 	admin.send(t, "DELETE", "/api/v1/admin/labels/"+idOf(lbl), "")
 	admin.get(t, "/api/v1/admin/me", nil)
+	_, _, listRaw := admin.get(t, "/api/v1/admin/submissions?q=0812-7777", nil)
+	if !strings.Contains(string(listRaw), "6281277771234") {
+		t.Fatalf("daftar admin harus memuat nomor utuh (yang tidak boleh masuk log): %s", listRaw)
+	}
+	admin.get(t, "/api/v1/admin/submissions/"+sub.SubmissionID.String(), nil)
 	_, fake := s.postJSON(t, "/api/v1/admin/otp/request", `{"phone":"0813-5555-6666","turnstile_token":"human"}`)
 	s.postJSON(t, "/api/v1/admin/otp/verify", `{"challenge_id":"`+fake["challenge_id"].(string)+`","code":"424242"}`)
 	s.getJSON(t, "/api/v1/admin/otp/"+fake["challenge_id"].(string))

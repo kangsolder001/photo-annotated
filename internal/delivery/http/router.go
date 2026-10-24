@@ -76,6 +76,9 @@ type Deps struct {
 	AdminLoginPerMin int    // request + resend OTP admin per IP
 	AuthMode         string // auth.mode, untuk GET /admin/me
 
+	// Hasil anotasi untuk dashboard (spec-labels-admin §5.4); hanya aktif bila Admin juga diisi.
+	AdminSubmissions handler.AdminSubmissionReader
+
 	// Export dataset (spec §5.7); hanya aktif bila Admin juga diisi.
 	Exporter handler.Exporter
 	NewJSONL func(io.Writer) handler.ExportStream
@@ -213,6 +216,11 @@ func NewRouter(d Deps) *gin.Engine {
 			api.PUT("/admin/labels/order", adminOnly, labels.Reorder)
 			api.PUT("/admin/labels/:id", adminOnly, labels.Update)
 			api.DELETE("/admin/labels/:id", adminOnly, labels.Delete)
+		}
+		if d.AdminSubmissions != nil {
+			subsAdmin := handler.NewAdminSubmissionHandler(d.AdminSubmissions)
+			api.GET("/admin/submissions", adminOnly, subsAdmin.List)
+			api.GET("/admin/submissions/:id", adminOnly, subsAdmin.Detail)
 		}
 	}
 

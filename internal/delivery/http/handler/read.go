@@ -87,6 +87,18 @@ type submissionViewDTO struct {
 	Photos        []photoViewDTO `json:"photos"`
 }
 
+func toPhotoView(p domain.PhotoWithAnnotations) photoViewDTO {
+	pd := photoViewDTO{
+		PhotoID: p.Photo.ID, Position: p.Photo.Position, ContentType: p.Photo.ContentType,
+		SizeBytes: p.Photo.SizeBytes, Width: p.Photo.Width, Height: p.Photo.Height,
+		Annotations: make([]annotationDTO, len(p.Annotations)),
+	}
+	for j, a := range p.Annotations {
+		pd.Annotations[j] = toAnnotationDTO(a)
+	}
+	return pd
+}
+
 // GetSubmission menangani GET /api/v1/submissions/{id} (spec §5.3).
 func (h *ReadHandler) GetSubmission(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
@@ -106,15 +118,7 @@ func (h *ReadHandler) GetSubmission(c *gin.Context) {
 		Photos: make([]photoViewDTO, len(v.Detail.Photos)),
 	}
 	for i, p := range v.Detail.Photos {
-		pd := photoViewDTO{
-			PhotoID: p.Photo.ID, Position: p.Photo.Position, ContentType: p.Photo.ContentType,
-			SizeBytes: p.Photo.SizeBytes, Width: p.Photo.Width, Height: p.Photo.Height,
-			Annotations: make([]annotationDTO, len(p.Annotations)),
-		}
-		for j, a := range p.Annotations {
-			pd.Annotations[j] = toAnnotationDTO(a)
-		}
-		dto.Photos[i] = pd
+		dto.Photos[i] = toPhotoView(p)
 	}
 	c.JSON(http.StatusOK, dto)
 }

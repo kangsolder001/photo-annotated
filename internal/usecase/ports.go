@@ -384,3 +384,57 @@ type LabelRepo interface {
 	// Delete menghapus label; dipakai anotasi → domain.Conflict LABEL_IN_USE.
 	Delete(ctx context.Context, id int) error
 }
+
+// AdminCursor adalah posisi keyset daftar submission admin: (created_at, id) sesuai arah urutan.
+type AdminCursor struct {
+	CreatedAt time.Time
+	ID        uuid.UUID
+}
+
+// AdminListQuery adalah filter GET /admin/submissions (spec-labels-admin §5.4).
+type AdminListQuery struct {
+	From, To  *time.Time // atas created_at; From inklusif, To eksklusif
+	LabelID   *int       // punya ≥ 1 kotak berlabel ini
+	UserID    *uuid.UUID // milik annotator ini
+	NameQ     string     // nama annotator mengandung (tanpa beda huruf besar-kecil); kosong = tanpa filter
+	PhoneQ    string     // awalan nomor kanonik; kosong = tanpa filter (NameQ/PhoneQ digabung OR)
+	Unlabeled bool       // masih punya kotak teks lama
+	Oldest    bool       // urut created_at naik (default: terbaru dulu)
+	Limit     int
+	After     *AdminCursor
+}
+
+// Annotator adalah identitas pemilik submission untuk dashboard (data pribadi: hanya admin).
+type Annotator struct {
+	ID                 uuid.UUID
+	Name, Email, Phone string
+	Blocked            bool
+}
+
+// LabelCount: jumlah kotak berlabel tertentu dalam satu submission.
+type LabelCount struct {
+	ID          int
+	Name, Color string
+	Count       int
+}
+
+// AdminSubmissionRow adalah satu baris daftar submission admin. Cover = foto attached pertama beserta
+// kotaknya (nil bila submission tidak punya foto attached).
+type AdminSubmissionRow struct {
+	Submission      domain.Submission
+	Annotator       *Annotator
+	PhotoCount      int
+	AnnotationCount int
+	LegacyTextCount int
+	Labels          []LabelCount
+	Cover           *domain.PhotoWithAnnotations
+}
+
+// AdminSubmissionRepo membaca submission untuk dashboard admin.
+type AdminSubmissionRepo interface {
+	// List mengembalikan paling banyak q.Limit submission (yang punya ≥ 1 foto attached) sesuai filter
+	// dan urutan keyset.
+	List(ctx context.Context, q AdminListQuery) ([]AdminSubmissionRow, error)
+	// Annotator mengembalikan identitas pemilik, atau nil bila tidak ada (mode none / akun dihapus).
+	Annotator(ctx context.Context, userID uuid.UUID) (*Annotator, error)
+}

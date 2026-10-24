@@ -187,6 +187,8 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		Reader: reader, Editor: editor,
 		Labels:       usecase.NewLabels(postgres.NewLabelRepo(pool), txm, usecase.SystemClock{}, usecase.LabelsConfig{MaxActive: 200}),
 		OTPRequester: otp.req, OTPVerifier: otp.verify, PasswordLogin: otp.login, LoginPerMin: 1_000_000, Sessions: otp.sessions, OTPVerifyPerMin: 1_000_000, OTPChannel: channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin, UploadTurnstile: o.uploadTurnstile, Admin: adm.login, AdminLoginPerMin: o.adminPerMin, AuthMode: authMode,
+		AdminSubmissions: usecase.NewAdminSubmissions(postgres.NewAdminSubmissionRepo(pool), subs, sg, usecase.SystemClock{},
+			usecase.AdminSubmissionsConfig{PublicBaseURL: srv.URL, ViewURLTTL: o.viewTTL, EditWindow: 24 * time.Hour, RetentionDays: 90}),
 		Exporter: usecase.NewExport(postgres.NewExportRepo(pool), sg, usecase.SystemClock{}, usecase.ExportConfig{PublicBaseURL: srv.URL, URLTTL: time.Hour, PageSize: 2}),
 		NewJSONL: func(w io.Writer) handler.ExportStream { return export.NewJSONL(w) },
 	})

@@ -21,6 +21,13 @@ Tidak ada penyimpangan dari bentuk JSON spec. Detail yang spec tidak sebutkan da
   lokasi `photos[i].annotations[j]` seperti error validasi lain.
 - `label_id` yang bukan bilangan bulat (mis. `"1"`) → `400 INVALID_JSON`; `label_id` tidak dikirim / `0` →
   `422 INVALID_LABEL`.
+- `GET /admin/submissions`: `next_cursor` selalu ada (`null` di halaman terakhir). Cursor mengikat arah `sort`;
+  memakai cursor dari `sort` lain → `422 INVALID_QUERY`. `cover.annotations[].label_id` = `null` untuk kotak teks
+  lama. `labels` diurutkan jumlah terbanyak dulu. `cover` = `null` hanya bila tidak ada foto (tidak terjadi untuk
+  item yang tampil).
+- `GET /admin/submissions/{id}` menambah `url_expires_at` (kapan URL foto di respons kedaluwarsa) di samping field
+  spec; bentuk lain sama dengan `GET /submissions/{id}` (+ `annotator`, `review`, `retention_deletes_at`, per foto
+  `url` + `sha256` hex).
 
 ## Perubahan config untuk deploy
 
@@ -123,3 +130,23 @@ baris lama, label arsip, `PhotoLabelIDs`, FK label; usecase: label tidak ada/ars
 pengecualian arsip saat edit, edit submission lama, export berlabel + filter + nama terkini; e2e: `text` → 400,
 tanpa/tidak ada label → 422, GET memuat label lengkap, ganti nama langsung terlihat di GET dan export, arsip
 ditolak untuk kotak baru tetapi boleh dipertahankan, baris lama di GET dan export, log hygiene)
+
+#### Task 40: Daftar & detail submission admin — **SELESAI**
+**Hasil:** `GET /admin/submissions` (filter `from`/`to`/`label_id`/`user_id`/`q`/`unlabeled`, `sort` newest/oldest,
+`limit` 1–50, cursor keyset `(created_at, id)` opak) dan `GET /admin/submissions/{id}`; keduanya `Cache-Control:
+no-store`. Item memuat annotator (nama, email, nomor **utuh**, `blocked`), jumlah foto/kotak, jumlah per label,
+`legacy_text_count`, `retention_deletes_at`, dan sampul (foto `position` terkecil + URL bertanda tangan
+`view_url_ttl` + kotaknya) sehingga satu halaman tidak butuh request tambahan per foto.
+**Keputusan:**
+- Satu query halaman (+1 baris untuk mendeteksi halaman berikutnya) lalu dua query agregat untuk id di halaman itu
+  (jumlah foto/label, sampul `DISTINCT ON`), bukan subquery per baris.
+- `q`: nama mengandung (ILIKE, karakter `%`/`_` diloloskan) **atau** awalan nomor setelah normalisasi
+  (`domain.PhonePrefix`: `0812…`, `+62 812…`, `812…` → `62812…`); teks yang memuat huruf hanya dicari sebagai nama.
+- Hanya submission yang masih punya foto `attached` yang tampil (yang sedang dibersihkan retensi/hapus disembunyikan).
+- `review` sementara selalu `pending` dan `retention_deletes_at` = `created_at + retention.days`; diisi sungguhan di
+  T46. Filter `review_status` juga di T46.
+**Verification:** [x] `go vet`, `go build ./cmd/...`, `go test ./... -race` (domain: awalan nomor; usecase: semua
+filter, hitungan + label + teks lama, sampul, retensi, urutan, cursor dua arah dengan created_at kembar, batas limit,
+detail + annotator terhapus; e2e: mode otp dengan nomor utuh, URL sampul bisa diunduh, filter, halaman, 11 query
+salah → 422, 404, 401 untuk token pengguna/tanpa token, mode none annotator null, log hygiene: respons memuat nomor
+utuh tetapi log tidak)

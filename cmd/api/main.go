@@ -148,6 +148,11 @@ func run() error {
 		Uploader: upload, MaxUploadBytes: cfg.Limits.MaxUploadBytes, UploadTimeout: cfg.Limits.UploadTimeout.Std(),
 	}
 	if cfg.Admin.Enabled {
+		deps.AdminSubmissions = usecase.NewAdminSubmissions(postgres.NewAdminSubmissionRepo(pool), subs, urlSigner, usecase.SystemClock{},
+			usecase.AdminSubmissionsConfig{
+				PublicBaseURL: cfg.App.PublicBaseURL, ViewURLTTL: cfg.Storage.ViewURLTTL.Std(),
+				EditWindow: cfg.Edit.Window.Std(), RetentionDays: cfg.Retention.Days,
+			})
 		deps.Exporter = usecase.NewExport(postgres.NewExportRepo(pool), urlSigner, usecase.SystemClock{}, usecase.ExportConfig{
 			PublicBaseURL: cfg.App.PublicBaseURL, URLTTL: exportURLTTL, PageSize: exportPageSize,
 		})
