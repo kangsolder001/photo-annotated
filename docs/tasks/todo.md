@@ -1,6 +1,6 @@
 # Todo: Photo Annotated
 
-Detail tiap task (deskripsi, acceptance criteria, verifikasi, dependensi, file) ada di [tasks/plan.md](plan.md). Spesifikasi: [docs/spec.md](../docs/spec.md).
+Detail tiap task (deskripsi, acceptance criteria, verifikasi, dependensi, file) ada di [plan.md](plan.md). Spesifikasi: [spec.md](../spec.md).
 
 Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠️ risiko tinggi
 

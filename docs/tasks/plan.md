@@ -1,6 +1,6 @@
 # Implementation Plan: Photo Annotated
 
-Sumber: [docs/spec.md](../docs/spec.md) (Draft v0.5). Daftar centang ringkas ada di [tasks/todo.md](todo.md).
+Sumber: [spec.md](../spec.md) (Draft v0.5). Daftar centang ringkas ada di [todo.md](todo.md).
 
 ## Overview
 
