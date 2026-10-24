@@ -84,6 +84,30 @@ func (r *PhotoRepo) Attach(ctx context.Context, photoID, submissionID uuid.UUID,
 	return nil
 }
 
+func (r *PhotoRepo) MarkDeleted(ctx context.Context, photoID, submissionID uuid.UUID) error {
+	tag, err := r.db(ctx).Exec(ctx,
+		`UPDATE photos SET status = 'deleted' WHERE id = $1 AND submission_id = $2 AND status = 'attached'`, photoID, submissionID)
+	if err != nil {
+		return fmt.Errorf("postgres: mark deleted: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.Conflict("PHOTO_NOT_AVAILABLE", "photo %s is not attached to this submission", photoID)
+	}
+	return nil
+}
+
+func (r *PhotoRepo) SetPosition(ctx context.Context, photoID, submissionID uuid.UUID, position int) error {
+	tag, err := r.db(ctx).Exec(ctx,
+		`UPDATE photos SET position = $3 WHERE id = $1 AND submission_id = $2 AND status = 'attached'`, photoID, submissionID, position)
+	if err != nil {
+		return fmt.Errorf("postgres: set position: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.Conflict("PHOTO_NOT_AVAILABLE", "photo %s is not attached to this submission", photoID)
+	}
+	return nil
+}
+
 func (r *PhotoRepo) ListBySubmission(ctx context.Context, submissionID uuid.UUID) ([]*domain.Photo, error) {
 	rows, err := r.db(ctx).Query(ctx, `SELECT `+photoColumns+` FROM photos
 		WHERE submission_id = $1 AND status = 'attached' ORDER BY position, id`, submissionID)

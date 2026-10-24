@@ -76,11 +76,16 @@ func (u *Submit) Submit(ctx context.Context, in SubmitInput) (*SubmitOutput, err
 	}
 
 	// 3. Muat dan periksa semua foto SEBELUM transaksi (I/O disk tidak boleh menahan transaksi)
-	photos, err := u.loadPhotos(ctx, in)
+	items := make([]gateItem, len(in.Photos))
+	for i, p := range in.Photos {
+		items[i] = gateItem{Index: i, PhotoID: p.PhotoID}
+	}
+	gate := photoGate{photos: u.photos, store: u.store}
+	photos, err := gate.load(ctx, items, in.OwnerID)
 	if err != nil {
 		return u.replayOnConflict(ctx, in, err)
 	}
-	if err := u.checkFiles(ctx, photos); err != nil {
+	if err := gate.checkFiles(ctx, items, photos); err != nil {
 		return nil, err
 	}
 
@@ -127,18 +132,25 @@ func (u *Submit) replayOnConflict(ctx context.Context, in SubmitInput, cause err
 
 var errDuplicateRequest = domain.Conflict("DUPLICATE_CLIENT_REQUEST", "a submission with this client_request_id already exists")
 
-// validateShape memvalidasi jumlah dan isi dan mengembalikan anotasi yang sudah dinormalisasi
-// (indeks sejajar dengan in.Photos).
+// validateShape memvalidasi request submission baru dan mengembalikan anotasi yang sudah
+// dinormalisasi (indeks sejajar dengan in.Photos).
 func (u *Submit) validateShape(in SubmitInput) ([][]domain.Annotation, error) {
 	if in.ClientRequestID == uuid.Nil {
 		return nil, domain.Invalid("INVALID_CLIENT_REQUEST_ID", "client_request_id is required")
 	}
-	if n := len(in.Photos); n < 1 || n > u.cfg.MaxPhotos {
-		return nil, domain.Invalid("INVALID_PHOTO_COUNT", "a submission needs between 1 and %d photos", u.cfg.MaxPhotos)
+	return validatePhotos(u.cfg, in.Photos)
+}
+
+// validatePhotos memvalidasi daftar foto beserta anotasinya (dipakai Submit dan Edit): 1..N foto,
+// tanpa duplikat, 0..M anotasi per foto, tiap anotasi lolos aturan domain. Mengembalikan anotasi
+// yang sudah dinormalisasi dengan indeks sejajar dengan photos.
+func validatePhotos(cfg SubmitConfig, photos []SubmitPhoto) ([][]domain.Annotation, error) {
+	if n := len(photos); n < 1 || n > cfg.MaxPhotos {
+		return nil, domain.Invalid("INVALID_PHOTO_COUNT", "a submission needs between 1 and %d photos", cfg.MaxPhotos)
 	}
-	seen := make(map[uuid.UUID]struct{}, len(in.Photos))
-	out := make([][]domain.Annotation, len(in.Photos))
-	for i, p := range in.Photos {
+	seen := make(map[uuid.UUID]struct{}, len(photos))
+	out := make([][]domain.Annotation, len(photos))
+	for i, p := range photos {
 		if p.PhotoID == uuid.Nil {
 			return nil, domain.Invalid("PHOTO_NOT_FOUND", "photos[%d].photo_id is required", i)
 		}
@@ -146,12 +158,12 @@ func (u *Submit) validateShape(in SubmitInput) ([][]domain.Annotation, error) {
 			return nil, domain.Invalid("DUPLICATE_PHOTO", "photos[%d]: photo %s is listed more than once", i, p.PhotoID)
 		}
 		seen[p.PhotoID] = struct{}{}
-		if len(p.Annotations) > u.cfg.MaxAnnotationsPerPhoto {
-			return nil, domain.Invalid("TOO_MANY_ANNOTATIONS", "photos[%d]: at most %d annotations per photo", i, u.cfg.MaxAnnotationsPerPhoto)
+		if len(p.Annotations) > cfg.MaxAnnotationsPerPhoto {
+			return nil, domain.Invalid("TOO_MANY_ANNOTATIONS", "photos[%d]: at most %d annotations per photo", i, cfg.MaxAnnotationsPerPhoto)
 		}
 		out[i] = make([]domain.Annotation, len(p.Annotations))
 		for j, a := range p.Annotations {
-			v, err := a.Validate(u.cfg.MaxAnnotationTextLen)
+			v, err := a.Validate(cfg.MaxAnnotationTextLen)
 			if err != nil {
 				return nil, withPath(err, fmt.Sprintf("photos[%d].annotations[%d]", i, j))
 			}
@@ -202,41 +214,54 @@ func (u *Submit) output(s *domain.Submission, replayed bool) *SubmitOutput {
 	return out
 }
 
-// loadPhotos memuat setiap foto dan memastikan siap dipakai. Foto milik orang lain dijawab
-// seolah tidak ada, supaya keberadaannya tidak bisa ditebak.
-func (u *Submit) loadPhotos(ctx context.Context, in SubmitInput) ([]*domain.Photo, error) {
-	out := make([]*domain.Photo, len(in.Photos))
-	for i, sp := range in.Photos {
-		p, err := u.photos.Get(ctx, sp.PhotoID)
-		if errors.Is(err, domain.ErrNotFound) || (err == nil && !sameOwner(p.OwnerID, in.OwnerID)) {
-			return nil, domain.Invalid("PHOTO_NOT_FOUND", "photos[%d]: photo %s does not exist", i, sp.PhotoID)
+// gateItem menunjuk satu foto pada request beserta indeksnya (untuk pesan error "photos[i]").
+type gateItem struct {
+	Index   int
+	PhotoID uuid.UUID
+}
+
+// photoGate memeriksa foto yang akan dilampirkan ke submission (dipakai Submit dan Edit).
+type photoGate struct {
+	photos PhotoRepo
+	store  PhotoStore
+}
+
+// load memuat setiap foto dan memastikan siap dipakai oleh owner. Foto milik orang lain
+// dijawab seolah tidak ada, supaya keberadaannya tidak bisa ditebak.
+func (g photoGate) load(ctx context.Context, items []gateItem, owner *uuid.UUID) ([]*domain.Photo, error) {
+	out := make([]*domain.Photo, len(items))
+	for k, it := range items {
+		p, err := g.photos.Get(ctx, it.PhotoID)
+		if errors.Is(err, domain.ErrNotFound) || (err == nil && !sameOwner(p.OwnerID, owner)) {
+			return nil, domain.Invalid("PHOTO_NOT_FOUND", "photos[%d]: photo %s does not exist", it.Index, it.PhotoID)
 		}
 		if err != nil {
 			return nil, err
 		}
 		if err := p.ReadyToAttach(); err != nil {
-			return nil, withPath(err, fmt.Sprintf("photos[%d]", i))
+			return nil, withPath(err, fmt.Sprintf("photos[%d]", it.Index))
 		}
-		out[i] = p
+		out[k] = p
 	}
 	return out, nil
 }
 
 // checkFiles memastikan file tiap foto benar-benar ada di penyimpanan dengan ukuran yang
-// dideklarasikan (Stat saja, tanpa membaca isi). Foto yang bermasalah ditandai rejected.
-func (u *Submit) checkFiles(ctx context.Context, photos []*domain.Photo) error {
-	for i, p := range photos {
-		info, err := u.store.Stat(ctx, p.StorageKey)
+// dideklarasikan (Stat saja, tanpa membaca isi). Foto yang bermasalah ditandai rejected;
+// kegagalan penyimpanan itu sendiri bukan salah foto dan dikembalikan apa adanya.
+func (g photoGate) checkFiles(ctx context.Context, items []gateItem, photos []*domain.Photo) error {
+	for k, p := range photos {
+		info, err := g.store.Stat(ctx, p.StorageKey)
 		switch {
 		case err == nil && info.Size == p.SizeBytes:
 			continue
 		case err != nil && !errors.Is(err, ErrFileNotFound):
-			return err // penyimpanan bermasalah: bukan salah foto
+			return err
 		}
 		fctx, cancel := finalizeCtx(ctx)
-		mErr := u.photos.MarkRejected(fctx, p.ID)
+		mErr := g.photos.MarkRejected(fctx, p.ID)
 		cancel()
-		bad := domain.Invalid("PHOTO_FILE_INVALID", "photos[%d]: the uploaded file is missing or does not match its declared size; upload the photo again", i)
+		bad := domain.Invalid("PHOTO_FILE_INVALID", "photos[%d]: the uploaded file is missing or does not match its declared size; upload the photo again", items[k].Index)
 		if mErr != nil {
 			return errors.Join(bad, mErr)
 		}

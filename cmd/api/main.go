@@ -88,12 +88,15 @@ func run() error {
 		editTokens = et
 	}
 	subs := postgres.NewSubmissionRepo(pool)
-	submit := usecase.NewSubmit(photos, subs, postgres.NewTxManager(pool), store, editTokens,
-		usecase.SystemClock{}, usecase.SubmitConfig{
-			MaxPhotos:              cfg.Limits.MaxPhotosPerSubmission,
-			MaxAnnotationsPerPhoto: cfg.Limits.MaxAnnotationsPerPhoto,
-			MaxAnnotationTextLen:   cfg.Limits.MaxAnnotationTextLen,
-		})
+	submitCfg := usecase.SubmitConfig{
+		MaxPhotos:              cfg.Limits.MaxPhotosPerSubmission,
+		MaxAnnotationsPerPhoto: cfg.Limits.MaxAnnotationsPerPhoto,
+		MaxAnnotationTextLen:   cfg.Limits.MaxAnnotationTextLen,
+	}
+	txm := postgres.NewTxManager(pool)
+	submit := usecase.NewSubmit(photos, subs, txm, store, editTokens, usecase.SystemClock{}, submitCfg)
+	editor := usecase.NewEdit(photos, subs, txm, store, editTokens, usecase.SystemClock{},
+		usecase.EditConfig{SubmitConfig: submitCfg, Window: cfg.Edit.Window.Std()})
 	reader := usecase.NewReader(subs, photos, store, urlSigner, editTokens, usecase.SystemClock{}, usecase.ReadConfig{
 		PublicBaseURL: cfg.App.PublicBaseURL,
 		EditWindow:    cfg.Edit.Window.Std(),
@@ -106,6 +109,7 @@ func run() error {
 		Logger: log, TrustedProxies: trusted, DB: pool, AllowedOrigins: cfg.App.AllowedOrigins,
 		Presigner: presign, PresignPerMin: cfg.Limits.RateLimitPerMin.Presign,
 		Reader:    reader,
+		Editor:    editor,
 		Submitter: submit, SubmissionsPerMin: cfg.Limits.RateLimitPerMin.Submissions,
 		Uploader: upload, MaxUploadBytes: cfg.Limits.MaxUploadBytes, UploadTimeout: cfg.Limits.UploadTimeout.Std(),
 	})

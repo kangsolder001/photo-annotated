@@ -225,13 +225,18 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [x] `go test ./… -race` (101 test, 0 skip); [x] e2e HTTP asli; [x] di Pi (SSD & DB asli): 200 / 404 seragam / konten identik 42 byte / `Range` 206 `0-3/42` / `If-None-Match` 304 / sig diubah 403; log tanpa `edit_token`/`sig`
 **Dependencies:** 14 · **Files:** `usecase/{get,photourl,photo_content}.go`, `handler/{submission_get,photo}.go` · **Scope:** M
 
-#### Task 16: `PUT /submissions/{id}` (edit)
+#### Task 16: `PUT /submissions/{id}` (edit) — **SELESAI**
 **Description:** Replace semantik, `version` optimistic locking, jendela edit 24 jam, foto yang dihapus → `deleted`, foto baru `pending` → `attached`.
 **Acceptance criteria:**
-- [ ] `version` basi → `409 VERSION_CONFLICT`; setelah 24 jam → `403 EDIT_WINDOW_CLOSED` (diuji dengan fake clock)
-- [ ] Foto yang dihapus berstatus `deleted` dan jadi target cleanup
-- [ ] Edit tidak memperpanjang jendela
-**Verification:** [ ] `go test ./internal/usecase/... -race`; [ ] integrasi
+- [x] `version` basi → `409 VERSION_CONFLICT` tanpa mengubah apa pun (versi, foto baru tetap `pending`); dari 10 edit serentak dengan versi sama tepat satu menang (usecase dan e2e HTTP asli); `INVALID_VERSION` untuk < 1
+- [x] Jendela 24 jam dari `created_at`: `-1µs` boleh, tepat batas → `403 EDIT_WINDOW_CLOSED`; edit tidak memperpanjang jendela; jendela diperiksa sebelum versi tetapi setelah otorisasi (tanpa hak tetap 404 seragam)
+- [x] Foto yang dibuang → `deleted` dengan anotasi dihapus seketika (file tetap ada sampai cleanup T17), foto tidak bisa dihidupkan lagi; foto baru diperiksa (pemilik, upload, file di disk) dan kegagalannya tidak menyentuh data
+- [x] Hapus + tambah + ubah urutan sekaligus; turun ke 1 foto boleh, ke 0 ditolak; batas 50 anotasi dan normalisasi teks
+- [x] Atomik: Attach kedua gagal di tengah transaksi → versi, foto yang akan dibuang, anotasi lama, dan status foto baru kembali seperti semula
+- [x] Admin: `403 EDIT_NOT_ALLOWED` (boleh baca, tidak boleh edit); user bukan pemilik: 404; foto baru harus milik pemilik submission yang sama
+- [x] Edit tidak mengubah `created_at`/`client_request_id`/pemilik; POST yang diulang setelah edit menjawab versi terkini tanpa menimpa hasil edit
+- [x] POST dan PUT berbagi satu limiter per IP (10/menit); `client_request_id` pada PUT ditolak 400
+**Verification:** [x] `go test ./... -race` (balapan diulang 5–8×); [x] di Pi (SSD & DB asli): edit 200 versi 1→2 (buang P2, tambah P3, urutan baru), versi basi 409, tanpa/ salah token 404, `/url` foto dibuang 404 dan foto baru 200, 0 anotasi pada foto deleted
 **Dependencies:** 15 · **Files:** `usecase/edit.go`, `handler/submission_put.go` + test · **Scope:** M
 
 ### Checkpoint 3: Alur anonim end-to-end

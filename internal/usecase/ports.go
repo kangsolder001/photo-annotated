@@ -84,6 +84,11 @@ type PhotoRepo interface {
 	Attach(ctx context.Context, photoID, submissionID uuid.UUID, position int, ownerID *uuid.UUID) error
 	// ListBySubmission mengembalikan foto attached milik submission, berurutan menurut position.
 	ListBySubmission(ctx context.Context, submissionID uuid.UUID) ([]*domain.Photo, error)
+	// MarkDeleted menandai foto attached milik submission sebagai deleted (file dihapus cleanup).
+	// Bukan lagi attached pada submission itu → domain.Conflict PHOTO_NOT_AVAILABLE.
+	MarkDeleted(ctx context.Context, photoID, submissionID uuid.UUID) error
+	// SetPosition mengubah urutan tampil foto attached pada submission.
+	SetPosition(ctx context.Context, photoID, submissionID uuid.UUID, position int) error
 }
 
 // EditTokenSigner menurunkan dan memverifikasi token edit anonim (hanya auth.mode = none).

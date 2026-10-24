@@ -794,3 +794,54 @@ func TestTxDuplicateClientRequestThenReadOutside(t *testing.T) {
 		t.Fatalf("pembacaan ulang di luar transaksi: %+v %v", got, err)
 	}
 }
+
+// ---------------------------------------------------------------- MarkDeleted / SetPosition
+
+func TestMarkDeletedAndSetPosition(t *testing.T) {
+	r := newRig(t)
+	s, other := newSub(nil), newSub(nil)
+	_ = r.subs.Create(ctx, s)
+	_ = r.subs.Create(ctx, other)
+	a, b := r.uploadedPhoto(t, nil), r.uploadedPhoto(t, nil)
+	_ = r.photos.Attach(ctx, a.ID, s.ID, 0, nil)
+	_ = r.photos.Attach(ctx, b.ID, s.ID, 1, nil)
+
+	if err := r.photos.SetPosition(ctx, a.ID, s.ID, 7); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := r.photos.Get(ctx, a.ID); got.Position != 7 || got.Status != domain.PhotoAttached {
+		t.Fatalf("%+v", got)
+	}
+	// submission yang salah → konflik, tidak mengubah apa pun
+	if err := r.photos.SetPosition(ctx, a.ID, other.ID, 1); codeOf(err) != "PHOTO_NOT_AVAILABLE" {
+		t.Fatalf("SetPosition lintas submission: %v", err)
+	}
+	if err := r.photos.MarkDeleted(ctx, a.ID, other.ID); codeOf(err) != "PHOTO_NOT_AVAILABLE" {
+		t.Fatalf("MarkDeleted lintas submission: %v", err)
+	}
+	if got, _ := r.photos.Get(ctx, a.ID); got.Status != domain.PhotoAttached || got.Position != 7 {
+		t.Fatalf("tidak boleh berubah: %+v", got)
+	}
+
+	if err := r.photos.MarkDeleted(ctx, a.ID, s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := r.photos.Get(ctx, a.ID); got.Status != domain.PhotoDeleted {
+		t.Fatalf("status = %s", got.Status)
+	}
+	// sudah deleted: tidak bisa dihapus/dipindah lagi
+	if err := r.photos.MarkDeleted(ctx, a.ID, s.ID); codeOf(err) != "PHOTO_NOT_AVAILABLE" {
+		t.Fatalf("MarkDeleted dua kali: %v", err)
+	}
+	if err := r.photos.SetPosition(ctx, a.ID, s.ID, 0); codeOf(err) != "PHOTO_NOT_AVAILABLE" {
+		t.Fatalf("SetPosition pada foto deleted: %v", err)
+	}
+	// foto pending (tak punya submission) tidak bisa
+	p := r.uploadedPhoto(t, nil)
+	if err := r.photos.MarkDeleted(ctx, p.ID, s.ID); codeOf(err) != "PHOTO_NOT_AVAILABLE" {
+		t.Fatalf("MarkDeleted pada pending: %v", err)
+	}
+	if err := r.photos.MarkDeleted(ctx, uuid.New(), s.ID); codeOf(err) != "PHOTO_NOT_AVAILABLE" {
+		t.Fatalf("foto tak ada: %v", err)
+	}
+}

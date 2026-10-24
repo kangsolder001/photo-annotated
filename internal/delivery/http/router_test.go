@@ -36,6 +36,7 @@ func baseDeps(buf *bytes.Buffer) httpapi.Deps {
 		Uploader:          &fakeUploader{},
 		Submitter:         &fakeSubmitter{},
 		Reader:            &fakeReader{},
+		Editor:            &fakeEditor{},
 		SubmissionsPerMin: 1000,
 		MaxUploadBytes:    2 << 20,
 		UploadTimeout:     60 * time.Second,

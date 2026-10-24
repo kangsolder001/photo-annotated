@@ -309,15 +309,18 @@ Mengembalikan submission dengan foto (berurutan menurut `position`, hanya yang b
 
 ### 5.4 `PUT /submissions/{id}`
 
-Request sama seperti §5.2 ditambah `"version": <int>`, tanpa `client_request_id`. Semantik: **replace** — daftar `photos` dan `annotations` di request menjadi keadaan akhir.
+Request: `{ "version": <int>, "photos": [ … ] }`, dengan `photos` seperti §5.2, **tanpa** `client_request_id` (field itu ditolak `400`). Semantik: **replace**. Daftar `photos` dan `annotations` di request menjadi keadaan akhir, bukan diff; urutan array menentukan `position`.
 
-Validasi sama dengan §5.2. Foto baru harus berstatus `pending`; foto lama yang sudah `attached` ke submission ini boleh dipertahankan tanpa pengecekan ulang.
+Urutan pemeriksaan:
+1. **Bentuk** (`422`): `version` harus ≥ 1 (`INVALID_VERSION`); aturan foto/anotasi sama dengan §5.2 (1–5 foto, tanpa duplikat, ≤ 50 anotasi, bbox dan teks valid).
+2. **Otorisasi.** Id tak ada atau kredensial tak cocok → `404` seragam (badan sama persis). Yang boleh membaca tetapi tidak boleh mengedit (admin) → `403 EDIT_NOT_ALLOWED`: admin sudah tahu submission itu ada, jadi tidak perlu disamarkan.
+3. **Jendela edit** 24 jam dari `created_at` (§4.4); edit tidak memperpanjangnya. `now ≥ created_at + window` → `403 EDIT_WINDOW_CLOSED`. Diperiksa **sebelum** versi, sehingga edit di luar jendela tidak pernah terlihat sebagai konflik versi.
+4. **Foto.** Foto yang sudah `attached` ke submission ini boleh dipertahankan tanpa pemeriksaan ulang. Foto baru diperiksa seperti §5.2 langkah 3–4 (ada dan milik pemilik yang sama `PHOTO_NOT_FOUND`; sudah ter-upload `PHOTO_NOT_UPLOADED`; masih `pending` `PHOTO_NOT_AVAILABLE`; file ada di SSD `PHOTO_FILE_INVALID`). Foto yang pernah dibuang (`deleted`) tidak bisa dihidupkan lagi (`409 PHOTO_NOT_AVAILABLE`).
+5. **Satu transaksi.** `UPDATE submissions SET version = version + 1, updated_at = … WHERE id = $1 AND version = $2` dijalankan **lebih dulu**; ia sekaligus mengunci baris submission sampai commit, sehingga dua edit serentak diserialkan dan yang memegang versi basi gagal `409 VERSION_CONFLICT` (dari 10 edit dengan versi sama, tepat satu menang). Lalu: foto yang tidak ada di request menjadi `deleted` dan **anotasinya dihapus saat itu juga** (file fisiknya dihapus cleanup §8.3); foto yang dipertahankan diperbarui `position` dan anotasinya diganti seluruhnya; foto baru di-`attach` secara atomik lalu anotasinya disimpan. Kegagalan di langkah mana pun membatalkan semuanya (versi, status foto, posisi, anotasi).
 
-Pelaksanaan (satu transaksi): `UPDATE submissions SET version = version + 1 ... WHERE id = $1 AND version = $2`; 0 baris terpengaruh → `409 VERSION_CONFLICT`. Anotasi tiap foto diganti seluruhnya.
+Response `200`: `{ "submission_id": "...", "version": 2, "updated_at": "..." }`.
 
-Response `200`: `{ "submission_id": "...", "version": 2, "updated_at": "..." }`
-
-Akses: hanya pemilik (§9.2), dan hanya dalam jendela edit 24 jam (§4.4); di luar itu `403 EDIT_WINDOW_CLOSED`.
+Rate limit: berbagi kuota dengan `POST /submissions` (10 request per menit per IP, §9.4).
 
 ### 5.5 `GET /photos/{id}/url`
 Response: `{ "url": "...", "expires_at": "..." }` — URL bertanda tangan ke `GET /photos/{id}/content?exp=…&sig=…`, berlaku 5 menit (`storage.view_url_ttl`). Akses: sama dengan §5.3, dicek saat URL diterbitkan. Hanya foto `attached` yang punya URL; foto `pending` (belum punya submission), `deleted`, `rejected`, foto milik submission lain, dan id yang tidak ada semuanya `404` seragam.

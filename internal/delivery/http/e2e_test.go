@@ -103,6 +103,10 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	reader := usecase.NewReader(subs, repo, store, sg, et, usecase.SystemClock{}, usecase.ReadConfig{
 		PublicBaseURL: srv.URL, EditWindow: 24 * time.Hour, ViewURLTTL: o.viewTTL,
 	})
+	editor := usecase.NewEdit(repo, subs, txm, store, et, usecase.SystemClock{}, usecase.EditConfig{
+		SubmitConfig: usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50, MaxAnnotationTextLen: 1000},
+		Window:       24 * time.Hour,
+	})
 	presign := usecase.NewPresign(repo, store, sg, usecase.SystemClock{}, usecase.PresignConfig{
 		PublicBaseURL: srv.URL, MaxUploadBytes: o.maxBytes, UploadURLTTL: o.uploadTTL,
 	})
@@ -116,7 +120,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		Presigner:      presign, PresignPerMin: 1_000_000,
 		Uploader: upload, MaxUploadBytes: o.maxBytes, UploadTimeout: time.Minute,
 		Submitter: submit, SubmissionsPerMin: 1_000_000,
-		Reader: reader,
+		Reader: reader, Editor: editor,
 	})
 	inner.Store(&h)
 	return &stack{pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}
