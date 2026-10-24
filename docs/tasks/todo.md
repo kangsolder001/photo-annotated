@@ -84,6 +84,29 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T35** Backend: registrasi dengan password, login nomor HP + password, lupa password via OTP, kirim ulang kode
 - [x] **T36** Frontend: form daftar dengan password, login password, lupa password
 
+## Perubahan 24 Okt: label terkontrol & dashboard superadmin ([spec-labels-admin.md](../spec-labels-admin.md))
+- [ ] **T37** Backend: superadmin di config, login admin via OTP (`/admin/otp/*`, `/admin/me`, token `adm2`), hapus `/admin/login`
+- [ ] **T38** Backend: tabel `labels`, `GET /labels`, CRUD + urutan `/admin/labels`
+- [ ] **T39** Backend: submit/edit/get/export memakai `label_id`; data teks lama tetap terbaca
+- [ ] **T40** Backend: `GET /admin/submissions` (filter, cursor, sampul) + detail
+- [ ] **T41** Frontend user: dropdown label per kotak, warna kotak, migrasi draft
+- [ ] **T42** Frontend admin: login OTP, layout (lazy chunk) responsif desktop + HP, halaman label
+- [ ] **T43** Frontend admin: daftar & detail anotasi + annotator, export
+- [ ] **T44** Backend: hapus permanen oleh admin (submission, foto, massal) dari DB + SSD, langkah cleanup baru
+- [ ] **T45** Frontend: tombol hapus + konfirmasi di dashboard; pesan "sudah dihapus" di sisi user
+- [ ] **T46** Backend: review submission (terima/tolak), reset saat edit user, retensi melewati yang diterima, export `review_status`
+- [ ] **T47** Backend: kelola annotator (daftar, blokir/buka blokir, hapus data)
+- [ ] **T48** Backend: statistik per label + status sistem
+- [ ] **T49** Frontend: review di dashboard + lencana review di sisi user
+- [ ] **T50** Frontend admin: halaman annotator
+- [ ] **T51** Frontend admin: beranda status sistem + statistik label
+- [ ] **T52** Frontend: tema terang hangat + gelap (pilihan Sistem/Terang/Gelap) untuk aplikasi user dan dashboard
+- [ ] **T53** Frontend: hapus emoji, ganti ikon Font Awesome Free (dipakai semua task FE berikutnya)
+
+### Checkpoint 9: Label & dashboard admin
+- [ ] Deploy backend + FE bersamaan ke Pi; login admin ke nomor asli; buat label; anotasi dari HP; lihat di dashboard; review; blokir & buka blokir akun uji; hapus submission uji dan pastikan filenya hilang dari SSD; cek status sistem dan statistik; cek dashboard di HP dan desktop; cek kedua tema; tidak ada emoji
+- [ ] Review dengan Anda
+
 ### Checkpoint 7: Aplikasi utuh
 - [ ] Alur lengkap dari HP lewat jaringan seluler (termasuk edit dan OTP)
 - [ ] Review dengan Anda
