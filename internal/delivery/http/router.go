@@ -84,6 +84,10 @@ type Deps struct {
 	// Kelola annotator (spec-labels-admin §5.8); nil pada auth.mode = none sehingga /admin/users* 404.
 	AdminUsers handler.AdminUserService
 
+	// Statistik label dan status sistem (spec-labels-admin §5.9–5.10); hanya aktif bila Admin juga diisi.
+	LabelStats handler.LabelStatsService
+	System     handler.SystemReporter
+
 	// Hapus permanen oleh admin (spec-labels-admin §5.5); hanya aktif bila Admin juga diisi.
 	AdminDelete handler.AdminDeleter
 
@@ -231,6 +235,11 @@ func NewRouter(d Deps) *gin.Engine {
 			api.GET("/admin/submissions/:id", adminOnly, subsAdmin.Detail)
 			api.PUT("/admin/submissions/:id/review", adminOnly, subsAdmin.Review)
 			api.POST("/admin/submissions/review", adminOnly, subsAdmin.ReviewMany)
+		}
+		if d.LabelStats != nil && d.System != nil {
+			stats := handler.NewAdminStatsHandler(d.LabelStats, d.System)
+			api.GET("/admin/stats/labels", adminOnly, stats.Labels)
+			api.GET("/admin/system", adminOnly, stats.System)
 		}
 		if d.AdminUsers != nil {
 			users := handler.NewAdminUserHandler(d.AdminUsers, d.Logger)

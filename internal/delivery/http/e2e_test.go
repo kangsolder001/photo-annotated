@@ -187,8 +187,19 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		adminUsers = usecase.NewAdminUsers(postgres.NewAdminUserRepo(pool), postgres.NewSessionRepo(pool), postgres.NewDeletionRepo(pool),
 			txm, usecase.SystemClock{}, func() { cleanupRequests.Add(1) })
 	}
+	statsRepo := postgres.NewStatsRepo(pool)
+	sysChannel := usecase.NewChannel(3)
+	if c, ok := channel.(*usecase.Channel); ok {
+		sysChannel = c
+	}
 	var h http.Handler = httpapi.NewRouter(httpapi.Deps{
-		AdminUsers:     adminUsers,
+		AdminUsers: adminUsers,
+		LabelStats: usecase.NewLabelStats(statsRepo),
+		System: usecase.NewSystemStatus(usecase.SystemDeps{
+			DB: pool, Stats: statsRepo, AdminStats: statsRepo, Storage: store, Uploads: upload, Channel: sysChannel,
+			Cleanup: &usecase.CleanupStatus{}, Clock: usecase.SystemClock{},
+		}, usecase.SystemConfig{StartedAt: time.Now(), Version: "test", AuthMode: authMode, MinFreeBytes: o.minFree,
+			MaxQueue: 200, DailyCap: 500, RetentionDays: 90}),
 		Logger:         slog.New(slog.NewJSONHandler(logOut, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		TrustedProxies: []netip.Prefix{},
 		DB:             pool,

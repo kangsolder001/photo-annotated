@@ -2,10 +2,12 @@
 # Image API Photo Annotated untuk Raspberry Pi 4 (linux/arm64). Build silang tanpa emulasi:
 #   docker buildx build --platform linux/arm64 -t photo-annotated:<tag> --load .
 # Tahap build berjalan di arsitektur mesin build; hanya biner statis yang disalin ke image akhir.
+# Versi (commit) yang tampil di status sistem dashboard: --build-arg VERSION=$(git rev-parse --short HEAD)
 
 FROM --platform=$BUILDPLATFORM golang:1.26.10-bookworm AS build
 ARG TARGETOS=linux
 ARG TARGETARCH=arm64
+ARG VERSION=dev
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
@@ -14,7 +16,7 @@ COPY internal ./internal
 COPY migrations ./migrations
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w" -o /out/ ./cmd/api ./cmd/migrate ./cmd/maintenance ./cmd/healthcheck
+    go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/ ./cmd/api ./cmd/migrate ./cmd/maintenance ./cmd/healthcheck
 
 # distroless static: tanpa shell/paket, pengguna nonroot = UID/GID 65532 (pemilik folder foto di SSD)
 FROM gcr.io/distroless/static-debian12:nonroot

@@ -11,6 +11,8 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -52,6 +54,12 @@ const (
 	statsInterval = time.Minute
 )
 
+// version adalah commit build; diisi saat build image: go build -ldflags "-X main.version=<commit>".
+var version = "dev"
+
+// cpuTempPath: suhu CPU Raspberry Pi (milidrajat Celsius); terbaca dari container bila /sys dibagikan.
+const cpuTempPath = "/sys/class/thermal/thermal_zone0/temp"
+
 // jeda sebelum percobaan kirim ke-2 dan ke-3 (spec §4.0): kegagalan terlihat user dalam ± 25 detik
 var otpRetryDelays = []time.Duration{3 * time.Second, 10 * time.Second}
 
@@ -63,6 +71,7 @@ func main() {
 }
 
 func run() error {
+	startedAt := time.Now()
 	cfg, err := config.Load(config.Path(os.Getenv), os.Getenv)
 	if err != nil {
 		return err
@@ -183,8 +192,10 @@ func run() error {
 		TmpMaxAge:     cfg.Retention.TmpMaxAge.Std(),
 		OrphanMinAge:  cfg.Retention.OrphanMinAge.Std(),
 	})
+	cleanupStatus := &usecase.CleanupStatus{}
 	runCleanup := func(ctx context.Context) error {
 		rep, err := cleanup.RunOnce(ctx)
+		cleanupStatus.Record(time.Now(), err)
 		if !rep.Empty() || err != nil {
 			log.Info("cleanup", "stale_pending", rep.StalePendingClaimed, "retention_photos", rep.RetentionPhotos,
 				"files_deleted", rep.FilesDeleted, "file_failures", rep.FileDeleteFailures, "photo_rows_deleted", rep.PhotoRowsDeleted,
@@ -218,10 +229,22 @@ func run() error {
 
 	// OTP WhatsApp dipakai auth.mode=otp dan login admin (di semua mode): dispatcher dan probe
 	// wa-notif berjalan bila salah satunya aktif.
+	var channel *usecase.Channel
 	if cfg.Auth.Mode == config.AuthModeOTP || cfg.Admin.Enabled {
-		if err := startOTP(ctx, log, cfg, pool, &deps, &jobs, requestCleanup); err != nil {
+		if channel, err = startOTP(ctx, log, cfg, pool, &deps, &jobs, requestCleanup); err != nil {
 			return err
 		}
+	}
+	if cfg.Admin.Enabled {
+		statsRepo := postgres.NewStatsRepo(pool)
+		deps.LabelStats = usecase.NewLabelStats(statsRepo)
+		deps.System = usecase.NewSystemStatus(usecase.SystemDeps{
+			DB: pool, Stats: statsRepo, AdminStats: statsRepo, Storage: store, Uploads: upload, Channel: channel,
+			Cleanup: cleanupStatus, ReadCPUTemp: readCPUTemp, Clock: usecase.SystemClock{},
+		}, usecase.SystemConfig{
+			StartedAt: startedAt, Version: version, AuthMode: cfg.Auth.Mode, MinFreeBytes: cfg.Storage.Local.MinFreeBytes,
+			MaxQueue: cfg.Auth.OTP.MaxQueue, DailyCap: cfg.Auth.OTP.DailyGlobalCap, RetentionDays: cfg.Retention.Days,
+		})
 	}
 	router := httpapi.NewRouter(deps)
 	srv := httpapi.NewServer(cfg.App.HTTPAddr, router)
@@ -279,15 +302,15 @@ func run() error {
 // startOTP merakit antrean OTP bersama (dispatcher pengiriman dan probe kanal WhatsApp), lalu alur
 // pengguna (auth.mode = otp: registrasi, reset, login password) dan/atau login superadmin
 // (admin.enabled). Dispatcher dan probe berjalan sampai ctx dibatalkan.
-func startOTP(ctx context.Context, log *slog.Logger, cfg *config.Config, pool *pgxpool.Pool, deps *httpapi.Deps, jobs *sync.WaitGroup, requestCleanup func()) error {
+func startOTP(ctx context.Context, log *slog.Logger, cfg *config.Config, pool *pgxpool.Pool, deps *httpapi.Deps, jobs *sync.WaitGroup, requestCleanup func()) (*usecase.Channel, error) {
 	o := cfg.Auth.OTP
 	codes, err := signer.NewOTPCodes(cfg.Secrets.OTPPepper, o.Length)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	wa, err := wanotif.New(cfg.WANotif.BaseURL, cfg.Secrets.WANotifToken, cfg.WANotif.Timeout.Std())
 	if err != nil {
-		return err
+		return nil, err
 	}
 	otps := postgres.NewOTPRepo(pool)
 	channel := usecase.NewChannel(channelFailureThreshold)
@@ -306,7 +329,7 @@ func startOTP(ctx context.Context, log *slog.Logger, cfg *config.Config, pool *p
 	if cfg.Auth.Mode == config.AuthModeOTP {
 		hasher, err := password.NewBcrypt(password.DefaultCost)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		users := postgres.NewUserRepo(pool)
 		sessions := postgres.NewSessionRepo(pool)
@@ -325,7 +348,7 @@ func startOTP(ctx context.Context, log *slog.Logger, cfg *config.Config, pool *p
 		sa := cfg.Admin.Superadmin // sudah dinormalisasi saat load
 		tokens, err := signer.NewAdminTokens(cfg.Secrets.AdminTokenSecret, sa.Phone)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		deps.Admin = usecase.NewAdminLogin(otps, codes, channel, phones, tokens, usecase.SystemClock{}, usecase.AdminLoginConfig{
 			OTP: requestCfg, MaxAttempts: o.MaxVerifyAttempts, TokenTTL: cfg.Admin.TokenTTL.Std(), Name: sa.Name, Phone: sa.Phone,
@@ -359,7 +382,7 @@ func startOTP(ctx context.Context, log *slog.Logger, cfg *config.Config, pool *p
 			return nil // status kanal dicatat saat berubah, bukan tiap probe gagal
 		})
 	}()
-	return nil
+	return channel, nil
 }
 
 func logChannel(log *slog.Logger, available bool, source string, cause error) {
@@ -425,4 +448,17 @@ func logStats(ctx context.Context, log *slog.Logger, cfg *config.Config, repo *p
 	}
 	log.Info("stats", attrs...)
 	return nil
+}
+
+// readCPUTemp membaca suhu CPU dalam °C.
+func readCPUTemp() (float64, error) {
+	raw, err := os.ReadFile(cpuTempPath)
+	if err != nil {
+		return 0, err
+	}
+	milli, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		return 0, err
+	}
+	return float64(milli) / 1000, nil
 }

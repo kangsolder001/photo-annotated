@@ -42,8 +42,17 @@ Tidak ada penyimpangan dari bentuk JSON spec. Detail yang spec tidak sebutkan da
   bila tidak ada yang dihapus (angka 0); body boleh kosong (`include_accepted` = false). User yang belum
   verifikasi (pending) → `404` di semua `/admin/users/{id}*`. Reset password dengan kode yang terkirim sebelum
   diblokir → `403 ACCOUNT_BLOCKED` (setelah kode benar).
+- `GET /admin/stats/labels`: `share` dibulatkan 3 desimal (0 bila belum ada kotak berlabel); label berurut jumlah
+  kotak menurun, seri diurutkan aktif dulu lalu `sort_order`. Query salah → `422 INVALID_QUERY`.
+- `GET /admin/system`: bagian yang gagal berisi hanya `{ "error": "unavailable" | "timeout" | "database unavailable" }`.
+  Pengecualian: `database` selalu memuat `ok` + `latency_ms` (dan `error` bila gagal); `storage.photos_pending` =
+  `null` bila DB gagal tetapi sisa bagian storage tetap terisi. `whatsapp`, `cleanup`, `data` memakai DB, jadi ikut
+  `{error}` saat DB gagal. `cleanup.last_run_at` = `null` sampai cleanup pertama sejak proses start. `used_pct` dan
+  `cpu_temp_c` dibulatkan 1 desimal. `version` = `"dev"` bila image dibangun tanpa `--build-arg VERSION`.
 
 ## Perubahan config untuk deploy
+
+Nomor superadmin produksi **tidak** disimpan di repo; isi langsung di `config.json` Pi.
 
 - `admin.username` dan `admin.password_bcrypt` **dihapus**; bila masih ada, API menolak start dengan pesan
   "login admin kini lewat OTP; hapus field ini dan isi admin.superadmin.phone".
@@ -51,6 +60,9 @@ Tidak ada penyimpangan dari bentuk JSON spec. Detail yang spec tidak sebutkan da
 - `admin.otp_message_template` opsional (default memuat kata ADMIN; wajib berisi `{code}`).
 - `limits.max_labels` (opsional, default 200).
 - `limits.max_annotation_text_len` **dihapus**; bila masih ada, API menolak start ("hapus field ini").
+- Build image: `docker buildx build --build-arg VERSION=$(git rev-parse --short HEAD) …` agar versi tampil di status
+  sistem. Suhu CPU dibaca dari `/sys/class/thermal/thermal_zone0/temp` (sysfs container biasanya sudah terbaca; bila
+  tidak, `cpu_temp_c` = `null`).
 - `admin.enabled = true` kini mewajibkan `wa_notif.base_url`, `secrets.wa_notif_token`, `secrets.otp_pepper`,
   `secrets.admin_token_secret` di **semua** `auth.mode` (juga `none`).
 
@@ -234,3 +246,27 @@ ACCOUNT_BLOCKED, lupa password tanpa challenge asli; e2e: daftar + statistik + c
 blokir (alasan wajib, ulang 200), sesi 401, login benar 403 / salah 401, register & lupa password tanpa pesan
 WhatsApp, filter blocked, buka blokir lalu login, hapus data mempertahankan accepted + cleanup menghapus file,
 include_accepted, akun tetap ada, 404/401, mode none 404, log hygiene)
+
+#### Task 48: Statistik label + status sistem — **SELESAI**
+**Hasil:** `GET /admin/stats/labels` (filter `from`/`to`/`review_status`; totals submission/foto/kotak/kotak lama; semua
+label termasuk arsip dan yang 0 contoh, dengan kotak/foto/submission/porsi) dan `GET /admin/system` (api: started_at,
+version, auth_mode; database: ok + latensi; storage: tersedia, total/free/used_pct, min_free, foto pending; uploads;
+whatsapp: tersedia, probe terakhir, antrean, terkirim/gagal 24 jam vs batas; cleanup: run terakhir + status + file
+menunggu dihapus; data: jumlah submission per status review, `retention_due_7d`, user aktif/diblokir; host: suhu CPU).
+Keduanya `Cache-Control: no-store`, tanpa data pribadi/secret. `Channel` mencatat waktu probe terakhir; hasil cleanup
+dicatat `CleanupStatus` (memori). `Dockerfile` menerima `ARG VERSION` → `-X main.version`.
+**Keputusan:**
+- Statistik label: satu query `GROUP BY` atas `labels LEFT JOIN` anotasi pada foto attached + submission belum dihapus,
+  plus satu query total (CTE). Porsi dihitung dari total kotak berlabel.
+- Status sistem: ping DB dulu (batas 2 detik); bila gagal, query DB lain dilewati (tidak menunggu timeout berulang)
+  dan bagiannya berisi error umum tanpa detail koneksi. Penyimpanan penuh (`STORAGE_FULL`) tetap `available: true`;
+  hanya penanda hilang / tidak bisa ditulis yang `false`.
+- `retention_due_7d` = submission belum accepted dengan `created_at < now − (retention.days − 7)` (termasuk yang
+  sudah lewat batas dan menunggu putaran cleanup).
+- `files_pending_delete` = baris foto berstatus `deleted` (file belum terhapus).
+**Verification:** [x] `go vet`, `go build ./cmd/...`, `go test ./... -race` (usecase: statistik cocok hitungan manual
+termasuk label 0 contoh, submission dihapus tidak dihitung, kotak lama, filter tanggal dan accepted; status sistem
+dengan fake: sehat, SSD tidak ter-mount, SSD penuh tetap tersedia, kanal WhatsApp mati, DB gagal (bagian lain tetap
+terisi, tanpa detail koneksi), query lambat → timeout; e2e: stats + filter + 422, system lengkap pada mode otp & none,
+tanpa nomor/email/id/secret, 401 token pengguna)
+**Belum terverifikasi:** suhu CPU dan pemakaian SSD sungguhan di Pi (hanya fake/tmpdir di test).

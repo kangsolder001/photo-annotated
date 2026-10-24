@@ -515,3 +515,35 @@ type AdminUserRepo interface {
 type UserDataMark struct {
 	Submissions, Photos, Annotations int
 }
+
+// LabelStatsFilter: rentang created_at submission dan status review (nil = semua).
+type LabelStatsFilter struct {
+	From, To *time.Time
+	Review   *domain.ReviewStatus
+}
+
+// LabelStat: angka satu label (semua label ikut, termasuk arsip dan yang belum pernah dipakai).
+type LabelStat struct {
+	Label                            domain.Label
+	Annotations, Photos, Submissions int
+}
+
+// LabelStatsTotals: total atas foto attached pada submission yang belum dihapus dan lolos filter.
+type LabelStatsTotals struct {
+	Submissions, Photos, Annotations, LegacyTextAnnotations int
+}
+
+// DataCounts adalah ringkasan data untuk status sistem (spec-labels-admin §5.10).
+type DataCounts struct {
+	Submissions, ReviewPending, Accepted, Rejected int
+	RetentionDue7d                                 int
+	UsersActive, UsersBlocked                      int
+	FilesPendingDelete                             int // foto deleted yang filenya belum terhapus
+}
+
+// AdminStatsRepo menghitung statistik dashboard.
+type AdminStatsRepo interface {
+	LabelStats(ctx context.Context, f LabelStatsFilter) (LabelStatsTotals, []LabelStat, error)
+	// DataCounts: dueBefore = batas created_at submission yang akan terhapus retensi dalam 7 hari.
+	DataCounts(ctx context.Context, dueBefore time.Time) (DataCounts, error)
+}
