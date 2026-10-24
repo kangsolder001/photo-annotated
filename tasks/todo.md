@@ -48,7 +48,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T17** Cleanup job (foto yatim, retensi 90 hari, file yatim, data auth)
 
 ### Checkpoint 4: Backend inti (mode `none`) selesai
-- [ ] Semua test hijau; demo end-to-end di Pi dengan SSD
+- [x] Semua test hijau; demo end-to-end di Pi dengan SSD (upload, submit, baca, edit, cleanup)
 
 ## Phase 5: Auth OTP
 - [ ] **T18** Domain nomor HP + skema users/otp/sessions

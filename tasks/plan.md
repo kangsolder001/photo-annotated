@@ -260,8 +260,8 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Dependencies:** 14, 16 · **Files:** `usecase/cleanup.go`, `adapter/postgres/cleanup_queries.go`, `cmd/api/scheduler.go` + test · **Scope:** M
 
 ### Checkpoint 4: Backend inti (mode `none`) selesai
-- [ ] Setara milestone M1 spec; semua test hijau
-- [ ] Demo end-to-end di Pi dengan SSD
+- [x] Setara milestone M1 spec; semua test hijau
+- [x] Demo end-to-end di Pi dengan SSD
 
 ### Phase 5: Auth OTP
 
