@@ -2,11 +2,14 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"photo-annotated/internal/adapter/postgres"
 	"photo-annotated/internal/adapter/signer"
@@ -20,7 +23,10 @@ import (
 const stubToken = "stub-token"
 
 type dispatchRig struct {
+	pool    *pgxpool.Pool
 	otps    *postgres.OTPRepo
+	verify  *usecase.OTPVerify
+	sess    *usecase.Sessions
 	users   *postgres.UserRepo
 	stub    *wastub.Server
 	codes   *signer.OTPCodes
@@ -53,7 +59,7 @@ func newDispatchRig(t *testing.T, token string) (*dispatchRig, *hookSender) {
 	}
 	codes, _ := signer.NewOTPCodes("pepper-0123456789abcdef0123456789abcdef", 6)
 	r := &dispatchRig{
-		otps: postgres.NewOTPRepo(pool), users: postgres.NewUserRepo(pool), stub: stub, codes: codes,
+		pool: pool, otps: postgres.NewOTPRepo(pool), users: postgres.NewUserRepo(pool), stub: stub, codes: codes,
 		channel: usecase.NewChannel(3), clock: &fakeClock{t: time.Now().UTC().Truncate(time.Microsecond)},
 	}
 	phones := usecase.NewPhoneLimiterWithClock(time.Minute, 5, func() time.Time { return r.clock.t })
@@ -66,6 +72,10 @@ func newDispatchRig(t *testing.T, token string) (*dispatchRig, *hookSender) {
 		ResendCooldown: time.Minute, MaxQueue: 200, DailyGlobalCap: 500, SendInterval: 1500 * time.Millisecond,
 		CodeTTL: 5 * time.Minute, OnQueued: r.disp.Wake,
 	})
+	sessions := postgres.NewSessionRepo(pool)
+	r.verify = usecase.NewOTPVerify(r.req, r.users, r.otps, sessions, postgres.NewTxManager(pool), codes, r.clock,
+		usecase.OTPVerifyConfig{MaxAttempts: 5, SessionTTL: 30 * 24 * time.Hour})
+	r.sess = usecase.NewSessions(sessions, r.users, r.clock)
 	return r, hs
 }
 
@@ -351,3 +361,12 @@ func TestDispatcherRunWakesOnQueued(t *testing.T) {
 		t.Fatal("Run tidak berhenti saat ctx dibatalkan")
 	}
 }
+
+// failingSender selalu gagal permanen.
+type failingSender struct{}
+
+func (failingSender) Send(context.Context, string, string) (string, error) {
+	return "", &usecase.SendError{Reason: domain.OTPFailSendFailed, Err: errors.New("rejected")}
+}
+
+func netipMust(s string) netip.Addr { return netip.MustParseAddr(s) }

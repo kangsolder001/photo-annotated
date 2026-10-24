@@ -224,11 +224,18 @@ func startOTP(ctx context.Context, log *slog.Logger, cfg *config.Config, pool *p
 		CodeTTL: o.TTL.Std(), MessageTemplate: o.MessageTemplate, RetryDelays: otpRetryDelays,
 		StuckAfter: 3 * cfg.WANotif.Timeout.Std(),
 	})
-	deps.OTPRequester = usecase.NewOTPRequest(postgres.NewUserRepo(pool), otps, codes, channel, phones, usecase.SystemClock{},
+	users := postgres.NewUserRepo(pool)
+	sessions := postgres.NewSessionRepo(pool)
+	requester := usecase.NewOTPRequest(users, otps, codes, channel, phones, usecase.SystemClock{},
 		usecase.OTPRequestConfig{
 			ResendCooldown: o.ResendCooldown.Std(), MaxQueue: o.MaxQueue, DailyGlobalCap: o.DailyGlobalCap,
 			SendInterval: cfg.WANotif.SendInterval.Std(), CodeTTL: o.TTL.Std(), OnQueued: dispatcher.Wake,
 		})
+	deps.OTPRequester = requester
+	deps.OTPVerifier = usecase.NewOTPVerify(requester, users, otps, sessions, postgres.NewTxManager(pool), codes, usecase.SystemClock{},
+		usecase.OTPVerifyConfig{MaxAttempts: o.MaxVerifyAttempts, SessionTTL: cfg.Auth.SessionTTL.Std()})
+	deps.Sessions = usecase.NewSessions(sessions, users, usecase.SystemClock{})
+	deps.OTPVerifyPerMin = cfg.Limits.RateLimitPerMin.OTPVerify
 	deps.OTPChannel = channel
 	deps.OTPRequestPerMin = cfg.Limits.RateLimitPerMin.OTPRequest
 

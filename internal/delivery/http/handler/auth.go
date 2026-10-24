@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"photo-annotated/internal/delivery/http/httpx"
+	"photo-annotated/internal/domain"
 	"photo-annotated/internal/usecase"
 )
 
@@ -24,14 +25,36 @@ type OTPRequester interface {
 // ChannelStatus dipenuhi oleh *usecase.Channel.
 type ChannelStatus interface{ Available() bool }
 
-type AuthHandler struct {
-	otp       OTPRequester
-	channel   ChannelStatus
-	turnstile usecase.TurnstileVerifier // nil bila turnstile.enabled = false
+// OTPVerifier dipenuhi oleh *usecase.OTPVerify.
+type OTPVerifier interface {
+	Verify(ctx context.Context, in usecase.VerifyInput) (*usecase.LoginResult, error)
 }
 
-func NewAuthHandler(otp OTPRequester, channel ChannelStatus, turnstile usecase.TurnstileVerifier) *AuthHandler {
-	return &AuthHandler{otp: otp, channel: channel, turnstile: turnstile}
+// SessionService dipenuhi oleh *usecase.Sessions.
+type SessionService interface {
+	Logout(ctx context.Context, sessionID uuid.UUID) error
+	Me(ctx context.Context, userID uuid.UUID) (*domain.User, error)
+}
+
+// AuthDeps adalah dependensi AuthHandler.
+type AuthDeps struct {
+	OTP       OTPRequester
+	Verifier  OTPVerifier
+	Sessions  SessionService
+	Channel   ChannelStatus
+	Turnstile usecase.TurnstileVerifier // nil bila turnstile.enabled = false
+}
+
+type AuthHandler struct {
+	otp       OTPRequester
+	verifier  OTPVerifier
+	sessions  SessionService
+	channel   ChannelStatus
+	turnstile usecase.TurnstileVerifier
+}
+
+func NewAuthHandler(d AuthDeps) *AuthHandler {
+	return &AuthHandler{otp: d.OTP, verifier: d.Verifier, sessions: d.Sessions, channel: d.Channel, turnstile: d.Turnstile}
 }
 
 type registerRequest struct {
@@ -143,4 +166,72 @@ func (h *AuthHandler) OTPStatus(c *gin.Context) {
 func (h *AuthHandler) ChannelStatus(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusOK, gin.H{"otp_available": h.channel.Available()})
+}
+
+type verifyRequest struct {
+	ChallengeID uuid.UUID `json:"challenge_id"`
+	Code        string    `json:"code"`
+}
+
+type userDTO struct {
+	ID    uuid.UUID `json:"id"`
+	Name  string    `json:"name"`
+	Email string    `json:"email"`
+	Phone string    `json:"phone"` // disamarkan
+	Role  string    `json:"role"`
+}
+
+func toUserDTO(u *domain.User) userDTO {
+	return userDTO{ID: u.ID, Name: u.Name, Email: u.Email, Phone: domain.MaskPhone(u.Phone), Role: "user"}
+}
+
+type loginResponse struct {
+	AccessToken string    `json:"access_token"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	User        userDTO   `json:"user"`
+}
+
+// Verify menangani POST /api/v1/auth/otp/verify (spec §5.8).
+func (h *AuthHandler) Verify(c *gin.Context) {
+	var req verifyRequest
+	if !httpx.DecodeJSON(c, &req) {
+		return
+	}
+	res, err := h.verifier.Verify(c.Request.Context(), usecase.VerifyInput{ChallengeID: req.ChallengeID, Code: req.Code, ClientIP: clientAddr(c)})
+	if err != nil {
+		httpx.WriteError(c, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, loginResponse{AccessToken: res.Token, ExpiresAt: res.ExpiresAt.UTC(), User: toUserDTO(res.User)})
+}
+
+// Me menangani GET /api/v1/auth/me (butuh sesi).
+func (h *AuthHandler) Me(c *gin.Context) {
+	userID, _, ok := httpx.Session(c)
+	if !ok {
+		httpx.WriteError(c, domain.Unauthorized("UNAUTHORIZED", "missing, invalid, or expired session"))
+		return
+	}
+	u, err := h.sessions.Me(c.Request.Context(), userID)
+	if err != nil {
+		httpx.WriteError(c, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, toUserDTO(u))
+}
+
+// Logout menangani POST /api/v1/auth/logout: mencabut sesi saat ini (butuh sesi).
+func (h *AuthHandler) Logout(c *gin.Context) {
+	_, sessionID, ok := httpx.Session(c)
+	if !ok {
+		httpx.WriteError(c, domain.Unauthorized("UNAUTHORIZED", "missing, invalid, or expired session"))
+		return
+	}
+	if err := h.sessions.Logout(c.Request.Context(), sessionID); err != nil {
+		httpx.WriteError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }

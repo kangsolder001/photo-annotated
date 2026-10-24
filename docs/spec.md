@@ -388,7 +388,10 @@ Response `200`:
   "user": { "id": "…", "name": "Budi Santoso", "email": "budi@example.com", "phone": "62812****7890", "role": "user" }
 }
 ```
-Error: `422 OTP_INVALID` (menyertakan `attempts_left`), `410 OTP_EXPIRED`, `429 OTP_TOO_MANY_ATTEMPTS` (challenge dibatalkan; user harus meminta kode baru), `409 OTP_NOT_SENT` (kode belum terkirim).
+Error: `422 OTP_INVALID` dengan `error.details.attempts_left` (mis. `{"error":{"code":"OTP_INVALID","message":"…","details":{"attempts_left":3}}}`), `422 INVALID_CODE` (bukan digit; tidak dihitung sebagai percobaan), `410 OTP_EXPIRED` (kedaluwarsa, sudah dipakai, dibatalkan, atau id tidak dikenal), `429 OTP_TOO_MANY_ATTEMPTS` (challenge dibatalkan; user harus meminta kode baru), `409 OTP_NOT_SENT` (kode belum terkirim atau pengiriman gagal).
+- Percobaan dinaikkan atomik **sebelum** kode dibandingkan; konsumsi challenge, aktivasi user, dan pembuatan sesi terjadi dalam satu transaksi. Percobaan berlebih yang berbarengan hanya ditolak (tidak membatalkan), agar tidak mendahului login sah yang sedang berjalan.
+- `challenge_id` palsu (nomor tak terdaftar) berperilaku sama: `409` sebelum "terkirim", lalu `OTP_INVALID` dengan `attempts_left` menurun, `429` pada percobaan ke-5, lalu `410`.
+- `access_token`: 32 byte acak, base64url tanpa padding (43 karakter). Response memakai `Cache-Control: no-store`.
 
 #### `GET /auth/otp/{challenge_id}`
 Dipakai FE untuk memantau pengiriman (polling 2 detik). Response `200`:
@@ -404,7 +407,7 @@ Dipakai FE untuk memantau pengiriman (polling 2 detik). Response `200`:
 Publik, ringan, tanpa Turnstile. Response: `{ "otp_available": true }`. FE memanggilnya saat layar login dibuka dan menampilkan banner "Pengiriman kode WhatsApp sedang bermasalah" bila `false`. Nilainya berasal dari probe berkala ke `wa-notif` dan hasil pengiriman terakhir (§9.5).
 
 #### `GET /auth/me`
-Mengembalikan profil user dan `role` (nomor HP disamarkan).
+Mengembalikan profil user dan `role` (nomor HP disamarkan). Tanpa token, token salah format, dicabut, atau kedaluwarsa → `401 UNAUTHORIZED` dengan `WWW-Authenticate: Bearer`. Skema `Bearer` tidak peka huruf besar. Rute auth publik (`register`, `otp/*`, `channel-status`) tidak memeriksa header `Authorization`, sehingga token basi di FE tidak menghalangi login ulang.
 
 #### `POST /auth/logout`
 Mencabut session saat ini. Response `204`.

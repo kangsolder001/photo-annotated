@@ -27,16 +27,31 @@ type OTPStatusView struct {
 type decoys struct {
 	mu    sync.Mutex
 	max   int
+	ttl   time.Duration // masa berlaku kode tiruan sejak "terkirim"
 	items map[uuid.UUID]decoy
 	order []uuid.UUID // urutan masuk, untuk membuang yang tertua
 }
 
 type decoy struct {
 	createdAt, sentAt time.Time
+	attempts          int  // tebakan kode yang dicoba (ditiru seperti verify_attempts)
+	burned            bool // batas percobaan tercapai: terlihat expired seperti challenge asli
 }
 
-func newDecoys(max int) *decoys {
-	return &decoys{max: max, items: make(map[uuid.UUID]decoy)}
+func newDecoys(max int, ttl time.Duration) *decoys {
+	return &decoys{max: max, ttl: ttl, items: make(map[uuid.UUID]decoy)}
+}
+
+// attempt mencatat satu tebakan untuk id palsu dan mengembalikan jumlahnya; setelah max tebakan
+// id itu dianggap dibatalkan.
+func (d *decoys) attempt(id uuid.UUID, max int) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	v := d.items[id]
+	v.attempts++
+	v.burned = v.attempts >= max
+	d.items[id] = v
+	return v.attempts
 }
 
 func (d *decoys) add(id uuid.UUID, createdAt, sentAt time.Time) {
@@ -50,6 +65,7 @@ func (d *decoys) add(id uuid.UUID, createdAt, sentAt time.Time) {
 	d.order = append(d.order, id)
 }
 
+// get mengembalikan salinan catatan id palsu.
 func (d *decoys) get(id uuid.UUID) (decoy, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -89,9 +105,9 @@ func (o *OTPRequest) Status(ctx context.Context, id uuid.UUID) (*OTPStatusView, 
 func (o *OTPRequest) decoyView(d decoy, now time.Time) *OTPStatusView {
 	v := &OTPStatusView{Status: domain.OTPQueued, ResendAfter: o.resendAfter(d.createdAt, now)}
 	if !now.Before(d.sentAt) {
-		exp := d.sentAt.Add(o.cfg.CodeTTL)
+		exp := d.sentAt.Add(o.decoys.ttl)
 		v.Status, v.ExpiresAt = domain.OTPSent, &exp
-		if !now.Before(exp) {
+		if d.burned || !now.Before(exp) {
 			v.Status, v.ExpiresAt = domain.OTPExpired, nil
 		}
 	}

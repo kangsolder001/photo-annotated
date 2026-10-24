@@ -312,13 +312,17 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [x] `go test ./... -race` (dispatcher terhadap stub + Postgres asli, diulang 3×); [x] manual (`cmd/api` mode otp + `cmd/wanotif-stub`, schema sementara): register → `sent` ±13 ms; stub dimatikan → `failed WA_UNAVAILABLE` setelah 14 detik, `channel-status=false`, `otp/request` → `503 OTP_UNAVAILABLE`; stub hidup lagi → pulih ≤ 2 detik (probe), kirim ulang langsung terkirim; log tanpa kode OTP; shutdown bersih
 **Dependencies:** 20 · **Files:** `usecase/{otp_dispatch,otp_status}.go`, `cmd/api/main.go` (`startOTP`), `handler/auth.go` + test · **Scope:** M
 
-#### Task 22: Verify + session + Authenticator `otp`
+#### Task 22: Verify + session + Authenticator `otp` — **SELESAI**
 **Description:** `POST /auth/otp/verify` (5 percobaan, `hmac.Equal`, sekali pakai, aktifkan user), session token 32 byte (hash SHA-256), `GET /auth/me`, `POST /auth/logout`, middleware Bearer.
 **Acceptance criteria:**
-- [ ] OTP salah ×5 → `429`, challenge dibatalkan; kedaluwarsa → 410; belum terkirim → 409
-- [ ] Token logout/kedaluwarsa → 401; token tidak pernah tersimpan polos
-**Verification:** [ ] `go test ./… -race`
-**Dependencies:** 21 · **Files:** `usecase/{otp_verify,session}.go`, `adapter/auth/otp.go`, `middleware/auth.go`, handler + test · **Scope:** M
+- [x] OTP salah ×4 → `422 OTP_INVALID` dengan `attempts_left` 4→1, ke-5 → `429`, challenge dibatalkan (kode benar sesudahnya ditolak); kedaluwarsa/dipakai/tak dikenal → 410; belum terkirim/gagal kirim → 409; input bukan digit → 422 tanpa menghitung percobaan
+- [x] 10 verifikasi benar berbarengan → tepat 1 sesi; 30 tebakan salah berbarengan → paling banyak 4 dinilai, sesudahnya kode benar ditolak
+- [x] Token logout/kedaluwarsa/salah format → 401 (+`WWW-Authenticate`); token tidak pernah tersimpan polos (hanya SHA-256, diperiksa di DB)
+- [x] `challenge_id` palsu untuk nomor tak terdaftar meniru challenge asli juga saat verify (409 → 422×4 → 429 → 410, status ikut `expired`)
+- [x] Rute auth publik mengabaikan header `Authorization` (token basi tidak menghalangi login ulang); mode `none` → semua rute auth 404
+**Temuan & perbaikan:** test konkuren menunjukkan percobaan ke-6+ yang memanggil `Expire` dapat mendahului `Consume` milik verifikasi benar sehingga tidak ada yang login; kini percobaan berlebih hanya ditolak.
+**Verification:** [x] `go test ./... -race` (usecase dengan Postgres + stub `wa-notif`, diulang 5×; e2e HTTP register → kirim → verify → me → logout)
+**Dependencies:** 21 · **Files:** `usecase/{otp_verify,session}.go`, `middleware/auth.go` (`RequireSession`, `OptionalSession` untuk T23), `handler/auth.go`, `httpx` (detail error, sesi) + test · **Scope:** M
 
 #### Task 23: Integrasi `otp` ke upload/submission + admin-ready authz
 **Description:** `owner_id` terisi dari principal; aturan akses spec §9.2 (pemilik/admin, edit pemilik saja, 404 untuk milik orang lain); Turnstile pada mode `none`.

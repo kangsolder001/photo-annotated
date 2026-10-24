@@ -47,7 +47,8 @@ func WriteError(c *gin.Context, err error) {
 			secs := int(math.Ceil(de.RetryAfter.Seconds()))
 			c.Header("Retry-After", strconv.Itoa(max(secs, 1)))
 		}
-		AbortError(c, statusOf(de.Kind), de.Code, de.Message)
+		c.Abort()
+		c.JSON(statusOf(de.Kind), errorBody{Error: errorDetail{Code: de.Code, Message: de.Message, Details: de.Details}})
 		return
 	}
 	AbortError(c, http.StatusInternalServerError, "INTERNAL", "internal server error")

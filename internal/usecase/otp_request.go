@@ -56,7 +56,7 @@ func NewOTPRequest(users UserRepo, otps OTPRepo, codes OTPCodes, channel *Channe
 		panic("usecase: OTPRequestConfig tidak valid")
 	}
 	return &OTPRequest{users: users, otps: otps, codes: codes, channel: channel, phones: phones, clock: clock, cfg: cfg,
-		decoys: newDecoys(maxDecoys)}
+		decoys: newDecoys(maxDecoys, cfg.CodeTTL)}
 }
 
 var (

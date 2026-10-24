@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 const (
@@ -18,8 +19,9 @@ type errorBody struct {
 }
 
 type errorDetail struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code    string         `json:"code"`
+	Message string         `json:"message"`
+	Details map[string]any `json:"details,omitempty"`
 }
 
 // Error menulis respons error berformat standar.
@@ -62,4 +64,27 @@ func NotFound(c *gin.Context) {
 
 func MethodNotAllowed(c *gin.Context) {
 	Error(c, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+}
+
+const (
+	keyUserID    = "auth_user_id"
+	keySessionID = "auth_session_id"
+)
+
+// SetSession mencatat pengguna dan sesi yang terautentikasi untuk request ini.
+func SetSession(c *gin.Context, userID, sessionID uuid.UUID) {
+	c.Set(keyUserID, userID)
+	c.Set(keySessionID, sessionID)
+}
+
+// Session mengembalikan pengguna dan sesi yang terautentikasi, bila ada.
+func Session(c *gin.Context) (userID, sessionID uuid.UUID, ok bool) {
+	u, ok1 := c.Get(keyUserID)
+	s, ok2 := c.Get(keySessionID)
+	if !ok1 || !ok2 {
+		return uuid.Nil, uuid.Nil, false
+	}
+	userID, ok1 = u.(uuid.UUID)
+	sessionID, ok2 = s.(uuid.UUID)
+	return userID, sessionID, ok1 && ok2
 }

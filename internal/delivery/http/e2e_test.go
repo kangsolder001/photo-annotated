@@ -46,10 +46,17 @@ type stackOpts struct {
 	maxConc   int
 	maxBytes  int64
 	// Auth OTP opsional (nil = mode none: rute /auth/* 404).
-	otp       func(*pgxpool.Pool) handler.OTPRequester
+	otp       func(*pgxpool.Pool) otpParts
 	channel   handler.ChannelStatus
 	turnstile usecase.TurnstileVerifier
 	otpPerMin int
+}
+
+// otpParts adalah usecase auth OTP yang dirakit test di atas pool milik stack.
+type otpParts struct {
+	req      handler.OTPRequester
+	verify   handler.OTPVerifier
+	sessions httpapi.SessionManager
 }
 
 type stack struct {
@@ -121,7 +128,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	})
 	upload := usecase.NewUpload(repo, store, sg, imagecheck.Inspector{}, usecase.SystemClock{},
 		usecase.UploadConfig{MaxConcurrent: o.maxConc})
-	var otp handler.OTPRequester
+	var otp otpParts
 	if o.otp != nil {
 		otp = o.otp(pool)
 	}
@@ -134,7 +141,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		Uploader: upload, MaxUploadBytes: o.maxBytes, UploadTimeout: time.Minute,
 		Submitter: submit, SubmissionsPerMin: 1_000_000,
 		Reader: reader, Editor: editor,
-		OTPRequester: otp, OTPChannel: o.channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin,
+		OTPRequester: otp.req, OTPVerifier: otp.verify, Sessions: otp.sessions, OTPVerifyPerMin: 1_000_000, OTPChannel: o.channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin,
 	})
 	inner.Store(&h)
 	return &stack{pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}

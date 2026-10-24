@@ -21,6 +21,12 @@ const (
 	jsonWriteDeadline = 15 * time.Second
 )
 
+// SessionManager dipenuhi oleh *usecase.Sessions: validasi token bearer, profil, dan logout.
+type SessionManager interface {
+	handler.SessionService
+	middleware.SessionAuthenticator
+}
+
 // Deps adalah semua yang dibutuhkan router; diisi di composition root (cmd/api).
 type Deps struct {
 	Logger         *slog.Logger
@@ -42,6 +48,9 @@ type Deps struct {
 	OTPChannel       handler.ChannelStatus
 	Turnstile        usecase.TurnstileVerifier // nil bila turnstile.enabled = false
 	OTPRequestPerMin int                       // batas register + otp/request per IP
+	OTPVerifier      handler.OTPVerifier
+	Sessions         SessionManager
+	OTPVerifyPerMin  int // batas otp/verify per IP
 
 	Uploader       handler.Uploader // usecase upload (spec §5.1b)
 	MaxUploadBytes int64            // batas ukuran file (config limits.max_upload_bytes)
@@ -92,16 +101,24 @@ func NewRouter(d Deps) *gin.Engine {
 	api.PUT("/submissions/:id", submissionsLimit, edits.Put)
 
 	if d.OTPRequester != nil {
-		if d.OTPRequestPerMin < 1 || d.OTPChannel == nil {
-			panic("httpapi: Deps.OTPRequestPerMin dan OTPChannel wajib diisi bila OTPRequester diisi")
+		if d.OTPRequestPerMin < 1 || d.OTPChannel == nil || d.OTPVerifier == nil || d.Sessions == nil || d.OTPVerifyPerMin < 1 {
+			panic("httpapi: Deps.OTPRequestPerMin, OTPChannel, OTPVerifier, Sessions, dan OTPVerifyPerMin wajib diisi bila OTPRequester diisi")
 		}
-		auth := handler.NewAuthHandler(d.OTPRequester, d.OTPChannel, d.Turnstile)
+		auth := handler.NewAuthHandler(handler.AuthDeps{
+			OTP: d.OTPRequester, Verifier: d.OTPVerifier, Sessions: d.Sessions, Channel: d.OTPChannel, Turnstile: d.Turnstile,
+		})
 		// register dan otp/request sama-sama memicu pesan WhatsApp: satu limiter per IP.
 		otpLimit := middleware.RateLimit(middleware.NewRateLimiter(d.OTPRequestPerMin))
 		api.POST("/auth/register", otpLimit, auth.Register)
 		api.POST("/auth/otp/request", otpLimit, auth.RequestOTP)
 		api.GET("/auth/otp/:id", auth.OTPStatus)
 		api.GET("/auth/channel-status", auth.ChannelStatus)
+		api.POST("/auth/otp/verify", middleware.RateLimit(middleware.NewRateLimiter(d.OTPVerifyPerMin)), auth.Verify)
+		// Rute auth publik di atas sengaja tanpa pemeriksaan sesi: token basi di FE tidak boleh
+		// menghalangi login ulang.
+		session := middleware.RequireSession(d.Sessions)
+		api.GET("/auth/me", session, auth.Me)
+		api.POST("/auth/logout", session, auth.Logout)
 	}
 
 	reads := handler.NewReadHandler(d.Reader)

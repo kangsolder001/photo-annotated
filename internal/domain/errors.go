@@ -33,6 +33,15 @@ type Error struct {
 	Message string
 	// RetryAfter, bila > 0, menyarankan klien menunggu sebelum mengulang (→ header Retry-After).
 	RetryAfter time.Duration
+	// Details berisi data tambahan yang aman dikirim ke klien (mis. attempts_left).
+	Details map[string]any
+}
+
+// WithDetails mengembalikan salinan error dengan data tambahan untuk klien.
+func (e *Error) WithDetails(d map[string]any) *Error {
+	c := *e
+	c.Details = d
+	return &c
 }
 
 // WithRetryAfter mengembalikan salinan error dengan saran waktu tunggu.
