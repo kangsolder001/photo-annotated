@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e": "node e2e/flow.mjs"
   },
   "dependencies": {
     "react": "19.3.0",
@@ -24,6 +25,7 @@
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.2",
     "jsdom": "30.1.2",
+    "playwright-core": "1.64.0",
     "typescript": "7.0.2",
     "vite": "8.3.4",
     "vitest": "4.1.12"

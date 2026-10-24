@@ -398,7 +398,9 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [ ] manual; [ ] test reducer draft
 **Dependencies:** 27, 16 · **Files:** `web/src/pages/Edit.tsx`, `web/src/lib/draft.ts` · **Scope:** M
 
-#### Task 29: FE registrasi/login OTP
+#### Task 29: FE registrasi/login OTP — **SELESAI**
+**Hasil:** `/masuk` (tab Masuk/Daftar baru, banner `channel-status`, Turnstile), `/masuk/kode` (polling status tiap 2 detik; pesan per status: antre dengan perkiraan detik, terkirim, `SEND_FAILED` → "pastikan nomor memakai WhatsApp", `WA_UNAVAILABLE` → layanan bermasalah, kedaluwarsa; kirim ulang langsung aktif setelah gagal; hitung mundur cooldown; input `one-time-code` + `inputmode=numeric`, otomatis terkirim saat 6 digit/ditempel; "Kode salah. Sisa N percobaan."), challenge berjalan disimpan di sessionStorage (selamat dari reload saat pindah ke WhatsApp), `?next=` hanya path internal, rute dilindungi, 401 → kembali ke login, tombol Keluar. Pesan rate limit menyebut waktu tunggu dari `Retry-After`.
+**Verifikasi browser (Chrome headless, viewport HP 390×844 sentuh, backend lokal mode otp + stub wa-notif; `web/e2e/flow.mjs`):** daftar → kode salah (sisa 4) → kode benar → 2 foto 4000×3000 diproses jadi 1920×1440 dan terunggah → kotak tanpa catatan menahan kirim → kirim → laporan tampil dengan foto dari API dan teks `<resi> &` apa adanya → edit, reload di tengah edit, draf pulih → simpan (versi 2) → riwayat → keluar → rute dilindungi ke `/masuk?next=` → cooldown per nomor tampil "56 detik" → login ulang kembali ke `/riwayat`. Screenshot diperiksa; header dirapikan agar tetap satu baris di 320 px.
 **Description:** Layar nama/email/HP, layar OTP dengan hitung mundur kirim ulang, polling status, banner `channel-status`, pesan gagal WhatsApp, token di `localStorage`, redirect saat 401.
 **Acceptance criteria:**
 - [ ] `failed`/`otp_available=false` menampilkan pesan jelas dan tombol kirim ulang aktif langsung

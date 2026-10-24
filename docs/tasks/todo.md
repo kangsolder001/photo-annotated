@@ -77,7 +77,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T26** FE: skeleton + proses foto + upload dengan progres
 - [x] **T27** FE: anotasi (Annotorious) + submit
 - [x] **T28** FE: edit + draft + sisa waktu edit
-- [ ] **T29** FE: registrasi/login OTP + banner kanal
+- [x] **T29** FE: registrasi/login OTP + banner kanal
 - [ ] **T30** 🔒 Deploy FE ke Cloudflare Pages (butuh domain/akun)
 
 ### Checkpoint 7: Aplikasi utuh

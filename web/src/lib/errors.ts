@@ -32,6 +32,9 @@ const MESSAGES: Record<string, string> = {
 
 export function errorMessage(e: unknown): string {
   if (e instanceof ApiError) {
+    if (e.code === "RATE_LIMITED" && e.retryAfter) {
+      return `Terlalu banyak permintaan. Coba lagi dalam ${formatWait(e.retryAfter)}.`;
+    }
     const base = MESSAGES[e.code];
     if (base) return base;
     if (e.status >= 500) return "Terjadi gangguan di server. Coba lagi nanti.";
@@ -43,4 +46,8 @@ export function errorMessage(e: unknown): string {
 
 export function isCode(e: unknown, ...codes: string[]): e is ApiError {
   return e instanceof ApiError && codes.includes(e.code);
+}
+
+function formatWait(sec: number): string {
+  return sec < 90 ? `${Math.ceil(sec)} detik` : `${Math.ceil(sec / 60)} menit`;
 }
