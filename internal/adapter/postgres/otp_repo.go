@@ -26,20 +26,30 @@ func NewOTPRepo(pool *pgxpool.Pool) *OTPRepo {
 }
 
 const otpColumns = `id, user_id, phone, code_hash, status, failure_reason, verify_attempts, send_attempts,
-	next_attempt_at, wa_message_id, client_ip, created_at, sent_at, expires_at`
+	next_attempt_at, wa_message_id, client_ip, created_at, sent_at, expires_at,
+	purpose, reg_name, reg_email, reg_password_hash`
 
 func scanOTP(row pgx.Row) (*domain.OTPChallenge, error) {
 	var (
-		c        domain.OTPChallenge
-		status   string
-		failure  *string
-		waMsgID  *string
-		vAtt, sA int16
+		c                          domain.OTPChallenge
+		status                     string
+		failure                    *string
+		waMsgID                    *string
+		vAtt, sA                   int16
+		purpose                    string
+		regName, regEmail, regHash *string
 	)
 	err := row.Scan(&c.ID, &c.UserID, &c.Phone, &c.CodeHash, &status, &failure, &vAtt, &sA,
-		&c.NextAttemptAt, &waMsgID, &c.ClientIP, &c.CreatedAt, &c.SentAt, &c.ExpiresAt)
+		&c.NextAttemptAt, &waMsgID, &c.ClientIP, &c.CreatedAt, &c.SentAt, &c.ExpiresAt,
+		&purpose, &regName, &regEmail, &regHash)
 	if err != nil {
 		return nil, err
+	}
+	c.Purpose = domain.OTPPurpose(purpose)
+	for dst, src := range map[*string]*string{&c.RegName: regName, &c.RegEmail: regEmail, &c.RegPasswordHash: regHash} {
+		if src != nil {
+			*dst = *src
+		}
 	}
 	c.Status = domain.OTPStatus(status)
 	c.VerifyAttempts, c.SendAttempts = int(vAtt), int(sA)
@@ -50,6 +60,13 @@ func scanOTP(row pgx.Row) (*domain.OTPChallenge, error) {
 		c.WAMessageID = *waMsgID
 	}
 	return &c, nil
+}
+
+func purposeOrDefault(p domain.OTPPurpose) domain.OTPPurpose {
+	if p == "" {
+		return domain.OTPPurposeRegister
+	}
+	return p
 }
 
 func nullable(s string) *string {
@@ -66,9 +83,10 @@ func (r *OTPRepo) Replace(ctx context.Context, c *domain.OTPChallenge) error {
 			return fmt.Errorf("postgres: expire previous otp: %w", err)
 		}
 		_, err := r.db(ctx).Exec(ctx, `INSERT INTO otp_challenges (`+otpColumns+`)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
 			c.ID, c.UserID, c.Phone, c.CodeHash, string(c.Status), nullable(c.FailureReason), c.VerifyAttempts, c.SendAttempts,
-			c.NextAttemptAt, nullable(c.WAMessageID), c.ClientIP, c.CreatedAt, c.SentAt, c.ExpiresAt)
+			c.NextAttemptAt, nullable(c.WAMessageID), c.ClientIP, c.CreatedAt, c.SentAt, c.ExpiresAt,
+			string(purposeOrDefault(c.Purpose)), nullable(c.RegName), nullable(c.RegEmail), nullable(c.RegPasswordHash))
 		if err != nil {
 			if isUniqueViolation(err, "otp_one_active_per_phone") {
 				// dua permintaan untuk nomor yang sama berbarengan: yang kalah diminta mengulang
@@ -136,7 +154,8 @@ func (r *OTPRepo) ClaimNext(ctx context.Context, now time.Time) (*domain.OTPChal
 		  FROM next
 		 WHERE c.id = next.id
 		RETURNING c.id, c.user_id, c.phone, c.code_hash, c.status, c.failure_reason, c.verify_attempts, c.send_attempts,
-		          c.next_attempt_at, c.wa_message_id, c.client_ip, c.created_at, c.sent_at, c.expires_at`, now))
+		          c.next_attempt_at, c.wa_message_id, c.client_ip, c.created_at, c.sent_at, c.expires_at,
+		          c.purpose, c.reg_name, c.reg_email, c.reg_password_hash`, now))
 	return wrapOTP(c, err, "next")
 }
 

@@ -60,6 +60,9 @@ type Deps struct {
 	OTPVerifier      handler.OTPVerifier
 	Sessions         SessionManager
 	OTPVerifyPerMin  int // batas otp/verify per IP
+	// Login nomor HP + password (mode otp)
+	PasswordLogin handler.PasswordLoginer
+	LoginPerMin   int
 
 	// Turnstile untuk presign dan submit pada auth.mode = none (token boleh dipakai ulang beberapa
 	// kali untuk satu submission); nil = tanpa Turnstile.
@@ -154,16 +157,19 @@ func NewRouter(d Deps) *gin.Engine {
 	api.GET("/photos/:id/url", chain(read, []gin.HandlerFunc{reads.PhotoURL})...)
 
 	if d.OTPRequester != nil {
-		if d.OTPRequestPerMin < 1 || d.OTPChannel == nil || d.OTPVerifier == nil || d.Sessions == nil || d.OTPVerifyPerMin < 1 {
-			panic("httpapi: Deps.OTPRequestPerMin, OTPChannel, OTPVerifier, Sessions, dan OTPVerifyPerMin wajib diisi bila OTPRequester diisi")
+		if d.OTPRequestPerMin < 1 || d.OTPChannel == nil || d.OTPVerifier == nil || d.Sessions == nil || d.OTPVerifyPerMin < 1 ||
+			d.PasswordLogin == nil || d.LoginPerMin < 1 {
+			panic("httpapi: Deps.OTPRequestPerMin, OTPChannel, OTPVerifier, Sessions, OTPVerifyPerMin, PasswordLogin, dan LoginPerMin wajib diisi bila OTPRequester diisi")
 		}
 		auth := handler.NewAuthHandler(handler.AuthDeps{
-			OTP: d.OTPRequester, Verifier: d.OTPVerifier, Sessions: d.Sessions, Channel: d.OTPChannel, Turnstile: d.Turnstile,
+			OTP: d.OTPRequester, Verifier: d.OTPVerifier, Login: d.PasswordLogin, Sessions: d.Sessions, Channel: d.OTPChannel, Turnstile: d.Turnstile,
 		})
-		// register dan otp/request sama-sama memicu pesan WhatsApp: satu limiter per IP.
+		// register, password/forgot, dan otp/resend sama-sama memicu pesan WhatsApp: satu limiter per IP.
 		otpLimit := middleware.RateLimit(middleware.NewRateLimiter(d.OTPRequestPerMin))
 		api.POST("/auth/register", otpLimit, auth.Register)
-		api.POST("/auth/otp/request", otpLimit, auth.RequestOTP)
+		api.POST("/auth/password/forgot", otpLimit, auth.Forgot)
+		api.POST("/auth/otp/resend", otpLimit, auth.Resend)
+		api.POST("/auth/login", middleware.RateLimit(middleware.NewRateLimiter(d.LoginPerMin)), auth.Login)
 		api.GET("/auth/otp/:id", auth.OTPStatus)
 		api.GET("/auth/channel-status", auth.ChannelStatus)
 		api.POST("/auth/otp/verify", middleware.RateLimit(middleware.NewRateLimiter(d.OTPVerifyPerMin)), auth.Verify)

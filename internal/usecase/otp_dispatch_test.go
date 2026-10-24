@@ -68,12 +68,12 @@ func newDispatchRig(t *testing.T, token string) (*dispatchRig, *hookSender) {
 		CodeTTL: 5 * time.Minute, MessageTemplate: "*{code}* kode Anda, berlaku {ttl_minutes} menit.",
 		RetryDelays: []time.Duration{3 * time.Second, 10 * time.Second}, StuckAfter: 30 * time.Second,
 	})
-	r.req = usecase.NewOTPRequest(r.users, r.otps, codes, r.channel, phones, r.clock, usecase.OTPRequestConfig{
+	r.req = usecase.NewOTPRequest(r.users, r.otps, codes, testHasher, r.channel, phones, r.clock, usecase.OTPRequestConfig{
 		ResendCooldown: time.Minute, MaxQueue: 200, DailyGlobalCap: 500, SendInterval: 1500 * time.Millisecond,
 		CodeTTL: 5 * time.Minute, OnQueued: r.disp.Wake,
 	})
 	sessions := postgres.NewSessionRepo(pool)
-	r.verify = usecase.NewOTPVerify(r.req, r.users, r.otps, sessions, postgres.NewTxManager(pool), codes, r.clock,
+	r.verify = usecase.NewOTPVerify(r.req, r.users, r.otps, sessions, postgres.NewTxManager(pool), codes, testHasher, r.clock,
 		usecase.OTPVerifyConfig{MaxAttempts: 5, SessionTTL: 30 * 24 * time.Hour})
 	r.sess = usecase.NewSessions(sessions, r.users, r.clock)
 	return r, hs
@@ -81,7 +81,7 @@ func newDispatchRig(t *testing.T, token string) (*dispatchRig, *hookSender) {
 
 func (r *dispatchRig) register(t *testing.T, phone string) uuid.UUID {
 	t.Helper()
-	tk, err := r.req.Register(bg, usecase.RegisterInput{Name: "Budi", Email: "b@example.com", Phone: phone})
+	tk, err := r.req.Register(bg, usecase.RegisterInput{Name: "Budi", Email: "b@example.com", Phone: phone, Password: "rahasia123"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestDispatchPermanentFailureVisibleAndRefunds(t *testing.T) {
 		t.Fatal("SEND_FAILED berulang untuk satu nomor tidak boleh menutup kanal untuk semua orang")
 	}
 	// jatah dikembalikan: kirim ulang langsung boleh walau masih dalam cooldown 60 detik
-	if _, err := r.req.Request(bg, "081234567890", nil); err != nil {
+	if _, err := r.req.Resend(bg, id, nil); err != nil {
 		t.Fatalf("kirim ulang setelah failed harus boleh: %v", err)
 	}
 }
@@ -201,7 +201,7 @@ func TestDispatchDisconnectedMarksChannelUnavailable(t *testing.T) {
 			t.Fatalf("kegagalan ke-3 harus menutup kanal: %+v", res)
 		}
 	}
-	if _, err := r.req.Register(bg, usecase.RegisterInput{Name: "A", Email: "a@b.co", Phone: "081200000004"}); errCode(err) != "OTP_UNAVAILABLE" {
+	if _, err := r.req.Register(bg, usecase.RegisterInput{Name: "A", Email: "a@b.co", Phone: "081200000004", Password: "rahasia123"}); errCode(err) != "OTP_UNAVAILABLE" {
 		t.Fatalf("err = %v", err)
 	}
 	r.stub.SetDisconnected(false)
@@ -314,7 +314,7 @@ func TestDispatchShutdownRequeues(t *testing.T) {
 
 func TestOTPStatusDecoyMimicsRealChallenge(t *testing.T) {
 	r, _ := newDispatchRig(t, stubToken)
-	tk, err := r.req.Request(bg, "081299998888", nil) // tidak terdaftar
+	tk, err := r.req.Forgot(bg, "081299998888", nil) // tidak terdaftar
 	if err != nil {
 		t.Fatal(err)
 	}

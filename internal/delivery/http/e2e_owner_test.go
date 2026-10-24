@@ -39,7 +39,7 @@ func (s *stack) with(h map[string]string) *stack {
 // membawa token sesi pengguna itu.
 func (s *authStack) login(t *testing.T, phone, canonical string) *stack {
 	t.Helper()
-	resp, reg := s.postJSON(t, "/api/v1/auth/register", `{"name":"U","email":"u@example.com","phone":"`+phone+`","turnstile_token":"human"}`)
+	resp, reg := s.postJSON(t, "/api/v1/auth/register", `{"name":"U","email":"u@example.com","phone":"`+phone+`","password":"rahasia123","turnstile_token":"human"}`)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("register %s: %d %v", phone, resp.StatusCode, reg)
 	}

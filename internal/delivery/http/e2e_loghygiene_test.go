@@ -39,7 +39,7 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 	cf := fakeSiteverify(t)
 	s := newAuthStack(t, cf.URL, 0, func(o *stackOpts) { o.logOut = logs })
 
-	resp, reg := s.postJSON(t, "/api/v1/auth/register", `{"name":"Rahasia Namanya","email":"surel.rahasia@example.com","phone":"0812-7777-1234","turnstile_token":"human"}`)
+	resp, reg := s.postJSON(t, "/api/v1/auth/register", `{"name":"Rahasia Namanya","email":"surel.rahasia@example.com","phone":"0812-7777-1234","password":"PASSWORD-RAHASIA-1","turnstile_token":"human"}`)
 	if resp.StatusCode != 202 {
 		t.Fatalf("register: %d", resp.StatusCode)
 	}
@@ -82,7 +82,7 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 		"kode OTP": code, "token sesi": token, "token admin": strings.TrimPrefix(adminTok, "Bearer "),
 		"nomor utuh": "6281277771234", "nomor input": "0812-7777-1234", "nama": "Rahasia Namanya",
 		"email": "surel.rahasia", "teks anotasi": "TEKS-ANOTASI-RAHASIA", "teks edit": "EDIT-RAHASIA",
-		"password": "PASSWORD-SALAH-RAHASIA", "token palsu": "token-palsu-rahasia", "tanda tangan URL": "sig=",
+		"password": "PASSWORD-SALAH-RAHASIA", "password daftar": "PASSWORD-RAHASIA-1", "token palsu": "token-palsu-rahasia", "tanda tangan URL": "sig=",
 		"header Authorization": "Bearer", "turnstile": `"human"`,
 	}
 	for what, v := range secrets {

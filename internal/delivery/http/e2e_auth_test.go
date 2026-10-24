@@ -12,7 +12,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 
+	"photo-annotated/internal/adapter/password"
 	"photo-annotated/internal/adapter/postgres"
 	"photo-annotated/internal/adapter/signer"
 	"photo-annotated/internal/adapter/turnstile"
@@ -32,6 +34,7 @@ func fakeSiteverify(t *testing.T) *httptest.Server {
 }
 
 type authStack struct {
+	cooldown time.Duration // cooldown permintaan kode per nomor
 	*stack
 	channel *usecase.Channel
 	disp    *usecase.OTPDispatcher
@@ -51,27 +54,33 @@ func newAuthStack(t *testing.T, cfURL string, otpPerMin int, extra ...func(*stac
 	}
 	parts := func(pool *pgxpool.Pool) otpParts {
 		users, otps := postgres.NewUserRepo(pool), postgres.NewOTPRepo(pool)
-		phones := usecase.NewPhoneLimiter(time.Minute, 5)
+		phones := usecase.NewPhoneLimiter(as.cooldown, 5)
 		as.disp = usecase.NewOTPDispatcher(otps, sender, codes, as.channel, phones, usecase.SystemClock{}, usecase.OTPDispatchConfig{
 			CodeTTL: 5 * time.Minute, MessageTemplate: "*{code}* kode Anda", RetryDelays: []time.Duration{3 * time.Second}, StuckAfter: time.Minute,
 		})
-		req := usecase.NewOTPRequest(users, otps, codes, as.channel, phones, usecase.SystemClock{},
+		req := usecase.NewOTPRequest(users, otps, codes, testBcrypt, as.channel, phones, usecase.SystemClock{},
 			usecase.OTPRequestConfig{ResendCooldown: time.Minute, MaxQueue: 200, DailyGlobalCap: 500, SendInterval: 1500 * time.Millisecond, CodeTTL: 5 * time.Minute})
 		sessions := postgres.NewSessionRepo(pool)
 		return otpParts{
 			req: req,
-			verify: usecase.NewOTPVerify(req, users, otps, sessions, postgres.NewTxManager(pool), codes, usecase.SystemClock{},
+			verify: usecase.NewOTPVerify(req, users, otps, sessions, postgres.NewTxManager(pool), codes, testBcrypt, usecase.SystemClock{},
 				usecase.OTPVerifyConfig{MaxAttempts: 5, SessionTTL: 30 * 24 * time.Hour}),
 			sessions: usecase.NewSessions(sessions, users, usecase.SystemClock{}),
+			login: usecase.NewPasswordLogin(users, sessions, testBcrypt, usecase.SystemClock{},
+				usecase.PasswordLoginConfig{SessionTTL: 30 * 24 * time.Hour, AttemptsPerPhone: 10, Window: 15 * time.Minute}),
 		}
 	}
 	ts, err := turnstile.New("secret", cfURL, 2*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
+	as.cooldown = time.Minute
 	opts := stackOpts{otp: parts, channel: as.channel, turnstile: ts, otpPerMin: otpPerMin, admin: testAdmin(t), adminPerMin: 1_000_000}
 	for _, f := range extra {
 		f(&opts)
+	}
+	if opts.otpCooldown != 0 {
+		as.cooldown = opts.otpCooldown
 	}
 	as.stack = newStack(t, opts)
 	return as
@@ -98,11 +107,11 @@ func errField(m map[string]any) string {
 	return ""
 }
 
-const regBody = `{"name":"Budi","email":"budi@example.com","phone":"0812-3456-7890","turnstile_token":"human"}`
+const regBody = `{"name":"Budi","email":"budi@example.com","phone":"0812-3456-7890","password":"rahasia123","turnstile_token":"human"}`
 
 func TestE2EAuthRoutesAbsentInModeNone(t *testing.T) {
 	s := newStack(t, stackOpts{})
-	for _, p := range []string{"/api/v1/auth/register", "/api/v1/auth/otp/request"} {
+	for _, p := range []string{"/api/v1/auth/register", "/api/v1/auth/password/forgot"} {
 		if resp, _ := s.postJSON(t, p, regBody); resp.StatusCode != http.StatusNotFound {
 			t.Fatalf("%s: status %d, ingin 404", p, resp.StatusCode)
 		}
@@ -130,13 +139,13 @@ func TestE2ERegisterAndRequest(t *testing.T) {
 	}
 
 	// permintaan kedua untuk nomor yang sama dalam cooldown → 429 + Retry-After
-	resp, m = s.postJSON(t, "/api/v1/auth/otp/request", `{"phone":"+6281234567890","turnstile_token":"human"}`)
+	resp, m = s.postJSON(t, "/api/v1/auth/password/forgot", `{"phone":"+6281234567890","turnstile_token":"human"}`)
 	if resp.StatusCode != http.StatusTooManyRequests || errField(m) != "RATE_LIMITED" || resp.Header.Get("Retry-After") == "" {
 		t.Fatalf("status %d %v retry-after=%q", resp.StatusCode, m, resp.Header.Get("Retry-After"))
 	}
 
 	// nomor tak terdaftar: 202 berbentuk sama, tanpa challenge
-	resp, m = s.postJSON(t, "/api/v1/auth/otp/request", `{"phone":"081299998888","turnstile_token":"human"}`)
+	resp, m = s.postJSON(t, "/api/v1/auth/password/forgot", `{"phone":"081299998888","turnstile_token":"human"}`)
 	if resp.StatusCode != http.StatusAccepted || len(m) != 4 || m["status"] != "queued" {
 		t.Fatalf("status %d %v", resp.StatusCode, m)
 	}
@@ -156,9 +165,9 @@ func TestE2EAuthErrors(t *testing.T) {
 		code             string
 	}{
 		{"turnstile salah", "/api/v1/auth/register", strings.Replace(regBody, `"human"`, `"bot"`, 1), 403, "TURNSTILE_FAILED"},
-		{"turnstile kosong", "/api/v1/auth/otp/request", `{"phone":"081234567890"}`, 403, "TURNSTILE_FAILED"},
-		{"field tak dikenal", "/api/v1/auth/register", `{"name":"a","email":"a@b.co","phone":"0812","turnstile_token":"human","role":"admin"}`, 400, "INVALID_JSON"},
-		{"nomor JID grup", "/api/v1/auth/otp/request", `{"phone":"120363025@g.us","turnstile_token":"human"}`, 422, "INVALID_PHONE"},
+		{"turnstile kosong", "/api/v1/auth/password/forgot", `{"phone":"081234567890"}`, 403, "TURNSTILE_FAILED"},
+		{"field tak dikenal", "/api/v1/auth/register", `{"name":"a","email":"a@b.co","phone":"0812","password":"rahasia123","turnstile_token":"human","role":"admin"}`, 400, "INVALID_JSON"},
+		{"nomor JID grup", "/api/v1/auth/password/forgot", `{"phone":"120363025@g.us","turnstile_token":"human"}`, 422, "INVALID_PHONE"},
 		{"email salah", "/api/v1/auth/register", strings.Replace(regBody, "budi@example.com", "budi", 1), 422, "INVALID_EMAIL"},
 	}
 	for _, tc := range cases {
@@ -196,8 +205,8 @@ func TestE2EOTPRoutesShareIPLimit(t *testing.T) {
 	cf := fakeSiteverify(t)
 	s := newAuthStack(t, cf.URL, 2)
 	s.postJSON(t, "/api/v1/auth/register", regBody)
-	s.postJSON(t, "/api/v1/auth/otp/request", `{"phone":"081211112222","turnstile_token":"human"}`)
-	resp, m := s.postJSON(t, "/api/v1/auth/otp/request", `{"phone":"081233334444","turnstile_token":"human"}`)
+	s.postJSON(t, "/api/v1/auth/password/forgot", `{"phone":"081211112222","turnstile_token":"human"}`)
+	resp, m := s.postJSON(t, "/api/v1/auth/password/forgot", `{"phone":"081233334444","turnstile_token":"human"}`)
 	if resp.StatusCode != http.StatusTooManyRequests || errField(m) != "RATE_LIMITED" {
 		t.Fatalf("register + otp/request harus berbagi batas per IP: %d %v", resp.StatusCode, m)
 	}
@@ -334,7 +343,7 @@ func TestE2ELoginFlow(t *testing.T) {
 	}
 
 	// token basi di header tidak menghalangi login ulang lewat rute publik
-	req, _ := http.NewRequest("POST", s.srv.URL+"/api/v1/auth/otp/request", strings.NewReader(`{"phone":"081299990000","turnstile_token":"human"}`))
+	req, _ := http.NewRequest("POST", s.srv.URL+"/api/v1/auth/password/forgot", strings.NewReader(`{"phone":"081299990000","turnstile_token":"human"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	r2, err := s.client.Do(req)
@@ -354,5 +363,58 @@ func TestE2ESessionRoutesAbsentInModeNone(t *testing.T) {
 	}
 	if resp, _ := s.postJSON(t, "/api/v1/auth/otp/verify", `{}`); resp.StatusCode != 404 {
 		t.Fatalf("verify: %d", resp.StatusCode)
+	}
+}
+
+// testBcrypt: hash password dengan cost minimum agar test cepat.
+var testBcrypt = func() *password.Bcrypt {
+	h, err := password.NewBcrypt(bcrypt.MinCost)
+	if err != nil {
+		panic(err)
+	}
+	return h
+}()
+
+func TestE2EPasswordLoginAndReset(t *testing.T) {
+	cf := fakeSiteverify(t)
+	// tanpa cooldown per nomor: reset diminta tepat setelah daftar
+	s := newAuthStack(t, cf.URL, 0, func(o *stackOpts) { o.otpCooldown = time.Nanosecond })
+	s.login(t, "081200000001", "6281200000001") // daftar + verifikasi (password rahasia123)
+
+	resp, m := s.postJSON(t, "/api/v1/auth/login", `{"phone":"0812-0000-0001","password":"rahasia123"}`)
+	if resp.StatusCode != 200 || m["access_token"] == nil || resp.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("login: %d %v", resp.StatusCode, m)
+	}
+	oldToken := m["access_token"].(string)
+	for _, body := range []string{`{"phone":"081200000001","password":"salahsalah"}`, `{"phone":"081299999999","password":"rahasia123"}`} {
+		if resp, m := s.postJSON(t, "/api/v1/auth/login", body); resp.StatusCode != 401 || errField(m) != "INVALID_CREDENTIALS" {
+			t.Fatalf("%s: %d %v", body, resp.StatusCode, m)
+		}
+	}
+
+	// lupa password → kode → password baru → sesi lama dicabut
+	resp, m = s.postJSON(t, "/api/v1/auth/password/forgot", `{"phone":"081200000001","turnstile_token":"human"}`)
+	if resp.StatusCode != 202 {
+		t.Fatalf("forgot: %d %v", resp.StatusCode, m)
+	}
+	id := m["challenge_id"].(string)
+	if res, err := s.disp.DispatchOnce(context.Background()); err != nil || res.Outcome != usecase.DispatchSent {
+		t.Fatalf("dispatch: %+v %v", res, err)
+	}
+	code := s.wa.LastCodeFor("6281200000001")
+	if resp, m := s.postJSON(t, "/api/v1/auth/otp/verify", `{"challenge_id":"`+id+`","code":"`+code+`"}`); resp.StatusCode != 422 || errField(m) != "PASSWORD_REQUIRED" {
+		t.Fatalf("reset tanpa password baru: %d %v", resp.StatusCode, m)
+	}
+	if resp, m := s.postJSON(t, "/api/v1/auth/otp/verify", `{"challenge_id":"`+id+`","code":"`+code+`","new_password":"passwordbaru1"}`); resp.StatusCode != 200 {
+		t.Fatalf("reset: %d %v", resp.StatusCode, m)
+	}
+	if resp, _ := s.authed(t, "GET", "/api/v1/auth/me", "Bearer "+oldToken); resp.StatusCode != 401 {
+		t.Fatalf("sesi lama setelah reset: %d", resp.StatusCode)
+	}
+	if resp, _ := s.postJSON(t, "/api/v1/auth/login", `{"phone":"081200000001","password":"rahasia123"}`); resp.StatusCode != 401 {
+		t.Fatal("password lama tidak boleh berlaku lagi")
+	}
+	if resp, m := s.postJSON(t, "/api/v1/auth/login", `{"phone":"081200000001","password":"passwordbaru1"}`); resp.StatusCode != 200 {
+		t.Fatalf("login password baru: %d %v", resp.StatusCode, m)
 	}
 }

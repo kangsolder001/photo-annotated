@@ -71,7 +71,7 @@ func hash32(b byte) []byte { return bytes.Repeat([]byte{b}, 32) }
 func newOTP(u *domain.User) *domain.OTPChallenge {
 	ip := netip.MustParseAddr("203.0.113.9")
 	return &domain.OTPChallenge{
-		ID: uuid.New(), UserID: u.ID, Phone: u.Phone, CodeHash: hash32(1), Status: domain.OTPQueued,
+		ID: uuid.New(), UserID: u.ID, Phone: u.Phone, CodeHash: hash32(1), Status: domain.OTPQueued, Purpose: domain.OTPPurposeReset,
 		NextAttemptAt: now(), ClientIP: &ip, CreatedAt: now(),
 	}
 }
@@ -337,7 +337,7 @@ func TestOTPReplaceKeepsOneActivePerPhone(t *testing.T) {
 	}
 	// indeks parsial: dua challenge aktif untuk nomor yang sama mustahil
 	d := newOTP(u)
-	if _, err := r.pool.Exec(ctx, `INSERT INTO otp_challenges (id,user_id,phone,code_hash,status,next_attempt_at,created_at) VALUES ($1,$2,$3,$4,'queued',now(),now())`,
+	if _, err := r.pool.Exec(ctx, `INSERT INTO otp_challenges (id,user_id,phone,code_hash,status,next_attempt_at,created_at,purpose) VALUES ($1,$2,$3,$4,'queued',now(),now(),'reset')`,
 		d.ID, u.ID, u.Phone, hash32(2)); pgCode(err) != "23505" {
 		t.Fatalf("dua challenge aktif harus ditolak indeks unik parsial: %v", err)
 	}
@@ -776,8 +776,8 @@ func TestOTPConstraints(t *testing.T) {
 	r := newAuthRig(t)
 	u := r.user(t)
 	exec := func(status string, code []byte, phone string, failure *string, sent, expires *time.Time) error {
-		_, err := r.pool.Exec(ctx, `INSERT INTO otp_challenges (id,user_id,phone,code_hash,status,failure_reason,next_attempt_at,created_at,sent_at,expires_at)
-			VALUES ($1,$2,$3,$4,$5,$6,now(),now(),$7,$8)`, uuid.New(), u.ID, phone, code, status, failure, sent, expires)
+		_, err := r.pool.Exec(ctx, `INSERT INTO otp_challenges (id,user_id,phone,code_hash,status,failure_reason,next_attempt_at,created_at,sent_at,expires_at,purpose)
+			VALUES ($1,$2,$3,$4,$5,$6,now(),now(),$7,$8,'reset')`, uuid.New(), u.ID, phone, code, status, failure, sent, expires)
 		return err
 	}
 	f := "SEND_FAILED"
@@ -909,5 +909,80 @@ func TestSessionDeleteInactiveBeforeAndCascade(t *testing.T) {
 	}
 	if _, err := r.sessions.GetByTokenHash(ctx, activeSess.TokenHash); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatal("sesi harus ikut terhapus bersama pengguna (CASCADE)")
+	}
+}
+
+const bcryptLike = "$2a$10$abcdefghijklmnopqrstuuabcdefghijklmnopqrstuvwxyz01234"
+
+func TestOTPRegistrationDataRoundTripAndConstraint(t *testing.T) {
+	r := newAuthRig(t)
+	u := r.user(t)
+	c := newOTP(u)
+	c.Purpose, c.RegName, c.RegEmail, c.RegPasswordHash = domain.OTPPurposeRegister, "Budi", "budi@example.com", bcryptLike
+	if err := r.otps.Replace(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.otps.Get(ctx, c.ID)
+	if err != nil || got.Purpose != domain.OTPPurposeRegister || got.RegName != "Budi" || got.RegEmail != "budi@example.com" || got.RegPasswordHash != bcryptLike {
+		t.Fatalf("round trip: %+v %v", got, err)
+	}
+	claimed, err := r.otps.ClaimNext(ctx, now().Add(time.Second))
+	if err != nil || claimed.RegPasswordHash != bcryptLike || claimed.Purpose != domain.OTPPurposeRegister {
+		t.Fatalf("ClaimNext harus membawa kolom baru: %+v %v", claimed, err)
+	}
+	// challenge registrasi tanpa data, atau reset dengan data, ditolak database
+	bad := newOTP(r.user(t))
+	bad.Purpose = domain.OTPPurposeRegister
+	if err := r.otps.Replace(ctx, bad); err == nil {
+		t.Fatal("registrasi tanpa data harus ditolak")
+	}
+	bad2 := newOTP(r.user(t))
+	bad2.RegPasswordHash = bcryptLike
+	if err := r.otps.Replace(ctx, bad2); err == nil {
+		t.Fatal("reset dengan data registrasi harus ditolak")
+	}
+}
+
+func TestUserPasswordLifecycle(t *testing.T) {
+	r := newAuthRig(t)
+	u := r.user(t)
+	if err := r.users.SetPassword(ctx, u.ID, bcryptLike); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("pengguna pending tidak boleh diberi password lewat reset: %v", err)
+	}
+	if err := r.users.CompleteRegistration(ctx, u.ID, "Nama Baru", "baru@example.com", bcryptLike, now()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := r.users.Get(ctx, u.ID)
+	if got.Status != domain.UserActive || got.PhoneVerifiedAt == nil || got.Name != "Nama Baru" || got.PasswordHash != bcryptLike {
+		t.Fatalf("registrasi: %+v", got)
+	}
+	if err := r.users.CompleteRegistration(ctx, u.ID, "X", "x@example.com", bcryptLike, now()); err == nil {
+		t.Fatal("registrasi kedua untuk pengguna aktif harus ditolak")
+	}
+	other := bcryptLike[:59] + "9" // hash lain, tetap 60 karakter
+	if err := r.users.SetPassword(ctx, u.ID, other); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := r.users.Get(ctx, u.ID); got.PasswordHash != other {
+		t.Fatal("password tidak berganti")
+	}
+	// hash yang bukan bcrypt ditolak database
+	if err := r.users.SetPassword(ctx, u.ID, "plaintext"); err == nil {
+		t.Fatal("password polos harus ditolak")
+	}
+	// cabut semua sesi pengguna
+	for i := byte(0); i < 3; i++ {
+		if err := r.sessions.Create(ctx, &domain.Session{ID: uuid.New(), UserID: u.ID, TokenHash: hash32(10 + i), CreatedAt: now(), ExpiresAt: now().Add(time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.sessions.RevokeAllForUser(ctx, u.ID, now()); err != nil {
+		t.Fatal(err)
+	}
+	for i := byte(0); i < 3; i++ {
+		s, _ := r.sessions.GetByTokenHash(ctx, hash32(10+i))
+		if s.Active(now()) {
+			t.Fatal("sesi harus dicabut")
+		}
 	}
 }

@@ -24,8 +24,8 @@ type OTPRequestConfig struct {
 
 // RegisterInput adalah isi POST /auth/register.
 type RegisterInput struct {
-	Name, Email, Phone string
-	ClientIP           *netip.Addr
+	Name, Email, Phone, Password string
+	ClientIP                     *netip.Addr
 }
 
 // OTPTicket adalah respons 202 yang bentuknya sama untuk nomor terdaftar maupun tidak.
@@ -35,12 +35,14 @@ type OTPTicket struct {
 	EstimatedWait time.Duration
 }
 
-// OTPRequest membuat challenge OTP untuk registrasi dan login. Pengiriman tidak dilakukan di sini:
-// challenge disimpan berstatus queued dan dikirim oleh dispatcher (spec §4.0).
+// OTPRequest membuat challenge OTP. OTP hanya dipakai untuk membuktikan kepemilikan nomor saat
+// registrasi dan saat reset password; login biasa memakai nomor + password (PasswordLogin).
+// Pengiriman tidak dilakukan di sini: challenge disimpan queued dan dikirim dispatcher (spec §4.0).
 type OTPRequest struct {
 	users   UserRepo
 	otps    OTPRepo
 	codes   OTPCodes
+	hasher  PasswordHasher
 	channel *Channel
 	phones  *PhoneLimiter
 	clock   Clock
@@ -51,11 +53,11 @@ type OTPRequest struct {
 // maxDecoys membatasi memori untuk challenge palsu (± 100 byte per entri).
 const maxDecoys = 10_000
 
-func NewOTPRequest(users UserRepo, otps OTPRepo, codes OTPCodes, channel *Channel, phones *PhoneLimiter, clock Clock, cfg OTPRequestConfig) *OTPRequest {
+func NewOTPRequest(users UserRepo, otps OTPRepo, codes OTPCodes, hasher PasswordHasher, channel *Channel, phones *PhoneLimiter, clock Clock, cfg OTPRequestConfig) *OTPRequest {
 	if cfg.MaxQueue < 1 || cfg.DailyGlobalCap < 1 || cfg.SendInterval <= 0 || cfg.ResendCooldown < 0 || cfg.CodeTTL <= 0 {
 		panic("usecase: OTPRequestConfig tidak valid")
 	}
-	return &OTPRequest{users: users, otps: otps, codes: codes, channel: channel, phones: phones, clock: clock, cfg: cfg,
+	return &OTPRequest{users: users, otps: otps, codes: codes, hasher: hasher, channel: channel, phones: phones, clock: clock, cfg: cfg,
 		decoys: newDecoys(maxDecoys, cfg.CodeTTL)}
 }
 
@@ -64,8 +66,10 @@ var (
 	errOTPBusy        = domain.Unavailable("OTP_BUSY", "too many verification requests right now; try again in a minute")
 )
 
-// Register memvalidasi data lalu membuat (atau memakai) pengguna dan challenge baru. Nomor yang sudah
-// terdaftar diperlakukan sebagai login: nama/email miliknya tidak ditimpa.
+// Register memvalidasi data lalu mengirim kode untuk memverifikasi nomor. Data registrasi (nama,
+// email, hash password) disimpan di challenge dan baru diterapkan saat kode challenge ini
+// diverifikasi. Nomor yang sudah aktif tidak bisa didaftarkan ulang: responsnya sama (anti-enumerasi)
+// tetapi tidak ada yang dikirim; pemiliknya memakai login atau reset password.
 func (o *OTPRequest) Register(ctx context.Context, in RegisterInput) (*OTPTicket, error) {
 	name, err := domain.NormalizeName(in.Name)
 	if err != nil {
@@ -79,6 +83,9 @@ func (o *OTPRequest) Register(ctx context.Context, in RegisterInput) (*OTPTicket
 	if err != nil {
 		return nil, err
 	}
+	if err := domain.ValidatePassword(in.Password); err != nil {
+		return nil, err
+	}
 	ahead, err := o.admit(ctx, phone)
 	if err != nil {
 		return nil, err
@@ -90,12 +97,23 @@ func (o *OTPRequest) Register(ctx context.Context, in RegisterInput) (*OTPTicket
 	if err != nil {
 		return nil, err
 	}
-	return o.issue(ctx, u, in.ClientIP, ahead, now)
+	if u.Status != domain.UserPending {
+		return o.decoy(phone, domain.OTPPurposeRegister, ahead), nil
+	}
+	// hash setelah admit: hanya permintaan yang lolos batas yang memakan CPU bcrypt
+	hash, err := o.hasher.Hash(in.Password)
+	if err != nil {
+		return nil, err
+	}
+	return o.issue(ctx, &domain.OTPChallenge{
+		UserID: u.ID, Phone: phone, Purpose: domain.OTPPurposeRegister,
+		RegName: name, RegEmail: email, RegPasswordHash: hash,
+	}, in.ClientIP, ahead, now)
 }
 
-// Request membuat challenge baru untuk login atau kirim ulang. Untuk nomor yang tidak terdaftar
-// tidak ada yang dibuat atau dikirim, tetapi respons dan pembatasannya sama (anti-enumerasi).
-func (o *OTPRequest) Request(ctx context.Context, rawPhone string, clientIP *netip.Addr) (*OTPTicket, error) {
+// Forgot mengirim kode reset password ke nomor yang sudah aktif. Untuk nomor lain tidak ada yang
+// dikirim, tetapi respons dan pembatasannya sama (anti-enumerasi).
+func (o *OTPRequest) Forgot(ctx context.Context, rawPhone string, clientIP *netip.Addr) (*OTPTicket, error) {
 	phone, err := domain.NormalizePhone(rawPhone)
 	if err != nil {
 		return nil, err
@@ -105,16 +123,50 @@ func (o *OTPRequest) Request(ctx context.Context, rawPhone string, clientIP *net
 		return nil, err
 	}
 	u, err := o.users.GetByPhone(ctx, phone)
-	if errors.Is(err, domain.ErrNotFound) {
-		t := o.ticket(uuid.New(), ahead)
-		now := o.clock.Now()
-		o.decoys.add(t.ChallengeID, phone, now, now.Add(t.EstimatedWait))
-		return t, nil
+	if errors.Is(err, domain.ErrNotFound) || (err == nil && u.Status != domain.UserActive) {
+		return o.decoy(phone, domain.OTPPurposeReset, ahead), nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return o.issue(ctx, u, clientIP, ahead, o.clock.Now())
+	return o.issue(ctx, &domain.OTPChallenge{UserID: u.ID, Phone: phone, Purpose: domain.OTPPurposeReset}, clientIP, ahead, o.clock.Now())
+}
+
+// Resend mengirim kode baru untuk challenge yang sama tujuannya (data registrasi ikut disalin),
+// sehingga FE tidak perlu menyimpan password untuk kirim ulang. Challenge lama menjadi expired.
+func (o *OTPRequest) Resend(ctx context.Context, challengeID uuid.UUID, clientIP *netip.Addr) (*OTPTicket, error) {
+	c, err := o.otps.Get(ctx, challengeID)
+	if errors.Is(err, domain.ErrNotFound) {
+		d, ok := o.decoys.get(challengeID)
+		if !ok {
+			return nil, errOTPExpired // id tak dikenal / sudah dibersihkan: mulai dari awal
+		}
+		ahead, err := o.admit(ctx, d.phone)
+		if err != nil {
+			return nil, err
+		}
+		return o.decoy(d.phone, d.purpose, ahead), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if c.Status == domain.OTPConsumed {
+		return nil, errOTPExpired
+	}
+	ahead, err := o.admit(ctx, c.Phone)
+	if err != nil {
+		return nil, err
+	}
+	if c.Purpose == domain.OTPPurposeRegister {
+		// sudah diselesaikan lewat challenge lain: tidak ada yang perlu dikirim lagi
+		if u, err := o.users.Get(ctx, c.UserID); err != nil || u.Status != domain.UserPending {
+			return o.decoy(c.Phone, c.Purpose, ahead), nil
+		}
+	}
+	return o.issue(ctx, &domain.OTPChallenge{
+		UserID: c.UserID, Phone: c.Phone, Purpose: c.Purpose,
+		RegName: c.RegName, RegEmail: c.RegEmail, RegPasswordHash: c.RegPasswordHash,
+	}, clientIP, ahead, o.clock.Now())
 }
 
 // admit menjalankan pemeriksaan yang sama untuk semua nomor: kanal, kapasitas global, lalu batas per
@@ -144,22 +196,30 @@ func (o *OTPRequest) admit(ctx context.Context, phone string) (int, error) {
 	return queued, nil
 }
 
-// issue menyimpan challenge baru (yang lama milik nomor itu menjadi expired). Bila gagal disimpan,
-// jatah nomor dikembalikan karena tidak ada kode yang akan dikirim.
-func (o *OTPRequest) issue(ctx context.Context, u *domain.User, clientIP *netip.Addr, ahead int, now time.Time) (*OTPTicket, error) {
+// issue menyimpan challenge baru dari template (pengguna, tujuan, data registrasi); challenge aktif
+// lama milik nomor itu menjadi expired. Bila gagal disimpan, jatah nomor dikembalikan karena tidak
+// ada kode yang akan dikirim.
+func (o *OTPRequest) issue(ctx context.Context, tmpl *domain.OTPChallenge, clientIP *netip.Addr, ahead int, now time.Time) (*OTPTicket, error) {
 	id := uuid.New()
-	c := &domain.OTPChallenge{
-		ID: id, UserID: u.ID, Phone: u.Phone, CodeHash: o.codes.Hash(id, o.codes.Code(id)),
-		Status: domain.OTPQueued, NextAttemptAt: now, ClientIP: clientIP, CreatedAt: now,
-	}
-	if err := o.otps.Replace(ctx, c); err != nil {
-		o.phones.Refund(u.Phone)
+	c := *tmpl
+	c.ID, c.CodeHash = id, o.codes.Hash(id, o.codes.Code(id))
+	c.Status, c.NextAttemptAt, c.ClientIP, c.CreatedAt = domain.OTPQueued, now, clientIP, now
+	if err := o.otps.Replace(ctx, &c); err != nil {
+		o.phones.Refund(c.Phone)
 		return nil, err
 	}
 	if o.cfg.OnQueued != nil {
 		o.cfg.OnQueued()
 	}
 	return o.ticket(id, ahead), nil
+}
+
+// decoy membagikan challenge palsu yang statusnya berjalan seperti yang asli (lihat decoys).
+func (o *OTPRequest) decoy(phone string, purpose domain.OTPPurpose, ahead int) *OTPTicket {
+	t := o.ticket(uuid.New(), ahead)
+	now := o.clock.Now()
+	o.decoys.add(t.ChallengeID, phone, purpose, now, now.Add(t.EstimatedWait))
+	return t
 }
 
 func (o *OTPRequest) ticket(id uuid.UUID, ahead int) *OTPTicket {

@@ -52,7 +52,7 @@
     "max_annotation_text_len": 1000,
     "max_concurrent_uploads": 200,
     "upload_timeout": "60s",
-    "rate_limit_per_min": { "presign": 30, "submissions": 10, "otp_request": 5, "otp_verify": 20, "admin_login": 5 }
+    "rate_limit_per_min": { "presign": 30, "submissions": 10, "otp_request": 5, "otp_verify": 20, "admin_login": 5, "login": 10 }
   },
   "secrets": {
     "database_url": "postgres://photo_annotated:GANTI@shared-postgres:5432/photo_annotated?sslmode=disable",

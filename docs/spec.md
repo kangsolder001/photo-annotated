@@ -147,14 +147,20 @@ Agar data yang disimpan sekarang selalu bisa diekspor ke format model yang dibut
 
 ### 4.0 Registrasi & login (hanya `auth.mode = otp`)
 
-Registrasi dan login memakai alur OTP yang sama, tanpa password.
+**Login memakai nomor HP + password; OTP WhatsApp hanya untuk memverifikasi nomor saat registrasi dan saat reset password** (keputusan 24 Okt 2026).
 
-1. User mengisi **nama, email, dan nomor HP** lalu submit → `POST /auth/register` (Turnstile wajib, §9.5).
+- **Registrasi:** nama, email, nomor HP, password → `POST /auth/register` → kode WhatsApp → `POST /auth/otp/verify` → akun aktif dan langsung masuk.
+- **Login:** `POST /auth/login` dengan nomor HP + password (tanpa OTP).
+- **Lupa password:** `POST /auth/password/forgot` (nomor HP) → kode WhatsApp → `POST /auth/otp/verify` dengan `new_password` → password diganti, semua sesi lama dicabut, langsung masuk.
+
+Detail alur kode (berlaku untuk registrasi dan reset):
+
+1. User mengisi **nama, email, nomor HP, dan password** lalu submit → `POST /auth/register` (Turnstile wajib, §9.5).
 2. Jika kanal WhatsApp sedang tidak tersedia (§9.5), API langsung membalas `503 OTP_UNAVAILABLE` tanpa membuat challenge. Jika tersedia, API menormalisasi nomor HP (§7.4), membuat `users` berstatus `pending` (atau memakai user yang sudah ada), membuat `otp_challenges` berstatus `queued`, lalu langsung membalas `202` dengan `challenge_id`. **Pengiriman WhatsApp tidak dilakukan di dalam request.**
 3. Worker dispatcher (satu goroutine di proses API) mengambil challenge `queued` satu per satu, lalu memanggil `wa-notif` (`POST /api/v1/messages/send`). Berhasil → status `sent`, `sent_at` dan `expires_at = sent_at + 5 menit` diisi. Gagal → retry maksimal 3 percobaan dengan jeda singkat (3 detik, 10 detik) agar user cepat tahu, lalu status `failed` dengan `failure_reason` (§9.5): `WA_UNAVAILABLE` (gateway tidak terhubung/timeout) atau `SEND_FAILED`. Dispatcher dibangunkan segera setelah challenge diantrekan (selain memeriksa antrean tiap detik). Klaim memakai `FOR UPDATE SKIP LOCKED`, jadi satu challenge tidak pernah dikirim berbarengan. Bila proses mati di tengah kirim, challenge `sending` diantrekan ulang setelah 3× timeout `wa-notif` dan bisa terkirim dua kali, **dengan kode yang sama** (kode diturunkan dari `challenge_id`, §9.5); percobaan yang sudah habis langsung `failed` tanpa kirim. Saat shutdown, challenge yang sedang dikirim dikembalikan ke antrean.
 4. FE memantau hasil pengiriman lewat `GET /auth/otp/{challenge_id}` (tiap 2 detik): `queued` → "menunggu giliran", `sent` → "kode dikirim, cek WhatsApp Anda", `failed` → pesan gagal sesuai `failure_reason` (mis. "Layanan WhatsApp sedang bermasalah, coba lagi beberapa saat") dan tombol kirim ulang langsung aktif. User menerima pesan WhatsApp berisi kode 6 digit, memasukkannya di FE → `POST /auth/otp/verify`.
 5. Kode benar → user menjadi `active` (`phone_verified_at` diisi), API membuat session dan mengembalikan `access_token` (bearer, berlaku 30 hari).
-6. Login berikutnya (perangkat baru, token habis): user hanya memasukkan nomor HP → `POST /auth/otp/request` → verifikasi OTP seperti di atas.
+6. Login berikutnya (perangkat baru, token habis): nomor HP + password → `POST /auth/login`. Lupa password → `POST /auth/password/forgot` → verifikasi kode + password baru.
 7. FE menyimpan `access_token` dan mengirimnya sebagai `Authorization: Bearer <token>` di semua request lain. Menerima `401` → FE kembali ke layar login.
 
 Catatan kapasitas: `wa-notif` mengirim pesan **satu per satu dengan jeda 1,5 detik** (`rate_limit_seconds`), yaitu sekitar 40 OTP per menit. Karena itu antrean dan pembatasan pada §9.5 wajib ada, dan masa berlaku OTP dihitung dari saat terkirim, bukan saat diminta.
@@ -360,13 +366,16 @@ Semua request yang membutuhkan login memakai header `Authorization: Bearer <acce
 #### `POST /auth/register`
 Request:
 ```json
-{ "name": "Budi Santoso", "email": "budi@example.com", "phone": "0812-3456-7890", "turnstile_token": "..." }
+{ "name": "Budi Santoso", "email": "budi@example.com", "phone": "0812-3456-7890", "password": "…", "turnstile_token": "..." }
 ```
 Validasi:
 - `name`: trim, 1–100 karakter.
 - `email`: format email, maks 254 karakter, disimpan lowercase. Tidak diverifikasi dan tidak harus unik.
 - `phone`: dinormalisasi server-side (§7.4); format yang diterima `08…`, `+628…`, `628…` (spasi dan tanda hubung diabaikan). Nilai yang mengandung `@` atau bukan nomor seluler Indonesia ditolak `422 INVALID_PHONE`.
+- `password`: minimal 8 karakter, maksimal 72 byte (batas bcrypt), tidak hanya spasi, tanpa karakter kontrol; tanpa aturan komposisi (NIST SP 800-63B). Salah → `422 INVALID_PASSWORD`. Di-hash bcrypt (cost 10) **setelah** lolos batas permintaan.
 - `turnstile_token` wajib jika `turnstile.enabled`.
+
+**Keamanan data registrasi:** nama, email, dan hash password disimpan **di challenge**, bukan di baris `users`, dan baru diterapkan ke akun ketika kode challenge itu diverifikasi. Pendaftaran ulang nomor yang belum diverifikasi hanya mengganti challenge (yang lama `expired`); karena kode selalu dikirim ke WhatsApp pemilik nomor, orang lain tidak bisa menyisipkan password miliknya ke akun pemilik nomor.
 
 Response `202` (selalu berbentuk sama, baik nomor baru maupun yang sudah terdaftar, agar nomor yang terdaftar tidak bisa ditebak):
 ```json
@@ -374,14 +383,22 @@ Response `202` (selalu berbentuk sama, baik nomor baru maupun yang sudah terdaft
 ```
 - `estimated_wait_seconds` = (jumlah challenge `queued` di depan + 1) × `wa_notif.send_interval` (default 1,5 detik); FE menampilkannya sebagai perkiraan.
 - Turnstile gagal tertutup: token salah/kosong → `403 TURNSTILE_FAILED`; Cloudflare tidak terjangkau → `503 TURNSTILE_UNAVAILABLE` (permintaan tidak diteruskan).
-- Jika nomor sudah terdaftar dan aktif, `name`/`email` dari request **tidak menimpa** data yang ada; hasilnya diperlakukan sebagai login.
+- Jika nomor sudah **aktif**, tidak ada challenge maupun pesan: respons `202` palsu berbentuk sama (anti-enumerasi). Data akun tidak berubah. Pemilik nomor memakai login atau lupa password.
 - Error: `422 INVALID_*`, `429 RATE_LIMITED` (dengan `Retry-After`), `503 OTP_BUSY` (antrean penuh), `503 OTP_UNAVAILABLE` (kanal WhatsApp sedang bermasalah, lihat `GET /auth/channel-status`).
 
-#### `POST /auth/otp/request`
-Request: `{ "phone": "081234567890", "turnstile_token": "..." }`. Dipakai untuk login dan kirim ulang OTP. Response `202` sama dengan di atas. Untuk nomor yang tidak terdaftar, API membalas `202` dengan `challenge_id` acak tanpa mengirim apa pun. Request baru untuk nomor yang sama membatalkan challenge sebelumnya. Cooldown 60 detik **tidak berlaku** jika challenge sebelumnya berstatus `failed`, sehingga user bisa langsung mencoba lagi setelah kegagalan kirim.
+#### `POST /auth/login`
+Request: `{ "phone": "0812-3456-7890", "password": "…" }`. Response `200` sama dengan `otp/verify` di bawah (`access_token`, `expires_at`, `user`).
+- Nomor tak terdaftar, belum diverifikasi, belum punya password (akun lama sebelum fitur password), atau password salah → `401 INVALID_CREDENTIALS` dengan pesan dan waktu respons yang sama (bcrypt tiruan dijalankan bila akun tidak ada).
+- Batas: per IP (`limits.rate_limit_per_min.login`, default 10/menit) dan **per nomor 10 percobaan per 15 menit** (berhasil maupun gagal, sama untuk nomor terdaftar atau tidak) → `429 LOGIN_LOCKED` dengan `Retry-After`. Tanpa Turnstile.
+
+#### `POST /auth/password/forgot`
+Request: `{ "phone": "081234567890", "turnstile_token": "..." }`. Response `202` sama dengan register. Kode reset hanya dikirim ke nomor yang **aktif**; nomor lain mendapat challenge palsu berbentuk sama.
+
+#### `POST /auth/otp/resend`
+Request: `{ "challenge_id": "5e1c...", "turnstile_token": "..." }`. Kode baru untuk tujuan yang sama (registrasi: data registrasi ikut disalin dari challenge lama, sehingga FE tidak perlu menyimpan password). Challenge lama menjadi `expired`. Tunduk pada cooldown/batas yang sama; cooldown tidak berlaku setelah pengiriman `failed`. Id tak dikenal atau sudah dipakai → `410 OTP_EXPIRED` (mulai ulang).
 
 #### `POST /auth/otp/verify`
-Request: `{ "challenge_id": "5e1c...", "code": "123456" }`
+Request: `{ "challenge_id": "5e1c...", "code": "123456", "new_password": "…" }` (`new_password` wajib untuk challenge reset; tanpa itu `422 PASSWORD_REQUIRED` tanpa menghitung percobaan).
 
 Response `200`:
 ```json
@@ -518,6 +535,7 @@ Tidak ada tabel `labels` dan tidak ada schema form: isi submission sepenuhnya fo
 | `phone_verified_at` | `timestamptz` NULL | |
 | `created_at` | `timestamptz` NOT NULL DEFAULT now() | |
 | `last_login_at` | `timestamptz` NULL | |
+| `password_hash` | `text` NULL | bcrypt (60 karakter, CHECK `$2…`); NULL = belum pernah membuat password (pending, atau akun lama → pakai lupa password) |
 
 **Normalisasi nomor HP (`domain.NormalizePhone`, bukan di handler):** hanya karakter yang lazim pada penulisan nomor yang diterima: angka, spasi, `-`, `.`, `(`, `)`, dan satu `+` di awal; **apa pun selain itu ditolak** (huruf, `@`, JID, karakter kontrol, angka non-ASCII, `+` di tengah). Bentuk yang diterima: `08…`, `+628…`, `628…`, `8…`, `0062…`, dan `+62 0812…` (kesalahan umum: 0 sesudah kode negara). Awalan internasional lain (`00…` selain `0062`) dan nomor negara lain ditolak. Hasilnya harus cocok `^628[0-9]{8,12}$` (nomor seluler Indonesia, 11–15 digit) dan normalisasinya idempoten. Pola yang sama dipakai di CHECK constraint `users.phone` dan `otp_challenges.phone`. Ini penting karena `wa-notif` menerima JID mentah, termasuk JID grup (`…@g.us`); API ini **tidak boleh pernah meneruskan input user apa adanya** ke `wa-notif`, hanya nomor kanonik hasil normalisasi.
 
@@ -533,6 +551,8 @@ Semua baris `users` berperan `user`. Admin bukan baris `users`; admin memakai ak
 | `phone` | `text` NOT NULL | Salinan nomor kanonik saat dibuat |
 | `code_hash` | `bytea` NOT NULL | `HMAC-SHA256(OTP_PEPPER, id ‖ code)`; kode asli tidak disimpan |
 | `status` | `text` NOT NULL | `queued` / `sending` / `sent` / `failed` / `consumed` / `expired` |
+| `purpose` | `text` NOT NULL | `register` / `reset` |
+| `reg_name`, `reg_email`, `reg_password_hash` | `text` NULL | Data registrasi; wajib terisi jika `purpose = register`, wajib kosong jika `reset` (CHECK `otp_registration_data`). Diterapkan ke `users` saat challenge ini diverifikasi. Ikut terhapus oleh pembersihan challenge lama (24 jam). |
 | `failure_reason` | `text` NULL | `WA_UNAVAILABLE` / `SEND_FAILED`; hanya saat `failed` |
 | `verify_attempts` | `smallint` NOT NULL DEFAULT 0 | Maks `auth.otp.max_verify_attempts` |
 | `send_attempts` | `smallint` NOT NULL DEFAULT 0 | Maks 3 |
@@ -627,11 +647,11 @@ Akses ke resource milik orang lain mengembalikan `404` (bukan `403`) agar ID tid
 - Merotasi `EDIT_TOKEN_SECRET` membatalkan semua token yang sudah beredar.
 
 ### 9.4 Kontrol lain
-- **Turnstile** (`turnstile.enabled`): pada mode `none` diverifikasi saat presign dan submit lewat header `X-Turnstile-Token`; pada mode `otp` diverifikasi saat `register` dan `otp/request` (field `turnstile_token`, §9.5). Cloudflare menolak token yang diverifikasi dua kali, padahal satu submission butuh hingga 5 presign (paralel) + 1 submit. Karena itu pada mode `none` **satu token yang sudah lolos boleh dipakai `max_photos_per_submission + 1` kali selama 5 menit dari IP yang sama**: siteverify dipanggil sekali (request paralel menunggu hasil yang sama), kegagalan tidak disimpan, dan cache dibatasi 10.000 token. Edit dan baca pada mode `none` dibuktikan `edit_token`, tanpa Turnstile.
+- **Turnstile** (`turnstile.enabled`): pada mode `none` diverifikasi saat presign dan submit lewat header `X-Turnstile-Token`; pada mode `otp` diverifikasi saat `register` dan `password/forgot`/`otp/resend` (field `turnstile_token`, §9.5). Cloudflare menolak token yang diverifikasi dua kali, padahal satu submission butuh hingga 5 presign (paralel) + 1 submit. Karena itu pada mode `none` **satu token yang sudah lolos boleh dipakai `max_photos_per_submission + 1` kali selama 5 menit dari IP yang sama**: siteverify dipanggil sekali (request paralel menunggu hasil yang sama), kegagalan tidak disimpan, dan cache dibatasi 10.000 token. Edit dan baca pada mode `none` dibuktikan `edit_token`, tanpa Turnstile.
 - **Rate limit** (per IP dari `CF-Connecting-IP`; nilai bisa diubah di config):
   - presign: 30 / menit
   - submissions (POST & PUT): 10 / menit
-  - `auth/register` + `auth/otp/request`: 5 / menit; `auth/otp/verify`: 20 / menit; `admin/login`: 5 / menit
+  - `auth/register` + `auth/password/forgot` + `auth/otp/resend` (berbagi): 5 / menit; `auth/otp/verify`: 20 / menit; `auth/login`: 10 / menit (+ 10 percobaan/15 menit per nomor); `admin/login`: 5 / menit
   - Tambahan rate limit di edge Cloudflare.
 - **CORS API:** `allowed_origins` dari config; method `GET, POST, PUT, OPTIONS`; header yang diizinkan `Content-Type`, `Authorization`, `X-Edit-Token`; preflight di-cache 1 jam (`Access-Control-Max-Age`). Upload `PUT` lintas-origin dengan `Content-Type` memicu preflight, jadi rute `/uploads/*` wajib tercakup.
 - `STORAGE_SIGNING_SECRET` (kunci HMAC URL upload dan lihat foto, ≥ 32 byte acak) hanya ada di `config.json` di Raspi (bagian `secrets`). Merotasinya membatalkan semua URL yang belum kedaluwarsa (umurnya pendek, dampaknya kecil). Pesan yang ditandatangani diberi awalan tujuan (`upload`/`view`) agar tanda tangan satu tujuan tidak bisa dipakai untuk yang lain.
@@ -650,11 +670,11 @@ Risiko utama: endpoint OTP publik membuat API ini bisa dipakai untuk **mengirim 
 - **Kode OTP:** 6 digit, diturunkan dari `challenge_id` (UUID acak dari `crypto/rand`) dengan PRF: `HMAC-SHA256(OTP_PEPPER, "otp-code"‖id) mod 10^6`. Dengan begitu kode asli tidak perlu disimpan (juga tidak terenkripsi) tetapi dispatcher tetap dapat membuatnya saat mengirim; tanpa `OTP_PEPPER` kode tidak dapat ditebak dari `challenge_id`. Berlaku 5 menit sejak terkirim, sekali pakai. Disimpan sebagai HMAC dengan `OTP_PEPPER` (6 digit tanpa pepper mudah di-brute-force dari hash). Perbandingan memakai `hmac.Equal`. Maksimal 5 percobaan verifikasi per challenge, setelah itu challenge dibatalkan.
 - **Pembatasan kirim:**
   - cooldown 60 detik per nomor, maksimal 5 OTP per nomor per jam. Dihitung di memori per nomor kanonik dan berlaku **sama untuk nomor terdaftar maupun tidak** (menghitung dari tabel OTP hanya mungkin untuk nomor terdaftar, sehingga `429` akan membocorkan pendaftaran). Ditolak karena validasi atau kapasitas tidak memakai jatah; gagal kirim permanen mengembalikan jatah (sehingga cooldown tidak berlaku setelah `failed`). State hilang saat restart (satu instance);
-  - rate limit per IP (§9.4) + Turnstile wajib pada `register` dan `otp/request`;
+  - rate limit per IP (§9.4) + Turnstile wajib pada `register`, `password/forgot`, dan `otp/resend`;
   - panjang antrean `queued` dibatasi (`max_queue`, default 200); penuh → `503 OTP_BUSY`;
   - **batas harian global** (`daily_global_cap`, default 500) sebagai rem darurat; terlampaui → `503 OTP_BUSY` dan alert.
 - **Nomor tujuan** hanya nomor kanonik hasil normalisasi §7.4 (tidak pernah JID atau input mentah).
-- **Anti-enumerasi:** `register` dan `otp/request` selalu membalas `202` berbentuk sama, baik nomor sudah terdaftar atau belum.
+- **Anti-enumerasi:** `register`, `password/forgot`, dan `otp/resend` selalu membalas `202` berbentuk sama, baik nomor sudah terdaftar atau belum.
 - **Session token:** 32 byte acak, hanya hash SHA-256 yang disimpan, berlaku 30 hari, dicabut saat logout. Dikirim sebagai `Authorization: Bearer`. Karena disimpan di `localStorage`, FE wajib memakai CSP ketat dan merender teks user sebagai teks.
 - **Kredensial `wa-notif`:** bearer token `wa-notif` ada di `secrets.wa_notif_token` (`config.json` di Pi, mode 640) dan tidak pernah dikirim ke FE.
 - **Pemetaan hasil `wa-notif` → `failure_reason`** (berdasarkan kode `wa-notif` saat ini):
@@ -670,7 +690,7 @@ Risiko utama: endpoint OTP publik membuat API ini bisa dipakai untuk **mengirim 
   `200` hanya berarti protokol WhatsApp menerima pesan, bukan bahwa pesan dibaca atau diterima oleh nomor tujuan. Selain tabel di atas: `429` dan 5xx lain (mis. 502/504 dari proxy) → `WA_UNAVAILABLE` dapat diulang; 4xx lain (`400`, `404`, `405`) → `SEND_FAILED` tanpa ulang dan memicu alert (request kita ditolak, artinya bug/konfigurasi); badan `200` yang bukan bentuk `{success:true,data:{message_id}}` (mis. portal captive) → `WA_UNAVAILABLE` dapat diulang. Adapter tidak mengikuti redirect, membatasi badan respons 64 KB, dan tidak pernah memasukkan isi pesan (kode OTP), token, atau URL lengkap ke pesan error/log.
 - **Pagar tujuan:** adapter menolak (tanpa menyentuh jaringan) setiap tujuan yang bukan nomor kanonik `628…`. `wa-notif` menerima JID mentah termasuk grup (`…@g.us`), jadi ini pagar terakhir setelah normalisasi §7.4.
 - **Kesehatan nyata `wa-notif` (diamati 24 Okt 2026):** proses hidup dan `/health` UP, tetapi sesi WhatsApp `DISCONNECTED` sejak 20 Okt 09:12 WIB: koneksi awal gagal ("failed to dial whatsapp web websocket… will retry automatically") dan tidak pernah dicoba lagi (tidak ada log sejak itu). Ini persis kasus yang dilindungi probe dan `channel-status`. Pemulihan: `docker restart wa-notif-service` (sesi tersimpan di SQLite, tanpa QR); perbaikan permanen ada di `wa-notif` (coba sambung ulang di latar belakang saat koneksi awal gagal).
-- **Status kanal (`otp_available`):** API menjalankan probe `GET /api/v1/session/status` ke `wa-notif` setiap 30 detik (probe pertama segera saat start). Endpoint itu **publik di `wa-notif`** (tidak butuh token, berbeda dari dokumentasi OpenAPI-nya; sama halnya `/api/v1/session/qr`), jadi probe tidak mengirim token. `otp_available = false` jika probe menunjukkan tidak `connected` / tidak terjangkau, atau 3 percobaan kirim terakhir berturut-turut gagal **karena gateway** (`WA_UNAVAILABLE`). `SEND_FAILED` tidak dihitung: kegagalan itu bisa khusus satu nomor (mis. tanpa WhatsApp), dan bila dihitung, satu nomor buruk yang dicoba 3× akan menutup kanal untuk semua orang. Kanal dianggap tersedia sampai ada bukti sebaliknya. **Probe yang sukses juga mereset hitungan kegagalan kirim**: saat tidak tersedia tidak ada request yang diantrekan, sehingga tanpa itu tidak akan pernah ada pengiriman yang bisa memulihkan status; satu probe sukses mengizinkan beberapa pengiriman percobaan. Saat `false`, `register` dan `otp/request` langsung `503 OTP_UNAVAILABLE` tanpa mengantrekan.
+- **Status kanal (`otp_available`):** API menjalankan probe `GET /api/v1/session/status` ke `wa-notif` setiap 30 detik (probe pertama segera saat start). Endpoint itu **publik di `wa-notif`** (tidak butuh token, berbeda dari dokumentasi OpenAPI-nya; sama halnya `/api/v1/session/qr`), jadi probe tidak mengirim token. `otp_available = false` jika probe menunjukkan tidak `connected` / tidak terjangkau, atau 3 percobaan kirim terakhir berturut-turut gagal **karena gateway** (`WA_UNAVAILABLE`). `SEND_FAILED` tidak dihitung: kegagalan itu bisa khusus satu nomor (mis. tanpa WhatsApp), dan bila dihitung, satu nomor buruk yang dicoba 3× akan menutup kanal untuk semua orang. Kanal dianggap tersedia sampai ada bukti sebaliknya. **Probe yang sukses juga mereset hitungan kegagalan kirim**: saat tidak tersedia tidak ada request yang diantrekan, sehingga tanpa itu tidak akan pernah ada pengiriman yang bisa memulihkan status; satu probe sukses mengizinkan beberapa pengiriman percobaan. Saat `false`, `register`, `password/forgot`, dan `otp/resend` langsung `503 OTP_UNAVAILABLE` tanpa mengantrekan.
 - **Jaringan:** API memanggil `wa-notif` hanya lewat jaringan internal Raspi. Port `3030` **tidak boleh** di-expose lewat Cloudflare Tunnel. Halaman `/login` `wa-notif` menampilkan QR pairing tanpa autentikasi, jadi batasi akses ke port itu (firewall/LAN saja), atau sebaiknya bergabung lewat network Docker bersama sehingga port tidak perlu dipublikasikan.
 - **Privasi:** nama, email, dan nomor HP adalah data pribadi. Nomor di log dan response disamarkan (`62812****7890`); kode OTP dan isi pesan tidak pernah dicatat di log.
 
@@ -689,7 +709,7 @@ Risiko utama: endpoint OTP publik membuat API ini bisa dipakai untuk **mengirim 
 | Ukuran foto setelah kompresi | rata-rata ≤ 500 KB, maks 2 MB |
 | Retensi data | 90 hari (configurable) |
 | Kapasitas OTP | ≈ 40 OTP/menit (dibatasi jeda 1,5 detik `wa-notif`); estimasi tunggu ditampilkan ke user |
-| p95 latency `auth/register`, `auth/otp/request` | < 100 ms (hanya menulis antrean; kirim WhatsApp asinkron) |
+| p95 latency `auth/register`, `auth/password/forgot` | < 100 ms (hanya menulis antrean; kirim WhatsApp asinkron) |
 | Waktu OTP terkirim saat tidak ramai | p95 < 10 detik sejak diminta |
 
 ## 11. Deployment

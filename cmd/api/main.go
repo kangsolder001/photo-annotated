@@ -20,6 +20,7 @@ import (
 	"photo-annotated/internal/adapter/export"
 	"photo-annotated/internal/adapter/imagecheck"
 	"photo-annotated/internal/adapter/localfs"
+	"photo-annotated/internal/adapter/password"
 	"photo-annotated/internal/adapter/postgres"
 	"photo-annotated/internal/adapter/signer"
 	"photo-annotated/internal/adapter/turnstile"
@@ -43,6 +44,10 @@ const (
 	channelFailureThreshold = 3
 	// dispatcher memeriksa antrean paling lambat tiap detik (juga dibangunkan saat ada challenge baru)
 	dispatchIdle = time.Second
+	// percobaan login per nomor HP (berhasil atau gagal) per jendela; melindungi password satu akun
+	// dari tebakan lewat banyak IP
+	loginAttemptsPerPhone = 10
+	loginAttemptWindow    = 15 * time.Minute
 	// interval baris log "stats" (gauge dashboard)
 	statsInterval = time.Minute
 )
@@ -251,6 +256,10 @@ func startOTP(ctx context.Context, log *slog.Logger, cfg *config.Config, pool *p
 	if err != nil {
 		return err
 	}
+	hasher, err := password.NewBcrypt(password.DefaultCost)
+	if err != nil {
+		return err
+	}
 	wa, err := wanotif.New(cfg.WANotif.BaseURL, cfg.Secrets.WANotifToken, cfg.WANotif.Timeout.Std())
 	if err != nil {
 		return err
@@ -264,16 +273,20 @@ func startOTP(ctx context.Context, log *slog.Logger, cfg *config.Config, pool *p
 	})
 	users := postgres.NewUserRepo(pool)
 	sessions := postgres.NewSessionRepo(pool)
-	requester := usecase.NewOTPRequest(users, otps, codes, channel, phones, usecase.SystemClock{},
+	requester := usecase.NewOTPRequest(users, otps, codes, hasher, channel, phones, usecase.SystemClock{},
 		usecase.OTPRequestConfig{
 			ResendCooldown: o.ResendCooldown.Std(), MaxQueue: o.MaxQueue, DailyGlobalCap: o.DailyGlobalCap,
 			SendInterval: cfg.WANotif.SendInterval.Std(), CodeTTL: o.TTL.Std(), OnQueued: dispatcher.Wake,
 		})
 	deps.OTPRequester = requester
-	deps.OTPVerifier = usecase.NewOTPVerify(requester, users, otps, sessions, postgres.NewTxManager(pool), codes, usecase.SystemClock{},
+	deps.OTPVerifier = usecase.NewOTPVerify(requester, users, otps, sessions, postgres.NewTxManager(pool), codes, hasher, usecase.SystemClock{},
 		usecase.OTPVerifyConfig{MaxAttempts: o.MaxVerifyAttempts, SessionTTL: cfg.Auth.SessionTTL.Std()})
 	deps.Sessions = usecase.NewSessions(sessions, users, usecase.SystemClock{})
 	deps.OTPVerifyPerMin = cfg.Limits.RateLimitPerMin.OTPVerify
+	deps.PasswordLogin = usecase.NewPasswordLogin(users, sessions, hasher, usecase.SystemClock{}, usecase.PasswordLoginConfig{
+		SessionTTL: cfg.Auth.SessionTTL.Std(), AttemptsPerPhone: loginAttemptsPerPhone, Window: loginAttemptWindow,
+	})
+	deps.LoginPerMin = cfg.Limits.RateLimitPerMin.Login
 	deps.OTPChannel = channel
 	deps.OTPRequestPerMin = cfg.Limits.RateLimitPerMin.OTPRequest
 

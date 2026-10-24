@@ -33,6 +33,39 @@ type User struct {
 	PhoneVerifiedAt *time.Time
 	CreatedAt       time.Time
 	LastLoginAt     *time.Time
+	// PasswordHash adalah hash bcrypt; kosong bila pengguna belum pernah membuat password.
+	PasswordHash string
+}
+
+const (
+	MinPasswordLen = 8
+	// MaxPasswordBytes: bcrypt hanya memakai 72 byte pertama; password yang lebih panjang ditolak
+	// agar dua password berbeda tidak dianggap sama.
+	MaxPasswordBytes = 72
+)
+
+// ValidatePassword: 8 karakter s.d. 72 byte, UTF-8 valid, tidak hanya spasi, tanpa karakter kontrol.
+// Sengaja tanpa aturan komposisi (huruf besar/simbol) sesuai NIST SP 800-63B.
+func ValidatePassword(p string) error {
+	bad := func(format string, a ...any) error { return Invalid("INVALID_PASSWORD", format, a...) }
+	if !utf8.ValidString(p) {
+		return bad("password must be valid UTF-8")
+	}
+	if utf8.RuneCountInString(p) < MinPasswordLen {
+		return bad("password must be at least %d characters", MinPasswordLen)
+	}
+	if len(p) > MaxPasswordBytes {
+		return bad("password must be at most %d bytes", MaxPasswordBytes)
+	}
+	if strings.TrimSpace(p) == "" {
+		return bad("password must not be only spaces")
+	}
+	for _, r := range p {
+		if unicode.IsControl(r) {
+			return bad("password contains a control character")
+		}
+	}
+	return nil
 }
 
 // NormalizeName memangkas dan memvalidasi nama: 1–100 karakter, UTF-8 valid, tanpa karakter

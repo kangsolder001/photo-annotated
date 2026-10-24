@@ -20,17 +20,21 @@ var _ usecase.UserRepo = (*UserRepo)(nil)
 
 func NewUserRepo(pool *pgxpool.Pool) *UserRepo { return &UserRepo{base{pool}} }
 
-const userColumns = `id, name, email, phone, status, phone_verified_at, created_at, last_login_at`
+const userColumns = `id, name, email, phone, status, phone_verified_at, created_at, last_login_at, password_hash`
 
 func scanUser(row pgx.Row) (*domain.User, error) {
 	var (
 		u      domain.User
 		status string
+		hash   *string
 	)
-	if err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &status, &u.PhoneVerifiedAt, &u.CreatedAt, &u.LastLoginAt); err != nil {
+	if err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &status, &u.PhoneVerifiedAt, &u.CreatedAt, &u.LastLoginAt, &hash); err != nil {
 		return nil, err
 	}
 	u.Status = domain.UserStatus(status)
+	if hash != nil {
+		u.PasswordHash = *hash
+	}
 	return &u, nil
 }
 
@@ -72,6 +76,39 @@ func wrapUser(u *domain.User, err error, what string) (*domain.User, error) {
 		return nil, fmt.Errorf("postgres: get user: %w", err)
 	}
 	return u, nil
+}
+
+func (r *UserRepo) CompleteRegistration(ctx context.Context, id uuid.UUID, name, email, passwordHash string, now time.Time) error {
+	tag, err := r.db(ctx).Exec(ctx, `
+		UPDATE users
+		   SET name = $2, email = $3, password_hash = $4,
+		       status = 'active', phone_verified_at = $5, last_login_at = $5
+		 WHERE id = $1 AND status = 'pending'`, id, name, email, passwordHash, now)
+	if err != nil {
+		return fmt.Errorf("postgres: complete registration: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.Conflict("ALREADY_REGISTERED", "this number is already registered; sign in or reset the password")
+	}
+	return nil
+}
+
+func (r *UserRepo) SetPassword(ctx context.Context, id uuid.UUID, passwordHash string) error {
+	tag, err := r.db(ctx).Exec(ctx, `UPDATE users SET password_hash = $2 WHERE id = $1 AND status = 'active'`, id, passwordHash)
+	if err != nil {
+		return fmt.Errorf("postgres: set password: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("active user %s: %w", id, domain.ErrNotFound)
+	}
+	return nil
+}
+
+func (r *UserRepo) TouchLogin(ctx context.Context, id uuid.UUID, now time.Time) error {
+	if _, err := r.db(ctx).Exec(ctx, `UPDATE users SET last_login_at = $2 WHERE id = $1`, id, now); err != nil {
+		return fmt.Errorf("postgres: touch login: %w", err)
+	}
+	return nil
 }
 
 func (r *UserRepo) Activate(ctx context.Context, id uuid.UUID, now time.Time) error {

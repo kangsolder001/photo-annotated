@@ -135,6 +135,13 @@ type UserRepo interface {
 	GetByPhone(ctx context.Context, phone string) (*domain.User, error)
 	// Activate menandai nomor terverifikasi dan mencatat login (idempoten untuk pengguna aktif).
 	Activate(ctx context.Context, id uuid.UUID, now time.Time) error
+	// CompleteRegistration menerapkan data registrasi dari challenge yang terverifikasi (nama, email,
+	// hash password) dan mengaktifkan pengguna. Hanya untuk pengguna pending; selain itu Conflict.
+	CompleteRegistration(ctx context.Context, id uuid.UUID, name, email, passwordHash string, now time.Time) error
+	// SetPassword mengganti hash password pengguna aktif (reset password).
+	SetPassword(ctx context.Context, id uuid.UUID, passwordHash string) error
+	// TouchLogin mencatat waktu login terakhir.
+	TouchLogin(ctx context.Context, id uuid.UUID, now time.Time) error
 	// DeletePendingBefore menghapus pengguna pending yang dibuat sebelum cutoff.
 	DeletePendingBefore(ctx context.Context, cutoff time.Time, limit int) (int, error)
 }
@@ -177,6 +184,8 @@ type SessionRepo interface {
 	// GetByTokenHash mengembalikan sesi, atau domain.ErrNotFound.
 	GetByTokenHash(ctx context.Context, hash []byte) (*domain.Session, error)
 	Revoke(ctx context.Context, id uuid.UUID, now time.Time) error
+	// RevokeAllForUser mencabut semua sesi aktif pengguna (setelah reset password).
+	RevokeAllForUser(ctx context.Context, userID uuid.UUID, now time.Time) error
 	// DeleteInactiveBefore menghapus sesi yang kedaluwarsa atau dicabut sebelum cutoff.
 	DeleteInactiveBefore(ctx context.Context, cutoff time.Time, limit int) (int, error)
 }
@@ -203,6 +212,14 @@ type OTPSender interface {
 // ChannelProbe memeriksa apakah kanal pengiriman (sesi WhatsApp) tersambung; nil berarti ya.
 type ChannelProbe interface {
 	Check(ctx context.Context) error
+}
+
+// PasswordHasher membuat dan memeriksa hash password (bcrypt).
+type PasswordHasher interface {
+	Hash(password string) (string, error)
+	// Compare membandingkan secara constant-time; hash kosong atau rusak selalu false (tetap memakan
+	// waktu yang sama, agar keberadaan akun tidak bisa ditebak dari waktu respons).
+	Compare(hash, password string) bool
 }
 
 // OTPCodes menurunkan kode OTP dari challenge ID secara deterministik dengan secret server

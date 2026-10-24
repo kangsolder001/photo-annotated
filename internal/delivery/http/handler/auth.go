@@ -18,8 +18,14 @@ import (
 // OTPRequester dipenuhi oleh *usecase.OTPRequest.
 type OTPRequester interface {
 	Register(ctx context.Context, in usecase.RegisterInput) (*usecase.OTPTicket, error)
-	Request(ctx context.Context, phone string, clientIP *netip.Addr) (*usecase.OTPTicket, error)
+	Forgot(ctx context.Context, phone string, clientIP *netip.Addr) (*usecase.OTPTicket, error)
+	Resend(ctx context.Context, challengeID uuid.UUID, clientIP *netip.Addr) (*usecase.OTPTicket, error)
 	Status(ctx context.Context, id uuid.UUID) (*usecase.OTPStatusView, error)
+}
+
+// PasswordLoginer dipenuhi oleh *usecase.PasswordLogin.
+type PasswordLoginer interface {
+	Login(ctx context.Context, phone, password string, clientIP *netip.Addr) (*usecase.LoginResult, error)
 }
 
 // ChannelStatus dipenuhi oleh *usecase.Channel.
@@ -40,6 +46,7 @@ type SessionService interface {
 type AuthDeps struct {
 	OTP       OTPRequester
 	Verifier  OTPVerifier
+	Login     PasswordLoginer
 	Sessions  SessionService
 	Channel   ChannelStatus
 	Turnstile usecase.TurnstileVerifier // nil bila turnstile.enabled = false
@@ -48,25 +55,37 @@ type AuthDeps struct {
 type AuthHandler struct {
 	otp       OTPRequester
 	verifier  OTPVerifier
+	login     PasswordLoginer
 	sessions  SessionService
 	channel   ChannelStatus
 	turnstile usecase.TurnstileVerifier
 }
 
 func NewAuthHandler(d AuthDeps) *AuthHandler {
-	return &AuthHandler{otp: d.OTP, verifier: d.Verifier, sessions: d.Sessions, channel: d.Channel, turnstile: d.Turnstile}
+	return &AuthHandler{otp: d.OTP, verifier: d.Verifier, login: d.Login, sessions: d.Sessions, channel: d.Channel, turnstile: d.Turnstile}
 }
 
 type registerRequest struct {
 	Name           string `json:"name"`
 	Email          string `json:"email"`
 	Phone          string `json:"phone"`
+	Password       string `json:"password"`
 	TurnstileToken string `json:"turnstile_token"`
 }
 
-type otpRequestRequest struct {
+type forgotRequest struct {
 	Phone          string `json:"phone"`
 	TurnstileToken string `json:"turnstile_token"`
+}
+
+type resendRequest struct {
+	ChallengeID    uuid.UUID `json:"challenge_id"`
+	TurnstileToken string    `json:"turnstile_token"`
+}
+
+type loginRequest struct {
+	Phone    string `json:"phone"`
+	Password string `json:"password"`
 }
 
 type otpTicketResponse struct {
@@ -115,19 +134,43 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 	t, err := h.otp.Register(c.Request.Context(), usecase.RegisterInput{
-		Name: req.Name, Email: req.Email, Phone: req.Phone, ClientIP: clientAddr(c),
+		Name: req.Name, Email: req.Email, Phone: req.Phone, Password: req.Password, ClientIP: clientAddr(c),
 	})
 	writeTicket(c, t, err)
 }
 
-// RequestOTP menangani POST /api/v1/auth/otp/request (spec §5.8): login dan kirim ulang.
-func (h *AuthHandler) RequestOTP(c *gin.Context) {
-	var req otpRequestRequest
+// Forgot menangani POST /api/v1/auth/password/forgot: kirim kode reset password.
+func (h *AuthHandler) Forgot(c *gin.Context) {
+	var req forgotRequest
 	if !httpx.DecodeJSON(c, &req) || !h.verifyHuman(c, req.TurnstileToken) {
 		return
 	}
-	t, err := h.otp.Request(c.Request.Context(), req.Phone, clientAddr(c))
+	t, err := h.otp.Forgot(c.Request.Context(), req.Phone, clientAddr(c))
 	writeTicket(c, t, err)
+}
+
+// Resend menangani POST /api/v1/auth/otp/resend: kode baru untuk challenge yang sama tujuannya.
+func (h *AuthHandler) Resend(c *gin.Context) {
+	var req resendRequest
+	if !httpx.DecodeJSON(c, &req) || !h.verifyHuman(c, req.TurnstileToken) {
+		return
+	}
+	t, err := h.otp.Resend(c.Request.Context(), req.ChallengeID, clientAddr(c))
+	writeTicket(c, t, err)
+}
+
+// Login menangani POST /api/v1/auth/login: nomor HP + password.
+func (h *AuthHandler) Login(c *gin.Context) {
+	var req loginRequest
+	if !httpx.DecodeJSON(c, &req) {
+		return
+	}
+	res, err := h.login.Login(c.Request.Context(), req.Phone, req.Password, clientAddr(c))
+	if err != nil {
+		httpx.WriteError(c, err)
+		return
+	}
+	writeLogin(c, res)
 }
 
 type otpStatusResponse struct {
@@ -171,6 +214,7 @@ func (h *AuthHandler) ChannelStatus(c *gin.Context) {
 type verifyRequest struct {
 	ChallengeID uuid.UUID `json:"challenge_id"`
 	Code        string    `json:"code"`
+	NewPassword string    `json:"new_password"` // wajib untuk reset password
 }
 
 type userDTO struct {
@@ -197,11 +241,17 @@ func (h *AuthHandler) Verify(c *gin.Context) {
 	if !httpx.DecodeJSON(c, &req) {
 		return
 	}
-	res, err := h.verifier.Verify(c.Request.Context(), usecase.VerifyInput{ChallengeID: req.ChallengeID, Code: req.Code, ClientIP: clientAddr(c)})
+	res, err := h.verifier.Verify(c.Request.Context(), usecase.VerifyInput{
+		ChallengeID: req.ChallengeID, Code: req.Code, NewPassword: req.NewPassword, ClientIP: clientAddr(c),
+	})
 	if err != nil {
 		httpx.WriteError(c, err)
 		return
 	}
+	writeLogin(c, res)
+}
+
+func writeLogin(c *gin.Context, res *usecase.LoginResult) {
 	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusOK, loginResponse{AccessToken: res.Token, ExpiresAt: res.ExpiresAt.UTC(), User: toUserDTO(res.User)})
 }

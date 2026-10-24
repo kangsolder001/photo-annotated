@@ -415,6 +415,12 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 **Verification:** [ ] buka dari HP lewat jaringan seluler, jalankan alur lengkap
 **Dependencies:** 29, 31 · **Files:** `web/public/_headers`, konfigurasi Pages · **Scope:** S
 
+#### Task 35: Backend login dengan password — **SELESAI**
+**Description:** OTP hanya untuk verifikasi nomor saat registrasi dan reset password; login biasa nomor HP + password.
+**Hasil:** migrasi `0005_password` (`users.password_hash`; `otp_challenges.purpose` + data registrasi, challenge lama dihapus); `adapter/password` (bcrypt cost 10, bcrypt tiruan untuk akun tak ada); `POST /auth/register` (+password), `POST /auth/login`, `POST /auth/password/forgot`, `POST /auth/otp/resend` (salin data registrasi, FE tidak menyimpan password), `POST /auth/otp/verify` (+`new_password` untuk reset; `PASSWORD_REQUIRED` tidak menghitung percobaan). `POST /auth/otp/request` dihapus.
+**Keamanan:** data registrasi disimpan di challenge dan diterapkan saat challenge itu diverifikasi → pendaftaran ulang nomor pending tidak bisa menyisipkan password penyerang (diuji); nomor aktif tidak bisa didaftar ulang (challenge palsu, tanpa pesan); login: pesan & waktu sama untuk semua kegagalan, batas per IP dan 10 percobaan/15 menit per nomor (seragam); reset mencabut semua sesi lama.
+**Verification:** [x] `go test ./... -race` (repo: round-trip & constraint; usecase: registrasi, ambil-alih ditolak, lupa password seragam, kirim ulang, reset + cabut sesi, login + batas; e2e HTTP login & reset)
+
 ### Checkpoint 7: Aplikasi utuh
 - [ ] Alur lengkap dari HP (seluler) berhasil, termasuk edit dan OTP
 - [ ] Review dengan Anda

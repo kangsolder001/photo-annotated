@@ -58,7 +58,7 @@ func (r *authCleanRig) newUser(t *testing.T, age time.Duration, active bool) *do
 
 func (r *authCleanRig) challenge(t *testing.T, u *domain.User, status string, age time.Duration) uuid.UUID {
 	t.Helper()
-	c := &domain.OTPChallenge{ID: uuid.New(), UserID: u.ID, Phone: u.Phone, CodeHash: bytes.Repeat([]byte{1}, 32),
+	c := &domain.OTPChallenge{ID: uuid.New(), UserID: u.ID, Phone: u.Phone, CodeHash: bytes.Repeat([]byte{1}, 32), Purpose: domain.OTPPurposeReset,
 		Status: domain.OTPQueued, NextAttemptAt: r.now, CreatedAt: r.now.Add(-age)}
 	if err := r.otps.Replace(bg, c); err != nil {
 		t.Fatal(err)

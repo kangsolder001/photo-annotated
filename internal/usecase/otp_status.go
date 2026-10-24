@@ -38,6 +38,7 @@ type decoys struct {
 
 type decoy struct {
 	phone             string
+	purpose           domain.OTPPurpose
 	createdAt, sentAt time.Time
 	attempts          int  // tebakan kode yang dicoba (ditiru seperti verify_attempts)
 	burned            bool // dibatalkan (batas percobaan atau diganti permintaan baru): terlihat expired
@@ -62,7 +63,7 @@ func (d *decoys) attempt(id uuid.UUID, max int) int {
 	return v.attempts
 }
 
-func (d *decoys) add(id uuid.UUID, phone string, createdAt, sentAt time.Time) {
+func (d *decoys) add(id uuid.UUID, phone string, purpose domain.OTPPurpose, createdAt, sentAt time.Time) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for len(d.order) >= d.max {
@@ -79,7 +80,7 @@ func (d *decoys) add(id uuid.UUID, phone string, createdAt, sentAt time.Time) {
 			d.items[prev] = v
 		}
 	}
-	d.items[id] = decoy{phone: phone, createdAt: createdAt, sentAt: sentAt}
+	d.items[id] = decoy{phone: phone, purpose: purpose, createdAt: createdAt, sentAt: sentAt}
 	d.latest[phone] = id
 	d.order = append(d.order, id)
 }

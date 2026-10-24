@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"photo-annotated/internal/adapter/postgres"
 	"photo-annotated/internal/domain"
 	"photo-annotated/internal/usecase"
 )
@@ -198,27 +199,31 @@ func TestVerifyConcurrentGuessesCannotExceedLimit(t *testing.T) {
 
 func TestVerifyDecoyMimicsRealChallenge(t *testing.T) {
 	r, _ := newDispatchRig(t, stubToken)
-	tk, err := r.req.Request(bg, "081299998888", nil) // tidak terdaftar
+	tk, err := r.req.Forgot(bg, "081299998888", nil) // tidak terdaftar
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: tk.ChallengeID, Code: "123456"}); errCode(err) != "OTP_NOT_SENT" {
+	// challenge reset palsu juga mewajibkan password baru, seperti yang asli
+	if _, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: tk.ChallengeID, Code: "123456"}); errCode(err) != "PASSWORD_REQUIRED" {
+		t.Fatalf("tanpa password baru: %v", err)
+	}
+	if _, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: tk.ChallengeID, Code: "123456", NewPassword: "passwordbaru1"}); errCode(err) != "OTP_NOT_SENT" {
 		t.Fatalf("sebelum terkirim: %v", err)
 	}
 	r.clock.t = r.clock.t.Add(tk.EstimatedWait)
 	for i := 1; i <= 4; i++ {
-		_, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: tk.ChallengeID, Code: "123456"})
+		_, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: tk.ChallengeID, Code: "123456", NewPassword: "passwordbaru1"})
 		if errCode(err) != "OTP_INVALID" || attemptsLeft(err) != 5-i {
 			t.Fatalf("tebakan %d: %v", i, err)
 		}
 	}
-	if _, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: tk.ChallengeID, Code: "123456"}); errCode(err) != "OTP_TOO_MANY_ATTEMPTS" {
+	if _, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: tk.ChallengeID, Code: "123456", NewPassword: "passwordbaru1"}); errCode(err) != "OTP_TOO_MANY_ATTEMPTS" {
 		t.Fatalf("tebakan 5: %v", err)
 	}
 	if v := r.status(t, tk.ChallengeID); v.Status != domain.OTPExpired {
 		t.Fatalf("status palsu setelah batas = %s", v.Status)
 	}
-	if _, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: tk.ChallengeID, Code: "123456"}); errCode(err) != "OTP_EXPIRED" {
+	if _, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: tk.ChallengeID, Code: "123456", NewPassword: "passwordbaru1"}); errCode(err) != "OTP_EXPIRED" {
 		t.Fatalf("setelah batas: %v", err)
 	}
 }
@@ -260,8 +265,10 @@ func TestSessionsRejectBadExpiredAndRevoked(t *testing.T) {
 // terdaftar (challenge lama expired karena Replace) dari yang tidak terdaftar.
 func TestRepeatedRequestLooksTheSameForKnownAndUnknown(t *testing.T) {
 	r, _ := newDispatchRig(t, stubToken)
-	r.register(t, "081234567890")
-	r.once(t, usecase.DispatchSent)
+	id, code := r.sentChallenge(t, "081234567890")
+	if _, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: id, Code: code}); err != nil { // akun aktif
+		t.Fatal(err)
+	}
 
 	type probe struct {
 		status domain.OTPStatus
@@ -269,7 +276,7 @@ func TestRepeatedRequestLooksTheSameForKnownAndUnknown(t *testing.T) {
 	}
 	check := func(phone string, dispatch bool) probe {
 		r.clock.t = r.clock.t.Add(2 * time.Minute) // lewat cooldown
-		first, err := r.req.Request(bg, phone, nil)
+		first, err := r.req.Forgot(bg, phone, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -277,15 +284,124 @@ func TestRepeatedRequestLooksTheSameForKnownAndUnknown(t *testing.T) {
 			r.once(t, usecase.DispatchSent)
 		}
 		r.clock.t = r.clock.t.Add(2 * time.Minute)
-		if _, err := r.req.Request(bg, phone, nil); err != nil {
+		if _, err := r.req.Forgot(bg, phone, nil); err != nil {
 			t.Fatal(err)
 		}
-		_, verr := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: first.ChallengeID, Code: "123456"})
+		_, verr := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: first.ChallengeID, Code: "123456", NewPassword: "passwordbaru1"})
 		return probe{r.status(t, first.ChallengeID).Status, errCode(verr)}
 	}
 	known := check("081234567890", true)
 	unknown := check("081299998888", false)
 	if known != unknown || known.status != domain.OTPExpired || known.verify != "OTP_EXPIRED" {
 		t.Fatalf("terdaftar %+v, tidak terdaftar %+v; ingin sama-sama expired/OTP_EXPIRED", known, unknown)
+	}
+}
+
+func TestRegisterVerifySetsPasswordAndActivates(t *testing.T) {
+	r, _ := newDispatchRig(t, stubToken)
+	id, code := r.sentChallenge(t, "081234567890")
+	res, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: id, Code: code})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := r.users.Get(bg, res.User.ID)
+	if u.Status != domain.UserActive || !testHasher.Compare(u.PasswordHash, "rahasia123") || u.Name != "Budi" {
+		t.Fatalf("registrasi tidak diterapkan: %+v", u)
+	}
+}
+
+func TestPasswordResetFlow(t *testing.T) {
+	r, _ := newDispatchRig(t, stubToken)
+	id, code := r.sentChallenge(t, "081234567890")
+	old, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: id, Code: code})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.clock.t = r.clock.t.Add(2 * time.Minute)
+	tk, err := r.req.Forgot(bg, "081234567890", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.once(t, usecase.DispatchSent)
+	resetCode := r.stub.LastCodeFor("6281234567890")
+
+	// tanpa password baru: ditolak tanpa menghitung percobaan
+	for i := 0; i < 6; i++ {
+		if _, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: tk.ChallengeID, Code: resetCode}); errCode(err) != "PASSWORD_REQUIRED" {
+			t.Fatalf("tanpa password baru: %v", err)
+		}
+	}
+	if _, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: tk.ChallengeID, Code: resetCode, NewPassword: "pendek"}); errCode(err) != "INVALID_PASSWORD" {
+		t.Fatalf("password baru lemah: %v", err)
+	}
+	res, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: tk.ChallengeID, Code: resetCode, NewPassword: "passwordbaru1"})
+	if err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	u, _ := r.users.Get(bg, res.User.ID)
+	if !testHasher.Compare(u.PasswordHash, "passwordbaru1") || testHasher.Compare(u.PasswordHash, "rahasia123") {
+		t.Fatal("password tidak berganti")
+	}
+	if _, err := r.sess.Authenticate(bg, old.Token); errCode(err) != "UNAUTHORIZED" {
+		t.Fatalf("sesi lama harus dicabut setelah reset: %v", err)
+	}
+	if _, err := r.sess.Authenticate(bg, res.Token); err != nil {
+		t.Fatalf("sesi baru: %v", err)
+	}
+}
+
+func TestPasswordLogin(t *testing.T) {
+	r, _ := newDispatchRig(t, stubToken)
+	id, code := r.sentChallenge(t, "081234567890")
+	if _, err := r.verify.Verify(bg, usecase.VerifyInput{ChallengeID: id, Code: code}); err != nil {
+		t.Fatal(err)
+	}
+	r.register(t, "081277776666") // pending: belum bisa login walau tahu passwordnya
+	login := usecase.NewPasswordLogin(r.users, postgres.NewSessionRepo(r.pool), testHasher, r.clock,
+		usecase.PasswordLoginConfig{SessionTTL: time.Hour, AttemptsPerPhone: 5, Window: 15 * time.Minute})
+
+	res, err := login.Login(bg, "+62 812-3456-7890", "rahasia123", nil)
+	if err != nil {
+		t.Fatalf("login benar: %v", err)
+	}
+	if s, err := r.sess.Authenticate(bg, res.Token); err != nil || s.UserID != res.User.ID {
+		t.Fatalf("sesi login: %v", err)
+	}
+	// salah password, nomor tak terdaftar, dan nomor pending: pesan sama
+	var msgs []string
+	for _, c := range []struct{ phone, pw string }{
+		{"081234567890", "salahsalah"}, {"081299998888", "rahasia123"}, {"081277776666", "rahasia123"}, {"081234567890", ""},
+	} {
+		_, err := login.Login(bg, c.phone, c.pw, nil)
+		if errCode(err) != "INVALID_CREDENTIALS" {
+			t.Fatalf("%+v: %v", c, err)
+		}
+		msgs = append(msgs, err.Error())
+	}
+	for _, m := range msgs[1:] {
+		if m != msgs[0] {
+			t.Fatalf("pesan berbeda: %q vs %q", m, msgs[0])
+		}
+	}
+	// batas per nomor: 5 percobaan/15 menit (berhasil maupun gagal). Nomor ini sudah 3 kali (1 sukses,
+	// 2 gagal), jadi 2 lagi boleh dan yang ke-6 terkunci, walau passwordnya benar.
+	for i := 0; i < 2; i++ {
+		if _, err := login.Login(bg, "081234567890", "rahasia123", nil); err != nil {
+			t.Fatalf("percobaan ke-%d: %v", 4+i, err)
+		}
+	}
+	if _, err := login.Login(bg, "081234567890", "rahasia123", nil); errCode(err) != "LOGIN_LOCKED" {
+		t.Fatalf("ingin LOGIN_LOCKED pada percobaan ke-6, dapat %v", err)
+	}
+	// nomor tak terdaftar dibatasi sama (sudah 1 kali di atas)
+	for i := 0; i < 4; i++ {
+		_, _ = login.Login(bg, "081299998888", "x", nil)
+	}
+	if _, err := login.Login(bg, "081299998888", "x", nil); errCode(err) != "LOGIN_LOCKED" {
+		t.Fatalf("nomor tak terdaftar harus dibatasi sama: %v", err)
+	}
+	r.clock.t = r.clock.t.Add(15 * time.Minute)
+	if _, err := login.Login(bg, "081234567890", "rahasia123", nil); err != nil {
+		t.Fatalf("setelah jendela lewat harus bisa login lagi: %v", err)
 	}
 }

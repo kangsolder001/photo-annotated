@@ -21,10 +21,11 @@ type OTPVerifyConfig struct {
 	SessionTTL  time.Duration
 }
 
-// VerifyInput adalah isi POST /auth/otp/verify.
+// VerifyInput adalah isi POST /auth/otp/verify. NewPassword wajib untuk challenge reset password.
 type VerifyInput struct {
 	ChallengeID uuid.UUID
 	Code        string
+	NewPassword string
 	ClientIP    *netip.Addr
 }
 
@@ -42,6 +43,7 @@ type OTPVerify struct {
 	sessions SessionRepo
 	tx       TxManager
 	codes    OTPCodes
+	hasher   PasswordHasher
 	decoys   *decoys
 	clock    Clock
 	cfg      OTPVerifyConfig
@@ -49,12 +51,14 @@ type OTPVerify struct {
 
 // NewOTPVerify memakai catatan challenge palsu milik req agar verifikasi id palsu berperilaku sama
 // dengan challenge asli (anti-enumerasi).
-func NewOTPVerify(req *OTPRequest, users UserRepo, otps OTPRepo, sessions SessionRepo, tx TxManager, codes OTPCodes, clock Clock, cfg OTPVerifyConfig) *OTPVerify {
+func NewOTPVerify(req *OTPRequest, users UserRepo, otps OTPRepo, sessions SessionRepo, tx TxManager, codes OTPCodes, hasher PasswordHasher, clock Clock, cfg OTPVerifyConfig) *OTPVerify {
 	if cfg.MaxAttempts < 1 || cfg.SessionTTL <= 0 {
 		panic("usecase: OTPVerifyConfig tidak valid")
 	}
-	return &OTPVerify{users: users, otps: otps, sessions: sessions, tx: tx, codes: codes, decoys: req.decoys, clock: clock, cfg: cfg}
+	return &OTPVerify{users: users, otps: otps, sessions: sessions, tx: tx, codes: codes, hasher: hasher, decoys: req.decoys, clock: clock, cfg: cfg}
 }
+
+var errPasswordRequired = domain.Invalid("PASSWORD_REQUIRED", "a new password is required to reset the password")
 
 var (
 	errOTPNotSent  = domain.Conflict("OTP_NOT_SENT", "the code has not been sent yet; wait for it or request a new one")
@@ -69,6 +73,8 @@ func errOTPInvalid(left int) error {
 
 // Verify memeriksa kode. Percobaan dihitung secara atomik sebelum dibandingkan, sehingga tebakan
 // paralel tidak dapat melewati batas; kode hanya sah sekali walau diverifikasi berbarengan.
+// Registrasi: data dari challenge diterapkan dan akun aktif. Reset: password diganti dan semua sesi
+// lama dicabut. Keduanya langsung login.
 func (v *OTPVerify) Verify(ctx context.Context, in VerifyInput) (*LoginResult, error) {
 	if len(in.Code) == 0 || len(in.Code) > 16 {
 		return nil, errOTPBadInput
@@ -78,13 +84,25 @@ func (v *OTPVerify) Verify(ctx context.Context, in VerifyInput) (*LoginResult, e
 			return nil, errOTPBadInput
 		}
 	}
+	if in.NewPassword != "" {
+		if err := domain.ValidatePassword(in.NewPassword); err != nil {
+			return nil, err
+		}
+	}
 	now := v.clock.Now()
 	c, err := v.otps.Get(ctx, in.ChallengeID)
 	if errors.Is(err, domain.ErrNotFound) {
+		if d, ok := v.decoys.get(in.ChallengeID); ok && d.purpose == domain.OTPPurposeReset && in.NewPassword == "" {
+			return nil, errPasswordRequired
+		}
 		return nil, v.verifyDecoy(in.ChallengeID, now)
 	}
 	if err != nil {
 		return nil, err
+	}
+	// diperiksa sebelum percobaan dihitung: lupa mengisi password baru bukan tebakan kode
+	if c.Purpose == domain.OTPPurposeReset && in.NewPassword == "" {
+		return nil, errPasswordRequired
 	}
 	switch c.Status {
 	case domain.OTPQueued, domain.OTPSending, domain.OTPFailed:
@@ -114,11 +132,19 @@ func (v *OTPVerify) Verify(ctx context.Context, in VerifyInput) (*LoginResult, e
 		}
 		return nil, errOTPInvalid(v.cfg.MaxAttempts - n)
 	}
-	return v.login(ctx, c, in.ClientIP, now)
+	var newHash string
+	if c.Purpose == domain.OTPPurposeReset {
+		// hash hanya setelah kode terbukti benar (bcrypt mahal)
+		if newHash, err = v.hasher.Hash(in.NewPassword); err != nil {
+			return nil, err
+		}
+	}
+	return v.login(ctx, c, newHash, in.ClientIP, now)
 }
 
-// login memakai challenge, mengaktifkan pengguna, dan membuat sesi dalam satu transaksi.
-func (v *OTPVerify) login(ctx context.Context, c *domain.OTPChallenge, clientIP *netip.Addr, now time.Time) (*LoginResult, error) {
+// login memakai challenge, menerapkan registrasi atau password baru, dan membuat sesi dalam satu
+// transaksi.
+func (v *OTPVerify) login(ctx context.Context, c *domain.OTPChallenge, newPasswordHash string, clientIP *netip.Addr, now time.Time) (*LoginResult, error) {
 	token, hash, err := newSessionToken()
 	if err != nil {
 		return nil, err
@@ -133,8 +159,22 @@ func (v *OTPVerify) login(ctx context.Context, c *domain.OTPChallenge, clientIP 
 		if !ok {
 			return errOTPExpired // sudah dipakai oleh verifikasi lain yang berbarengan
 		}
-		if err := v.users.Activate(ctx, c.UserID, now); err != nil {
-			return err
+		switch c.Purpose {
+		case domain.OTPPurposeReset:
+			if err := v.users.SetPassword(ctx, c.UserID, newPasswordHash); err != nil {
+				return err
+			}
+			// siapa pun yang memegang sesi lama (mis. perangkat hilang) harus login ulang
+			if err := v.sessions.RevokeAllForUser(ctx, c.UserID, now); err != nil {
+				return err
+			}
+			if err := v.users.TouchLogin(ctx, c.UserID, now); err != nil {
+				return err
+			}
+		default:
+			if err := v.users.CompleteRegistration(ctx, c.UserID, c.RegName, c.RegEmail, c.RegPasswordHash, now); err != nil {
+				return err
+			}
 		}
 		if err := v.sessions.Create(ctx, s); err != nil {
 			return err

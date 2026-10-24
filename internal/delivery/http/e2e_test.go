@@ -57,6 +57,8 @@ type stackOpts struct {
 	adminPerMin     int
 	// tujuan log request (nil = dibuang)
 	logOut io.Writer
+	// cooldown kode OTP per nomor di stack auth (0 = 1 menit)
+	otpCooldown time.Duration
 }
 
 // otpParts adalah usecase auth OTP yang dirakit test di atas pool milik stack.
@@ -64,6 +66,7 @@ type otpParts struct {
 	req      handler.OTPRequester
 	verify   handler.OTPVerifier
 	sessions httpapi.SessionManager
+	login    handler.PasswordLoginer
 }
 
 type stack struct {
@@ -157,7 +160,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		Uploader: upload, MaxUploadBytes: o.maxBytes, UploadTimeout: time.Minute,
 		Submitter: submit, SubmissionsPerMin: 1_000_000,
 		Reader: reader, Editor: editor,
-		OTPRequester: otp.req, OTPVerifier: otp.verify, Sessions: otp.sessions, OTPVerifyPerMin: 1_000_000, OTPChannel: o.channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin, UploadTurnstile: o.uploadTurnstile, Admin: o.admin, AdminLoginPerMin: o.adminPerMin,
+		OTPRequester: otp.req, OTPVerifier: otp.verify, PasswordLogin: otp.login, LoginPerMin: 1_000_000, Sessions: otp.sessions, OTPVerifyPerMin: 1_000_000, OTPChannel: o.channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin, UploadTurnstile: o.uploadTurnstile, Admin: o.admin, AdminLoginPerMin: o.adminPerMin,
 		Exporter: usecase.NewExport(postgres.NewExportRepo(pool), sg, usecase.SystemClock{}, usecase.ExportConfig{PublicBaseURL: srv.URL, URLTTL: time.Hour, PageSize: 2}),
 		NewJSONL: func(w io.Writer) handler.ExportStream { return export.NewJSONL(w) },
 	})

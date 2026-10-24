@@ -153,6 +153,7 @@ type RateLimits struct {
 	OTPRequest  int `json:"otp_request"`
 	OTPVerify   int `json:"otp_verify"`
 	AdminLogin  int `json:"admin_login"`
+	Login       int `json:"login"` // POST /auth/login per IP
 }
 
 type Retention struct {
@@ -242,7 +243,7 @@ func Defaults() Config {
 			MaxAnnotationTextLen:   1000,
 			MaxConcurrentUploads:   200,
 			UploadTimeout:          Duration(60 * time.Second),
-			RateLimitPerMin:        RateLimits{Presign: 30, Submissions: 10, OTPRequest: 5, OTPVerify: 20, AdminLogin: 5},
+			RateLimitPerMin:        RateLimits{Presign: 30, Submissions: 10, OTPRequest: 5, OTPVerify: 20, AdminLogin: 5, Login: 10},
 		},
 		Retention: Retention{
 			Days:            90,
@@ -451,7 +452,7 @@ func (c *Config) Validate() error {
 		bad("limits.upload_timeout", "harus > 0")
 	}
 	r := l.RateLimitPerMin
-	if r.Presign < 1 || r.Submissions < 1 || r.OTPRequest < 1 || r.OTPVerify < 1 || r.AdminLogin < 1 {
+	if r.Presign < 1 || r.Submissions < 1 || r.OTPRequest < 1 || r.OTPVerify < 1 || r.AdminLogin < 1 || r.Login < 1 {
 		bad("limits.rate_limit_per_min", "semua nilai harus >= 1")
 	}
 

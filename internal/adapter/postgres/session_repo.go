@@ -49,6 +49,14 @@ func (r *SessionRepo) Revoke(ctx context.Context, id uuid.UUID, now time.Time) e
 	return nil
 }
 
+func (r *SessionRepo) RevokeAllForUser(ctx context.Context, userID uuid.UUID, now time.Time) error {
+	if _, err := r.db(ctx).Exec(ctx,
+		`UPDATE sessions SET revoked_at = $2 WHERE user_id = $1 AND revoked_at IS NULL`, userID, now); err != nil {
+		return fmt.Errorf("postgres: revoke user sessions: %w", err)
+	}
+	return nil
+}
+
 func (r *SessionRepo) DeleteInactiveBefore(ctx context.Context, cutoff time.Time, limit int) (int, error) {
 	tag, err := r.db(ctx).Exec(ctx, `
 		DELETE FROM sessions WHERE id IN (
