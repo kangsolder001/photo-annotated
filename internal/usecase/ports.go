@@ -220,6 +220,12 @@ type TurnstileVerifier interface {
 	Verify(ctx context.Context, token, remoteIP string) error
 }
 
+// AdminTokenSigner menerbitkan dan memverifikasi token admin stateless.
+type AdminTokenSigner interface {
+	Issue(expiresAt time.Time) string
+	Verify(token string, now time.Time) bool
+}
+
 // EditTokenSigner menurunkan dan memverifikasi token edit anonim (hanya auth.mode = none).
 type EditTokenSigner interface {
 	Token(submissionID uuid.UUID) string

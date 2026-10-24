@@ -131,6 +131,16 @@ func run() error {
 		Submitter: submit, SubmissionsPerMin: cfg.Limits.RateLimitPerMin.Submissions,
 		Uploader: upload, MaxUploadBytes: cfg.Limits.MaxUploadBytes, UploadTimeout: cfg.Limits.UploadTimeout.Std(),
 	}
+	if cfg.Admin.Enabled {
+		tokens, err := signer.NewAdminTokens(cfg.Secrets.AdminTokenSecret)
+		if err != nil {
+			return err
+		}
+		deps.Admin = usecase.NewAdminAuth(tokens, usecase.SystemClock{}, usecase.AdminConfig{
+			Username: cfg.Admin.Username, PasswordBcrypt: cfg.Admin.PasswordBcrypt, TokenTTL: cfg.Admin.TokenTTL.Std(),
+		})
+		deps.AdminLoginPerMin = cfg.Limits.RateLimitPerMin.AdminLogin
+	}
 	if cfg.Turnstile.Enabled {
 		ts, err := turnstile.New(cfg.Secrets.TurnstileSecret, "", turnstileTimeout)
 		if err != nil {

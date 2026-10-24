@@ -69,7 +69,7 @@ func newAuthStack(t *testing.T, cfURL string, otpPerMin int) *authStack {
 	if err != nil {
 		t.Fatal(err)
 	}
-	as.stack = newStack(t, stackOpts{otp: parts, channel: as.channel, turnstile: ts, otpPerMin: otpPerMin})
+	as.stack = newStack(t, stackOpts{otp: parts, channel: as.channel, turnstile: ts, otpPerMin: otpPerMin, admin: testAdmin(t), adminPerMin: 1_000_000})
 	return as
 }
 

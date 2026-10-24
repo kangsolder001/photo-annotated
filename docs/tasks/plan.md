@@ -341,13 +341,15 @@ Paralelisasi: setelah Checkpoint 3 kontrak API stabil, FE (T26–T28) dapat berj
 
 ### Phase 6: Admin & export
 
-#### Task 24: Admin login
+#### Task 24: Admin login — **SELESAI**
 **Description:** `POST /admin/login` (bcrypt dari config, rate limit 5/menit, token HMAC stateless 8 jam), admin boleh baca submission/foto, tidak boleh edit.
 **Acceptance criteria:**
-- [ ] Kredensial salah → 401 pesan seragam; `admin.enabled=false` → 404
-- [ ] Token admin tidak bisa `PUT /submissions/{id}`
-**Verification:** [ ] `go test ./… -race`
-**Dependencies:** 15, 8 · **Files:** `usecase/admin.go`, `adapter/auth/admin.go`, handler + test · **Scope:** S
+- [x] Kredensial salah → `401 INVALID_CREDENTIALS` dengan pesan identik (username/password salah, huruf besar, spasi, password > 72 byte); `admin.enabled=false` → 404 dan token admin tidak dikenali (401); rate limit login per IP
+- [x] Token admin tidak bisa `PUT /submissions/{id}` (403 `ADMIN_READ_ONLY`, juga dengan `edit_token` sah), presign, submit, atau `/auth/me`; bisa membaca submission & URL foto siapa pun di kedua mode
+- [x] Token: kedaluwarsa, secret lain, `exp` diubah/non-kanonik, tanda tangan rusak → ditolak
+**Keputusan:** admin hanya-baca juga untuk presign/submit (matriks spec §9.2 diselaraskan; sebelumnya `user / admin`), karena submission tanpa pemilik tidak bisa diedit siapa pun. Satu middleware `Authenticator.Require(Access{Anonymous,User,Admin})` menggantikan `RequireSession`.
+**Verification:** [x] `go test ./... -race`
+**Dependencies:** 15, 8 · **Files:** `usecase/admin.go`, `adapter/signer/admintoken.go`, `middleware/auth.go`, `handler/admin.go` + test · **Scope:** S
 
 #### Task 25: Export JSONL
 **Description:** Port `Exporter` + implementasi `jsonl` (keyset pagination `(created_at,id)`, `bbox_norm` + `bbox_px`, `storage_key`, `sha256`, tanpa data pribadi, `include_urls`), deadline tulis diperpanjang.

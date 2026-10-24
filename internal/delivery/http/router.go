@@ -21,6 +21,12 @@ const (
 	jsonWriteDeadline = 15 * time.Second
 )
 
+// AdminAuth dipenuhi oleh *usecase.AdminAuth: login admin dan verifikasi token admin.
+type AdminAuth interface {
+	handler.AdminLoginer
+	middleware.AdminVerifier
+}
+
 // SessionManager dipenuhi oleh *usecase.Sessions: validasi token bearer, profil, dan logout.
 type SessionManager interface {
 	handler.SessionService
@@ -55,6 +61,10 @@ type Deps struct {
 	// Turnstile untuk presign dan submit pada auth.mode = none (token boleh dipakai ulang beberapa
 	// kali untuk satu submission); nil = tanpa Turnstile.
 	UploadTurnstile usecase.TurnstileVerifier
+
+	// Admin statis (spec §5.9); nil bila admin.enabled = false sehingga /admin/* menjadi 404.
+	Admin            AdminAuth
+	AdminLoginPerMin int
 
 	Uploader       handler.Uploader // usecase upload (spec §5.1b)
 	MaxUploadBytes int64            // batas ukuran file (config limits.max_upload_bytes)
@@ -94,13 +104,23 @@ func NewRouter(d Deps) *gin.Engine {
 	ops.GET("/readyz", handler.Readyz(d.DB))
 
 	api := ops.Group("/api/v1")
-	// Penjaga rute pemilik (spec §9.2). Mode otp (Sessions terisi): sesi wajib. Mode none: anonim,
-	// dengan Turnstile pada presign dan submit bila diaktifkan; edit/baca dibuktikan edit_token.
-	var owner, human []gin.HandlerFunc
+	// Penjaga rute (spec §9.2). Mode otp (Sessions terisi): sesi wajib untuk menulis; mode none:
+	// anonim (kepemilikan lewat edit_token) dengan Turnstile pada presign dan submit. Token admin
+	// hanya boleh membaca.
+	var sessions middleware.SessionAuthenticator
 	if d.Sessions != nil {
-		owner = []gin.HandlerFunc{middleware.RequireSession(d.Sessions)}
-		human = owner
-	} else if d.UploadTurnstile != nil {
+		sessions = d.Sessions
+	}
+	var adminTokens middleware.AdminVerifier
+	if d.Admin != nil {
+		adminTokens = d.Admin
+	}
+	authn := middleware.NewAuthenticator(sessions, adminTokens)
+	otpMode := sessions != nil
+	write := []gin.HandlerFunc{authn.Require(middleware.Access{Anonymous: !otpMode, User: otpMode})}
+	read := []gin.HandlerFunc{authn.Require(middleware.Access{Anonymous: !otpMode, User: otpMode, Admin: true})}
+	var human []gin.HandlerFunc
+	if !otpMode && d.UploadTurnstile != nil {
 		human = []gin.HandlerFunc{middleware.Turnstile(d.UploadTurnstile)}
 	}
 	chain := func(hs ...[]gin.HandlerFunc) []gin.HandlerFunc {
@@ -113,18 +133,18 @@ func NewRouter(d Deps) *gin.Engine {
 
 	uploads := handler.NewUploadHandler(d.Presigner, d.Uploader, d.MaxUploadBytes)
 	presignLimit := []gin.HandlerFunc{middleware.RateLimit(middleware.NewRateLimiter(d.PresignPerMin))}
-	api.POST("/uploads/presign", chain(presignLimit, human, []gin.HandlerFunc{uploads.Presign})...)
+	api.POST("/uploads/presign", chain(presignLimit, write, human, []gin.HandlerFunc{uploads.Presign})...)
 
 	submissions := handler.NewSubmissionHandler(d.Submitter)
 	edits := handler.NewEditHandler(d.Editor)
 	// POST dan PUT berbagi satu limiter per IP ("submissions (POST & PUT): 10 / menit", spec §9.4).
 	submissionsLimit := []gin.HandlerFunc{middleware.RateLimit(middleware.NewRateLimiter(d.SubmissionsPerMin))}
-	api.POST("/submissions", chain(submissionsLimit, human, []gin.HandlerFunc{submissions.Create})...)
-	api.PUT("/submissions/:id", chain(submissionsLimit, owner, []gin.HandlerFunc{edits.Put})...)
+	api.POST("/submissions", chain(submissionsLimit, write, human, []gin.HandlerFunc{submissions.Create})...)
+	api.PUT("/submissions/:id", chain(submissionsLimit, write, []gin.HandlerFunc{edits.Put})...)
 
 	reads := handler.NewReadHandler(d.Reader)
-	api.GET("/submissions/:id", chain(owner, []gin.HandlerFunc{reads.GetSubmission})...)
-	api.GET("/photos/:id/url", chain(owner, []gin.HandlerFunc{reads.PhotoURL})...)
+	api.GET("/submissions/:id", chain(read, []gin.HandlerFunc{reads.GetSubmission})...)
+	api.GET("/photos/:id/url", chain(read, []gin.HandlerFunc{reads.PhotoURL})...)
 
 	if d.OTPRequester != nil {
 		if d.OTPRequestPerMin < 1 || d.OTPChannel == nil || d.OTPVerifier == nil || d.Sessions == nil || d.OTPVerifyPerMin < 1 {
@@ -142,9 +162,17 @@ func NewRouter(d Deps) *gin.Engine {
 		api.POST("/auth/otp/verify", middleware.RateLimit(middleware.NewRateLimiter(d.OTPVerifyPerMin)), auth.Verify)
 		// Rute auth publik di atas sengaja tanpa pemeriksaan sesi: token basi di FE tidak boleh
 		// menghalangi login ulang.
-		session := middleware.RequireSession(d.Sessions)
+		session := authn.Require(middleware.Access{User: true})
 		api.GET("/auth/me", session, auth.Me)
 		api.POST("/auth/logout", session, auth.Logout)
+	}
+
+	if d.Admin != nil {
+		if d.AdminLoginPerMin < 1 {
+			panic("httpapi: Deps.AdminLoginPerMin wajib diisi bila Admin diisi")
+		}
+		admin := handler.NewAdminHandler(d.Admin)
+		api.POST("/admin/login", middleware.RateLimit(middleware.NewRateLimiter(d.AdminLoginPerMin)), admin.Login)
 	}
 
 	// Konten foto: di luar grup JSON karena deadline tulisnya harus lebih panjang (klien lambat).

@@ -88,3 +88,11 @@ func Session(c *gin.Context) (userID, sessionID uuid.UUID, ok bool) {
 	sessionID, ok2 = s.(uuid.UUID)
 	return userID, sessionID, ok1 && ok2
 }
+
+const keyAdmin = "auth_admin"
+
+// SetAdmin menandai request ini diautentikasi sebagai admin.
+func SetAdmin(c *gin.Context) { c.Set(keyAdmin, true) }
+
+// IsAdmin: request diautentikasi sebagai admin.
+func IsAdmin(c *gin.Context) bool { return c.GetBool(keyAdmin) }

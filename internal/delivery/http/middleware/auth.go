@@ -16,6 +16,29 @@ type SessionAuthenticator interface {
 	Authenticate(ctx context.Context, token string) (*domain.Session, error)
 }
 
+// AdminVerifier dipenuhi oleh *usecase.AdminAuth.
+type AdminVerifier interface {
+	VerifyToken(token string) bool
+}
+
+// Access menyatakan siapa yang boleh memakai sebuah rute (spec §9.2).
+type Access struct {
+	Anonymous bool // tanpa header Authorization (mode none; kepemilikan lewat edit_token)
+	User      bool // sesi pengguna (mode otp)
+	Admin     bool // token admin (hanya baca)
+}
+
+// Authenticator memeriksa header Authorization: token admin dikenali lebih dulu, lalu sesi
+// pengguna (bila mode otp). sessions/admin boleh nil (mode none / admin dimatikan).
+type Authenticator struct {
+	sessions SessionAuthenticator
+	admin    AdminVerifier
+}
+
+func NewAuthenticator(sessions SessionAuthenticator, admin AdminVerifier) *Authenticator {
+	return &Authenticator{sessions: sessions, admin: admin}
+}
+
 // bearerToken mengambil token dari header "Authorization: Bearer <token>". present false bila
 // header tidak ada; ok false bila ada tetapi formatnya salah.
 func bearerToken(c *gin.Context) (token string, present, ok bool) {
@@ -35,31 +58,46 @@ func unauthorized(c *gin.Context) {
 	httpx.AbortError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing, invalid, or expired session")
 }
 
-// authenticate memvalidasi token yang ada; false bila respons 401/error sudah ditulis.
-func authenticate(c *gin.Context, a SessionAuthenticator, token string) bool {
-	s, err := a.Authenticate(c.Request.Context(), token)
-	if err != nil {
-		if de, ok := domain.AsError(err); ok && de.Kind == domain.KindUnauthorized {
-			unauthorized(c)
-		} else {
-			httpx.WriteError(c, err)
-		}
-		return false
-	}
-	httpx.SetSession(c, s.UserID, s.ID)
-	return true
-}
-
-// RequireSession mewajibkan sesi yang sah.
-func RequireSession(a SessionAuthenticator) gin.HandlerFunc {
+// Require menegakkan akses rute. Token yang ada tetapi tidak sah selalu 401 (FE tahu harus login
+// ulang); admin pada rute yang mengubah data → 403 ADMIN_READ_ONLY.
+func (a *Authenticator) Require(acc Access) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token, _, ok := bearerToken(c)
-		if !ok {
+		token, present, ok := bearerToken(c)
+		switch {
+		case !present:
+			if !acc.Anonymous {
+				unauthorized(c)
+				return
+			}
+			c.Next()
+			return
+		case !ok:
 			unauthorized(c)
 			return
 		}
-		if authenticate(c, a, token) {
+		if a.admin != nil && a.admin.VerifyToken(token) {
+			if !acc.Admin {
+				httpx.AbortError(c, http.StatusForbidden, "ADMIN_READ_ONLY", "the admin account can only read and export")
+				return
+			}
+			httpx.SetAdmin(c)
 			c.Next()
+			return
 		}
+		if a.sessions == nil || !acc.User {
+			unauthorized(c)
+			return
+		}
+		s, err := a.sessions.Authenticate(c.Request.Context(), token)
+		if err != nil {
+			if de, ok := domain.AsError(err); ok && de.Kind == domain.KindUnauthorized {
+				unauthorized(c)
+			} else {
+				httpx.WriteError(c, err)
+			}
+			return
+		}
+		httpx.SetSession(c, s.UserID, s.ID)
+		c.Next()
 	}
 }

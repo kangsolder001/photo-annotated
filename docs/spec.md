@@ -417,7 +417,9 @@ Mencabut session saat ini. Response `204`.
 #### `POST /admin/login`
 Request: `{ "username": "admin", "password": "…" }`. Dibandingkan dengan `admin.username` dan hash bcrypt `admin.password_bcrypt` di `config.json` (§9.1). Response `200`: `{ "access_token": "…", "expires_at": "…" }`; token bertanda tangan HMAC, stateless, berlaku `admin.token_ttl` (default 8 jam). Kredensial salah → `401 INVALID_CREDENTIALS` (pesan sama untuk username atau password salah). Rate limit 5 / menit per IP. Jika `admin.enabled = false`, endpoint ini `404`.
 
-Token dipakai sebagai `Authorization: Bearer <token>` pada `GET /admin/export`, serta `GET /submissions/{id}` dan `GET /photos/{id}/url` (baca saja). Admin tidak bisa memanggil `PUT /submissions/{id}`.
+Token dipakai sebagai `Authorization: Bearer <token>` pada `GET /admin/export`, serta `GET /submissions/{id}` dan `GET /photos/{id}/url` (baca saja). Admin **hanya baca**: token admin pada `PUT /submissions/{id}`, presign, submit, atau `/auth/me` → `403 ADMIN_READ_ONLY` (juga pada mode `none`, walau membawa `edit_token` yang sah).
+
+Bentuk token: `adm1.<exp unix>.<base64url(HMAC-SHA256(ADMIN_TOKEN_SECRET, "admin\n" ‖ exp))>`. Username dibandingkan constant-time atas hash-nya dan bcrypt selalu dijalankan, sehingga username salah dan password salah memakan waktu dan pesan yang sama. Token tidak bisa dicabut satu per satu; merotasi `ADMIN_TOKEN_SECRET` membatalkan semuanya. Header `Authorization` yang ada tetapi tidak sah selalu `401` (tidak diabaikan), juga pada mode `none`.
 
 ## 6. Pemrosesan di Frontend
 
@@ -604,9 +606,9 @@ Peran: `user` (mode `otp`), pemilik anonim (mode `none`, dibuktikan `edit_token`
 | Endpoint | `none` | `otp` |
 |---|---|---|
 | `/auth/*` | `404` | Publik (Turnstile + rate limit, §9.5), kecuali `me` dan `logout` yang butuh session |
-| `POST /uploads/presign` | Publik + Turnstile | `user` / `admin` |
+| `POST /uploads/presign` | Publik + Turnstile | `user` |
 | `PUT /uploads/{photo_id}` | Tanda tangan URL dari presign | Tanda tangan URL dari presign |
-| `POST /submissions` | Publik + Turnstile | `user` / `admin` |
+| `POST /submissions` | Publik + Turnstile | `user` |
 | `GET /submissions/{id}`, `GET /photos/{id}/url` | Pemilik (`edit_token`) atau `admin` | Pemilik (`owner_id` = user) atau `admin` |
 | `GET /photos/{id}/content` | Tanda tangan URL dari `/url` | Tanda tangan URL dari `/url` |
 | `PUT /submissions/{id}` | Pemilik (`edit_token`), dalam 24 jam | Pemilik saja, dalam 24 jam |

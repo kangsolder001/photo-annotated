@@ -52,6 +52,8 @@ type stackOpts struct {
 	otpPerMin int
 	// Turnstile presign/submit pada mode none (nil = tanpa)
 	uploadTurnstile usecase.TurnstileVerifier
+	admin           httpapi.AdminAuth
+	adminPerMin     int
 }
 
 // otpParts adalah usecase auth OTP yang dirakit test di atas pool milik stack.
@@ -148,7 +150,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		Uploader: upload, MaxUploadBytes: o.maxBytes, UploadTimeout: time.Minute,
 		Submitter: submit, SubmissionsPerMin: 1_000_000,
 		Reader: reader, Editor: editor,
-		OTPRequester: otp.req, OTPVerifier: otp.verify, Sessions: otp.sessions, OTPVerifyPerMin: 1_000_000, OTPChannel: o.channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin, UploadTurnstile: o.uploadTurnstile,
+		OTPRequester: otp.req, OTPVerifier: otp.verify, Sessions: otp.sessions, OTPVerifyPerMin: 1_000_000, OTPChannel: o.channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin, UploadTurnstile: o.uploadTurnstile, Admin: o.admin, AdminLoginPerMin: o.adminPerMin,
 	})
 	inner.Store(&h)
 	return &stack{pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}
