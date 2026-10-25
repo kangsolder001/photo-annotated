@@ -1,0 +1,78 @@
+{
+  "app": {
+    "env": "production",
+    "http_addr": ":8080",
+    "public_base_url": "https://api.example.com",
+    "allowed_origins": ["https://app.example.com"],
+    "trusted_proxies": ["127.0.0.1/32", "::1/128", "172.16.0.0/12"]
+  },
+  "auth": {
+    "mode": "otp",
+    "session_ttl": "720h",
+    "otp": {
+      "length": 6,
+      "ttl": "5m",
+      "max_verify_attempts": 5,
+      "resend_cooldown": "60s",
+      "max_per_phone_per_hour": 5,
+      "max_queue": 200,
+      "daily_global_cap": 500,
+      "message_template": "*{code}* adalah kode verifikasi Photo Annotated Anda. Berlaku {ttl_minutes} menit. Jangan bagikan kode ini ke siapa pun."
+    }
+  },
+  "wa_notif": {
+    "base_url": "http://wa-notif-service:3030",
+    "timeout": "10s",
+    "health_probe_interval": "30s",
+    "send_interval": "1.5s"
+  },
+  "admin": {
+    "enabled": true,
+    "superadmin": {
+      "name": "Super Admin",
+      "phone": "GANTI-dengan-nomor-HP-superadmin"
+    },
+    "token_ttl": "8h",
+    "otp_message_template": "*{code}* adalah kode masuk ADMIN Photo Annotated. Berlaku {ttl_minutes} menit. Jika Anda tidak sedang masuk, abaikan dan periksa keamanan akun."
+  },
+  "edit": { "window": "24h" },
+  "turnstile": { "enabled": true },
+  "database": { "max_conns": 20 },
+  "storage": {
+    "driver": "local",
+    "local": {
+      "root": "/data/photos",
+      "require_marker": true,
+      "min_free_bytes": 5368709120
+    },
+    "upload_url_ttl": "10m",
+    "view_url_ttl": "5m"
+  },
+  "limits": {
+    "max_upload_bytes": 2097152,
+    "max_photos_per_submission": 5,
+    "max_annotations_per_photo": 50,
+    "max_labels": 200,
+    "max_concurrent_uploads": 200,
+    "upload_timeout": "60s",
+    "rate_limit_per_min": { "presign": 30, "submissions": 10, "otp_request": 5, "otp_verify": 20, "admin_login": 5, "login": 10 }
+  },
+  "secrets": {
+    "database_url": "postgres://photo_annotated:GANTI@shared-postgres:5432/photo_annotated?sslmode=disable",
+    "storage_signing_secret": "GANTI-dengan-openssl-rand-base64-48",
+    "edit_token_secret": "GANTI-dengan-openssl-rand-base64-48",
+    "otp_pepper": "GANTI-dengan-openssl-rand-base64-48",
+    "admin_token_secret": "GANTI-dengan-openssl-rand-base64-48",
+    "wa_notif_token": "GANTI-dengan-bearer_token-wa-notif",
+    "turnstile_secret": "GANTI-dengan-secret-key-turnstile"
+  },
+  "retention": {
+    "days": 90,
+    "pending_photo_ttl": "24h",
+    "cleanup_interval": "1h",
+    "cleanup_batch": 100,
+    "orphan_sweep_interval": "24h",
+    "tmp_max_age": "1h",
+    "orphan_min_age": "24h"
+  }
+}

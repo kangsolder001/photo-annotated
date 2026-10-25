@@ -1,0 +1,9 @@
+docs/raspi_auth.md
+.env.local
+.env
+/bin/
+*.test
+
+# config.json memuat secret (bagian "secrets"); yang di-commit hanya config.json.example
+/config.json
+config.local.json
