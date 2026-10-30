@@ -18,7 +18,7 @@ export function QuestionField(props: {
   const errId = `${id}-err`;
   const described = [q.help ? `${id}-help` : null, error ? errId : null].filter(Boolean).join(" ") || undefined;
   const set = (v: AnswerValue | undefined) => props.onChange(q.id, v);
-  const label = <>{q.label}{q.required && <span aria-hidden="true"> *</span>}</>;
+  const label = <>{q.label}{q.required && <span className="req" aria-hidden="true"> *</span>}</>;
   const help = q.help ? <span id={`${id}-help`} className="hint">{q.help}</span> : null;
   const err = error ? <span id={errId} className="field-error">{error}</span> : null;
 

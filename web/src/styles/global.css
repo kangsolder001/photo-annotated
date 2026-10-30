@@ -110,6 +110,7 @@ input, textarea, select {
 }
 textarea { resize: vertical; min-height: 64px; }
 input:focus-visible, textarea:focus-visible, select:focus-visible, .btn:focus-visible, a:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.req { color: var(--danger); font-weight: 700; }
 .field-error { color: var(--danger); font-size: 0.9rem; font-weight: 400; }
 
 .banner { border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 1rem; border: 1px solid transparent; }

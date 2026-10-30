@@ -276,6 +276,9 @@ export function SurveyWizard(props: {
         <section className="card stack" aria-labelledby="survey-step-title">
           <h2 id="survey-step-title" ref={heading} tabIndex={-1}>{section.title}</h2>
           {section.help && section.id !== PHOTO_SECTION && <p className="muted">{section.help}</p>}
+          {section.questions.some((q) => q.required) && (
+            <p className="muted"><span className="req" aria-hidden="true">*</span> wajib diisi</p>
+          )}
           {section.id === IDENTITY_SECTION && (
             <dl className="identity-card">
               <div><dt>Nama mahasiswa</dt><dd>{user?.name ?? "-"}</dd></div>

@@ -36,6 +36,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 
 ## Phase 3: Deploy
 - [ ] **T73** (M) 🔒 Instance baru di Pi: DB `baseline_cipadung`, `/mnt/ssd/baseline_cipadung/photos`, port 8090/8091, `kknsampah.<domain>`
+- [x] **T74** (XS) Form: tanda `*` pertanyaan wajib berwarna merah + keterangan "* wajib diisi" per bagian
 
 ### Checkpoint C: Go-live
 - [ ] Uji lapangan dari HP (seluler)
