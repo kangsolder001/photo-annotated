@@ -34,7 +34,8 @@ export function Layout({ children }: { children: ReactNode }) {
         <Link to="/" className="brand"><Icon icon={faClipboardList} /> Pendataan Sampah KKN</Link>
         {showNav && (
           <nav aria-label="Navigasi utama">
-            <NavLink to="/" end>Beranda</NavLink>
+            <NavLink to="/pendataan/baru">Pendataan baru</NavLink>
+            <NavLink to="/" end>Riwayat</NavLink>
             {user && <button type="button" onClick={() => setConfirming(true)} title={user.name}>Keluar</button>}
           </nav>
         )}

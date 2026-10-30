@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import { faClipboardList } from "@fortawesome/free-solid-svg-icons/faClipboardList";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../api/endpoints";
 import type { SubmissionView } from "../../api/types";
+import { Icon } from "../../components/Icon";
 import { ReviewBadge } from "../../components/ReviewBadge";
 import { SurveyAnswers } from "../../components/SurveyAnswers";
 import { Banner, Spinner } from "../../components/ui";
@@ -146,6 +148,7 @@ export function SubmissionPage() {
           <div key={p.photo_id} className="card"><Spinner label={`Memuat foto ${i + 1}`} /></div>
         );
       })}
+      <Link to="/pendataan/baru" className="btn btn-primary btn-block"><Icon icon={faClipboardList} /> Pendataan baru</Link>
     </>
   );
 }

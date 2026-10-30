@@ -154,7 +154,7 @@ await shot("03-beranda-kosong");
 step("login berhasil → beranda");
 
 // 2. pendataan menolak: hanya bagian A, langsung bisa dikirim
-await page.getByRole("link", { name: "Pendataan baru" }).click();
+await page.getByRole("main").getByRole("link", { name: "Pendataan baru" }).click();
 await page.waitForURL(BASE + "/pendataan/baru");
 await fillIdentity({ rw: "05", rt: "03", code: "RT03-RW05-11", initials: "Tn. A" });
 await page.getByText("Bagian 1 dari 9").waitFor();
@@ -175,7 +175,7 @@ step("pendataan menolak terkirim (hanya bagian A)");
 // 3. pendataan bersedia: semua bagian, 1 foto + 1 kotak berlabel
 await page.goto(BASE + "/");
 await page.locator(".history-item", { hasText: "Menolak" }).waitFor();
-await page.getByRole("link", { name: "Pendataan baru" }).click();
+await page.getByRole("main").getByRole("link", { name: "Pendataan baru" }).click();
 await page.waitForURL(BASE + "/pendataan/baru");
 if (await page.getByText("Isian yang belum dikirim dipulihkan.").count()) throw new Error("draf tidak terhapus setelah kirim");
 await fillIdentity({ rw: "07", rt: "02", code: "RT02-RW07-15", initials: "Ny. S" });
