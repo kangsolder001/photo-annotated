@@ -78,6 +78,9 @@ export interface SubmissionView {
   editable_until: string;
   editable: boolean;
   photos: PhotoView[];
+  /** Pendataan (spec-pendataan §5.3); tidak ada pada laporan lama. */
+  form_version?: number | null;
+  answers?: Answers | null;
   /** Status review admin (spec-labels-admin §5.7); tanpa reviewed_at untuk user. */
   review?: { status: "pending" | "accepted" | "rejected"; reason: string | null };
 }
@@ -109,6 +112,15 @@ export interface User {
   email: string;
   phone: string; // disamarkan oleh API
   role: "user";
+  /** NIM + kelompok mahasiswa (spec-pendataan §5.4); null pada akun lama / mode none. */
+  nim?: string | null;
+  group?: GroupRef | null;
+}
+
+/** Kelompok mahasiswa (GET /groups, spec-pendataan §5.2). */
+export interface GroupRef {
+  id: number;
+  name: string;
 }
 
 export interface LoginResponse {
@@ -116,3 +128,43 @@ export interface LoginResponse {
   expires_at: string;
   user: User;
 }
+
+// ---- pendataan (spec-pendataan §4, §5.1)
+
+export type QuestionType = "date" | "text" | "textarea" | "int" | "choice" | "multi";
+
+export interface SurveyOption {
+  id: string;
+  label: string;
+  /** Opsi "Lainnya" pada `multi`: wajib disertai teks (lihat `otherKey` di lib/survey.ts). */
+  other?: boolean;
+}
+
+export interface SurveyQuestion {
+  id: string;
+  label: string;
+  help?: string | null;
+  type: QuestionType;
+  required: boolean;
+  min?: number | null;
+  max?: number | null;
+  options?: SurveyOption[] | null;
+}
+
+export interface SurveySection {
+  id: string;
+  title: string;
+  help?: string | null;
+  questions: SurveyQuestion[];
+}
+
+/** GET /survey/form: definisi instrumen (satu sumber di backend). */
+export interface SurveyForm {
+  version: number;
+  consent_text: string;
+  sections: SurveySection[];
+}
+
+/** Nilai jawaban: `date`/`text`/`textarea`/`choice` = string, `int` = number, `multi` = id opsi. */
+export type AnswerValue = string | number | string[];
+export type Answers = Record<string, AnswerValue>;

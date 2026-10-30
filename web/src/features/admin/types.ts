@@ -1,5 +1,5 @@
 // Kontrak API admin (docs/spec-labels-admin.md §5). Nama field mengikuti JSON API apa adanya.
-import type { AnnotationView, OTPTicket, PhotoView } from "../../api/types";
+import type { AnnotationView, Answers, OTPTicket, PhotoView } from "../../api/types";
 
 export type AuthMode = "none" | "otp";
 
@@ -48,6 +48,17 @@ export interface LabelReplace {
   archived: boolean;
 }
 
+// ---- kelompok (spec-pendataan §5.5)
+export interface AdminGroup {
+  id: number;
+  name: string;
+  archived: boolean;
+  /** Jumlah mahasiswa di kelompok ini. */
+  user_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // ---- submission (§5.4, §5.7)
 export type ReviewStatus = "pending" | "accepted" | "rejected";
 
@@ -64,6 +75,9 @@ export interface Annotator {
   /** Nomor utuh (admin perlu bisa menghubungi). */
   phone: string;
   blocked: boolean;
+  /** NIM + kelompok mahasiswa (spec-pendataan §5.6). */
+  nim?: string | null;
+  group?: { id: number; name: string } | null;
 }
 
 export interface CoverAnnotation {
@@ -87,6 +101,12 @@ export interface SubmissionListItem {
   labels: { id: number; name: string; color: string; count: number }[];
   legacy_text_count: number;
   cover: { photo_id: string; url: string; width: number; height: number; annotations: CoverAnnotation[] } | null;
+  /** Ringkasan pendataan (spec-pendataan §5.6); null/tidak ada pada laporan lama. */
+  a_date?: string | null;
+  a_rw?: string | null;
+  a_rt?: string | null;
+  a_household_code?: string | null;
+  consent?: boolean | null;
 }
 
 export interface Page<T> {
@@ -102,6 +122,9 @@ export interface SubmissionQuery {
   q?: string;
   unlabeled?: boolean;
   review_status?: ReviewStatus;
+  consent?: "yes" | "no";
+  rw?: string;
+  group_id?: number;
   sort?: "newest" | "oldest";
   limit?: number;
   cursor?: string;
@@ -124,6 +147,9 @@ export interface AdminSubmission {
   annotator: Annotator | null;
   review: Review;
   retention_deletes_at: string | null;
+  /** Pendataan (spec-pendataan §5.6): jawaban lengkap + versi form. */
+  form_version?: number | null;
+  answers?: Answers | null;
 }
 
 export interface ReviewInput {
@@ -173,6 +199,9 @@ export interface AdminUser {
   blocked: boolean;
   blocked_at: string | null;
   blocked_reason: string | null;
+  /** NIM + kelompok (spec-pendataan §5.4); null pada akun lama. */
+  nim?: string | null;
+  group?: { id: number; name: string } | null;
   stats: AnnotatorStats;
 }
 
@@ -214,6 +243,16 @@ export interface LabelStat {
 export interface LabelStats {
   totals: { submissions: number; photos: number; annotations: number; legacy_text_annotations: number };
   labels: LabelStat[];
+}
+
+// ---- statistik pendataan (spec-pendataan §5.8)
+export interface SurveyStats {
+  totals: { households: number; consented: number; declined: number };
+  by_rw: { rw: string; households: number; consented: number; declined: number }[];
+  by_student: { user_id: string; name: string; nim: string; group: string; households: number; declined: number }[];
+  b: { id: string; label: string; yes: number; no: number; yes_share: number }[];
+  c: { id: string; label: string; yes: number; no: number; na: number }[];
+  r3_sorting: { sorted: number; partial: number; mixed: number; unknown: number };
 }
 
 // ---- status sistem (§5.10); tiap bagian bisa berisi { error } bila gagal dihitung

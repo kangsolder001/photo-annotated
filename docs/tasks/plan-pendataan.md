@@ -412,15 +412,32 @@ Aturan FE tambahan: tanpa emoji; ikon via `components/Icon.tsx` (import per berk
 **Langkah:** field NIM (otomatis huruf besar, `autocapitalize="characters"`), dropdown kelompok dari
 `GET /groups`; tampilkan pesan `INVALID_NIM`, `NIM_TAKEN`, `INVALID_GROUP` di field-nya; tanpa kelompok aktif
 → teks "Belum ada kelompok. Hubungi admin." Tipe `User` ditambah `nim`, `group`.
-**Acceptance:** [ ] test komponen: kirim body berisi `nim` + `group_id`; error tampil di field benar.
+**Acceptance:** [x] test komponen: kirim body berisi `nim` + `group_id`; error tampil di field benar.
 **Verifikasi:** perintah standar FE.
+**Hasil:** `LoginPage` tab Daftar: field NIM (huruf besar otomatis, `autocapitalize="characters"`, cek
+`^[A-Z0-9]{5,20}$` di FE) + dropdown Kelompok dari `GET /groups` (tanpa token; dimuat saat tab Daftar
+dibuka). `INVALID_NIM`/`NIM_TAKEN` tampil di field NIM, `INVALID_GROUP` di field Kelompok (daftar dimuat
+ulang). `User` ditambah `nim?`, `group?` (`{id, name}`, opsional agar sesi lama tetap terbaca);
+`api.groups()`; pesan error di `lib/errors.ts`. Test: `LoginPage.test.tsx` (5 kasus baru).
 
 #### Task 66: FE logika survey (murni) — S
 **Langkah:** tipe definisi di `api/types.ts`; `getSurveyForm()` di `endpoints.ts`; `src/lib/survey.ts`:
 `visibleSections(form, answers)` (menolak → hanya A), `missingRequired(form, answers)`,
 `validateAnswer(question, value)` (aturan §4.1, sama dengan backend), `isConsented(answers)`.
-**Acceptance:** [ ] `src/lib/survey.test.ts` meniru kasus test tabel T60 (fixture form kecil di test).
+**Acceptance:** [x] `src/lib/survey.test.ts` meniru kasus test tabel T60 (fixture form kecil di test).
 **Verifikasi:** perintah standar FE.
+**Hasil:** tipe `SurveyForm`/`SurveySection`/`SurveyQuestion`/`SurveyOption`/`Answers` di `api/types.ts`;
+`api.getSurveyForm()` (publik). `src/lib/survey.ts`: `visibleSections`, `missingRequired`,
+`validateAnswer(q, value, answers, today)`, `sectionErrors`, `incompleteSections`, `isConsented`,
+`cleanAnswers` (menolak → hanya A, kosong dibuang, teks di-trim), `answerText` (teks opsi untuk tampilan),
+`todayJakarta`. Fixture form di `src/test/surveyFixture.ts`.
+**Catatan (asumsi kontrak, cocokkan dengan T60/T61):**
+- Teks opsi "Lainnya" pada `multi` dikirim sebagai **kunci jawaban terpisah** `<id>_other` (mis.
+  `"r3_container_types_other": "Galon bekas"`), hanya bila opsi `other` dipilih. Spec §4.1 tidak menyebut
+  tempat teks itu; backend harus menerima kunci ini (bukan id tak dikenal).
+- `Option.other` dibaca dari JSON `"other": true` (boleh tidak ada = false); `help`, `min`, `max`,
+  `options` boleh `null`/tidak ada.
+- `int` dikirim sebagai angka JSON; jawaban kosong tidak dikirim (bukan `""`/`null`).
 
 #### Task 67: FE wizard bagian A–R2 + draf — M
 **Baca dulu:** `features/submit/NewSubmissionPage.tsx`, `lib/draft.ts`, `components/ui.tsx`.
@@ -428,9 +445,20 @@ Aturan FE tambahan: tanpa emoji; ikon via `components/Icon.tsx` (import per berk
 C sebagai tombol besar), satu layar per bagian, Kembali/Lanjut, progres "Bagian x dari y". Kartu identitas
 (nama, NIM, kelompok dari sesi). Draf: tambah `answers` + `form_version` ke struktur `lib/draft.ts`.
 Menolak di A → langsung ke langkah Kirim.
-**Acceptance:** [ ] test komponen: navigasi, menolak melompati bagian lain, draf dipulihkan setelah mount
-ulang; [ ] 360 px OK.
+**Acceptance:** [x] test komponen: navigasi, menolak melompati bagian lain, draf dipulihkan setelah mount
+ulang; [x] 360 px OK.
 **Verifikasi:** perintah standar FE.
+**Hasil:** `features/survey/`: `SurveyPage` (rute `/pendataan/baru`), `SurveyWizard` (satu layar per bagian,
+Kembali/Lanjut, "Bagian x dari y", kartu identitas nama/NIM/kelompok dari sesi, teks persetujuan di atas
+`a_consent`, ringkasan dengan bagian "Belum lengkap" yang bisa diklik), `QuestionField` (render per tipe;
+`choice` = radio asli bergaya tombol besar ≥ 48 px, `multi` = kotak centang besar + isian "Sebutkan
+lainnya"), `useSurveyForm` (GET /survey/form sekali per pemuatan). Menolak → hanya bagian A. Draf: `Draft`
+ditambah `answers`, `form_version`, `step`; pendataan baru memakai id `baru` (version 0), draf versi form
+lain diabaikan, tombol "Mulai dari awal". Error per pertanyaan tampil setelah bagian ditinggalkan lewat
+Lanjut. Test: `SurveyPage.test.tsx`. Layout 360 px: grid `auto-fit` (opsi membungkus, tanpa scroll
+horizontal).
+**Catatan:** foto pendataan baru tidak ikut draf (foto `pending` tidak punya URL lihat, spec induk §5.5),
+sama seperti draf lama; jawaban + langkah tetap pulih.
 
 #### Task 68: FE langkah foto, ringkasan, kirim, riwayat — M
 **Baca dulu:** `PhotoPicker.tsx`, `usePhotoUploads.ts`, `features/annotate/PhotoAnnotator.tsx`,
@@ -440,9 +468,24 @@ lama, lalu pertanyaan R3. Ringkasan (bagian yang kurang bisa diklik) + Kirim (`P
 `answers`). Riwayat: tanggal, RT/RW, kode rumah tangga, Bersedia/Menolak, lencana review. Edit 24 jam memakai
 wizard yang sama. Halaman utama → tombol besar "Pendataan baru" + riwayat; route alur foto lama dihapus.
 Judul aplikasi "Pendataan Sampah KKN".
-**Acceptance:** [ ] tidak bisa kirim bila wajib kurang atau 0 foto (bersedia); [ ] draf terhapus setelah
-kirim; [ ] bundle user tanpa `features/admin` (`npm run build` lulus cek bundle).
+**Acceptance:** [x] tidak bisa kirim bila wajib kurang atau 0 foto (bersedia); [x] draf terhapus setelah
+kirim; [x] bundle user tanpa `features/admin` (`npm run build` lulus cek bundle).
 **Verifikasi:** perintah standar FE.
+**Hasil:** `SurveyWizard` lengkap: bagian R3 memuat `PhotoStep` (protokol foto dari `help` R3 di atas
+tombol kamera, maks. 3 foto, foto 1 = utama, kotak + label memakai `PhotoAnnotator`/`PhotoStrip` lama)
+lalu pertanyaan R3; ringkasan menandai bagian kurang (termasuk foto) dan bisa diklik; Kirim →
+`POST /submissions` `{client_request_id, form_version, answers, photos}` (menolak: tombol Kirim langsung di
+bagian A, `photos: []`, jawaban hanya A lewat `cleanAnswers`). `422 INVALID_ANSWER` → pesan server +
+bagian pertanyaannya dibuka. Edit 24 jam memakai wizard yang sama (`PUT` keadaan akhir + `answers`,
+draf per laporan berisi jawaban + foto tersimpan). Beranda `/` = tombol besar "Pendataan baru" + riwayat
+(tanggal pendataan, RT/RW, kode rumah tangga, Bersedia/Menolak, lencana review); `/riwayat` dialihkan ke `/`.
+Halaman pendataan menampilkan jawaban per bagian dengan teks opsi (`components/SurveyAnswers.tsx`, dipakai
+juga admin). Alur foto lama dihapus (`NewSubmissionPage`, `EditSubmission`). Judul "Pendataan Sampah
+KKN"; `limits.maxPhotos` = 3. Test: `SurveyPage.test.tsx`, `SubmissionPage.test.tsx`,
+`HistoryPage.test.tsx`. 360 px dicek di Chrome headless (API palsu): tanpa scroll horizontal di semua langkah.
+**Catatan:** `consent` tidak dibaca dari respons `GET /submissions/{id}` (spec §5.3 hanya menyebut
+`form_version` + `answers`); FE menurunkannya dari `answers.a_consent`. Riwayat tetap lokal per perangkat
+(belum ada endpoint daftar milik user di spec), diisi ringkasan dari `answers` saat kirim/buka.
 
 #### Task 69: E2E browser — S
 **Baca dulu:** `web/e2e/flow.mjs`, `web/README.md` (cara menjalankan dengan `cmd/wanotif-stub`).
@@ -454,20 +497,58 @@ bersedia (1 foto + 1 kotak) → admin lihat detail. DB: schema sementara di DB t
 **Tiru:** `LabelsPage.tsx`, `AnnotatorPage.tsx`, `features/admin/api.ts`.
 **Langkah:** menu "Kelompok" (daftar + jumlah mahasiswa, tambah, ubah nama, arsip/aktifkan, hapus dengan
 pesan `GROUP_IN_USE`). Profil annotator: NIM, kelompok, pilih kelompok lain.
-**Acceptance:** [ ] test komponen + api admin.
+**Acceptance:** [x] test komponen + api admin.
+**Hasil:** `GroupsPage` (`/admin/kelompok`, menu "Kelompok"): tabel (desktop) / kartu (HP) nama, jumlah
+mahasiswa, status; tambah, ubah nama, arsipkan/aktifkan (`PUT {name, archived}`), hapus hanya bila belum
+dipakai (dialog konfirmasi; `GROUP_IN_USE` → pesan). `adminApi.groups/createGroup/updateGroup/deleteGroup/
+setUserGroup`; tipe `AdminGroup`; `AdminUser` + `nim?`, `group?`. Profil annotator: NIM + kelompok di
+meta, kartu "Kelompok" dengan dropdown kelompok aktif (selain kelompok saat ini) + "Pindahkan"
+(`PUT /admin/users/{id}/group {group_id}`). Pesan `GROUP_NAME_TAKEN`, `GROUP_IN_USE`, `INVALID_GROUP_NAME`,
+`INVALID_GROUP`. Test: `features/admin/groups.test.tsx`.
+**Catatan (asumsi kontrak, cocokkan dengan T58/T59):** spec §5.5 tidak menyebut bentuk JSON admin.
+FE memakai pola label: `GET /admin/groups` → `{ "groups": [ { id, name, archived: bool, user_count,
+created_at, updated_at } ] }`; `POST`/`PUT` membalas objek kelompok; `DELETE` → 204; `PUT
+/admin/users/{id}/group` → isi respons diabaikan (profil dimuat ulang). `GET /admin/users/{id}` memuat
+`nim` (string|null) dan `group` (`{id, name}`|null), sama dengan `/auth/me`. Kode nama tidak valid
+diasumsikan `INVALID_GROUP_NAME` (pola `INVALID_LABEL_NAME`).
 
 #### Task 71: FE admin daftar/detail pendataan + export CSV — M
 **Tiru:** `SubmissionsPage.tsx`, `SubmissionDetailPage.tsx`, `filters.ts`, `ui/AnnotatedPhoto.tsx`.
 **Langkah:** kolom tanggal, RW/RT, kode RT, mahasiswa (nama + NIM), Bersedia/Menolak, review; filter
 `consent`, `rw`, `group_id`. Detail: jawaban per bagian dengan **teks opsi** (dari `GET /survey/form`), foto
 berkotak. Tombol "Export CSV" (unduh lewat fetch + blob, karena butuh header auth).
-**Acceptance:** [ ] test filter → query string; [ ] detail menampilkan teks opsi, bukan id.
+**Acceptance:** [x] test filter → query string; [x] detail menampilkan teks opsi, bukan id.
+**Hasil:** `SubmissionsPage` (menu "Pendataan", rute tetap `/admin/anotasi`): kartu menampilkan tanggal
+pendataan + Bersedia/Menolak, "RT x / RW y · kode", mahasiswa (nama · NIM · kelompok) di samping sampul
+foto + review yang sudah ada. Filter baru `consent`, `rw`, `group_id` (URL ↔ query API, chip). Tombol
+"Export CSV" di samping JSONL: `exportCSV()` (fetch + blob dengan header auth) memakai `from`/`to` (RFC 3339
+seperti JSONL), `consent`, `review_status` dari filter aktif; berkas `pendataan-<from>-<to>.csv`. Detail:
+jawaban per bagian lewat `components/SurveyAnswers` (teks opsi dari `GET /survey/form`), NIM + kelompok
+di kartu mahasiswa, foto berkotak tetap. Test: `features/admin/pendataan.test.tsx`.
+**Catatan (asumsi kontrak, cocokkan dengan T62/T63):**
+- Nama field item daftar mengikuti **spec §5.6**: `a_date`, `a_rw`, `a_rt`, `a_household_code`, `consent`
+  (bool), dan NIM + kelompok di objek `annotator` yang sudah ada (`annotator.nim`, `annotator.group:
+  {id, name}`). Plan T62 menulis `survey_date`, `rw`, `rt`, `household_code`, `user: {name, nim, group}`;
+  bila backend memilih itu, salah satu sisi harus disesuaikan.
+- Detail admin: `answers` + `form_version` di akar objek (sama dengan `GET /submissions/{id}`).
+- `GET /admin/export.csv`: `from`/`to` dikirim sebagai RFC 3339 (awal hari lokal, `to` eksklusif) seperti
+  export JSONL; spec tidak menyebut apakah atas `created_at` atau `a_date`.
 
 #### Task 72: FE admin statistik — S
 **Tiru:** `StatsPage.tsx`.
 **Langkah:** kartu total/bersedia/menolak; tabel per RW dan per mahasiswa; bar horizontal % Ya per B (CSS,
 tanpa library chart baru); distribusi C (tiga angka per butir) dan kondisi pemilahan. Filter tanggal + RW.
-**Acceptance:** [ ] test render dari fixture; [ ] kontras AA (`src/styles/contrast.test.ts` hijau).
+**Acceptance:** [x] test render dari fixture; [x] kontras AA (`src/styles/contrast.test.ts` hijau).
+**Hasil:** `SurveyStatsPage` di `/admin/statistik` (menu "Statistik"): kartu rumah tangga / bersedia /
+menolak (+ % penolakan), tabel per RW dan per mahasiswa (nama, NIM, kelompok, rumah tangga, menolak),
+batang horizontal CSS % Ya per butir B (warna `--primary` di atas `--primary-soft`), tabel distribusi C
+(Ada/Sesuai, Tidak, Tidak teramati), dan batang kondisi pemilahan R3 (porsi dari total jawaban). Filter
+tanggal + RW di URL. Statistik label kotak lama dipindah ke `/admin/statistik/label` (tautan dua arah;
+test lama ikut path baru). `adminApi.surveyStats`, tipe `SurveyStats` persis contoh §5.8. Test:
+`features/admin/surveyStats.test.tsx`.
+**Catatan (asumsi kontrak, cocokkan dengan T64):** `from`/`to` dikirim sebagai tanggal `YYYY-MM-DD`
+(inklusif, atas `a_date`), bukan RFC 3339 seperti statistik label, karena `a_date` adalah tanggal.
+`by_student[].group` dibaca sebagai string (nama kelompok) persis contoh spec.
 
 ### Checkpoint B: Aplikasi utuh (lokal)
 - [ ] Perintah standar FE + BE hijau; T69 lulus

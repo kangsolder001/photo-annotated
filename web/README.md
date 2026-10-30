@@ -12,10 +12,11 @@ src/
                 (aturan = backend), draf, riwayat, sesi, pesan error, Turnstile
   features/     satu folder per fitur: halaman + hook + komponen khususnya
     auth/       masuk/daftar, halaman kode OTP, penjagaan rute (mode otp)
-    submit/     laporan baru: pilih foto, upload, kirim
+    survey/     pendataan (wizard per bagian dari GET /survey/form, langkah foto R3, ringkasan, kirim/edit)
+    submit/     pilih foto + upload (dipakai langkah foto pendataan)
     annotate/   editor kotak (SVG + Pointer Events) dan daftar catatan
     submission/ lihat & edit laporan, draf
-    history/    riwayat laporan di perangkat ini (+ status review)
+    history/    beranda: tombol "Pendataan baru" + riwayat di perangkat ini (+ status review)
     admin/      dashboard /admin (chunk lazy terpisah): login OTP, label, anotasi, review, hapus,
                 annotator, statistik, status sistem; token admin di sessionStorage
   components/   UI bersama (layout, banner, progres, Turnstile)

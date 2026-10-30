@@ -162,6 +162,38 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, .btn:focus-vi
 .ann-body { flex: 1; display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
 .ann-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0.35rem 0; }
 
+/* ---- pendataan (wizard) */
+.btn-hero { min-height: 4.5rem; font-size: 1.2rem; margin-bottom: 1.25rem; border-radius: 14px; }
+.btn-hero svg { font-size: 1.5rem; }
+.photo-protocol { margin: 0; padding: 0.6rem 0.75rem; border-radius: 10px; background: var(--warn-soft); color: var(--warn); font-size: 0.92rem; }
+.survey-answers dl { margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.survey-answers dt { color: var(--muted); font-size: 0.9rem; }
+.survey-answers dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; white-space: pre-wrap; }
+.survey-progress { margin: 0 0 0.5rem; font-weight: 600; }
+.question { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 0.4rem; font-weight: 600; }
+.question legend { padding: 0; margin-bottom: 0.4rem; }
+.question .hint { font-weight: 400; color: var(--muted); font-size: 0.88rem; }
+.choice-group { display: grid; grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr)); gap: 0.5rem; }
+.choice-group-wide { grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); }
+.choice {
+  position: relative; display: flex; align-items: center; justify-content: center; text-align: center;
+  min-height: 48px; padding: 0.5rem 0.75rem; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font-weight: 600; overflow-wrap: anywhere;
+}
+.choice input { position: absolute; opacity: 0; inset: 0; margin: 0; width: 100%; height: 100%; min-height: 0; cursor: pointer; }
+.choice:has(input:checked) { background: var(--primary); border-color: var(--primary); color: var(--primary-text); }
+.choice:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
+.identity-card { margin: 0; display: grid; gap: 0.25rem; padding: 0.6rem 0.75rem; border-radius: 10px; background: var(--primary-soft); }
+.identity-card dt { color: var(--muted); font-size: 0.85rem; }
+.identity-card dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.consent-text { margin: 0; padding: 0.6rem 0.9rem; border-left: 4px solid var(--primary); background: var(--bg); border-radius: 0 10px 10px 0; }
+.survey-summary { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.survey-summary-item { justify-content: flex-start; text-align: left; font-weight: 400; }
+.survey-summary-item > span:first-of-type { flex: 1; overflow-wrap: anywhere; }
+.survey-summary-item svg { color: var(--ok); }
+.survey-summary-item.incomplete svg, .survey-summary-item.incomplete .survey-summary-status { color: var(--danger); }
+.survey-summary-status { font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+
 .history-list { list-style: none; padding: 0; margin: 0; }
 .history-item { display: flex; flex-direction: column; text-decoration: none; color: var(--text); }
 

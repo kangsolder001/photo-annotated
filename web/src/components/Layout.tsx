@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { faCamera } from "@fortawesome/free-solid-svg-icons/faCamera";
+import { faClipboardList } from "@fortawesome/free-solid-svg-icons/faClipboardList";
 import { faRightFromBracket } from "@fortawesome/free-solid-svg-icons/faRightFromBracket";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { api } from "../api/endpoints";
@@ -31,11 +31,10 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <>
       <header className="app-header">
-        <Link to="/" className="brand"><Icon icon={faCamera} /> Photo Annotated</Link>
+        <Link to="/" className="brand"><Icon icon={faClipboardList} /> Pendataan Sampah KKN</Link>
         {showNav && (
           <nav aria-label="Navigasi utama">
-            <NavLink to="/" end>Baru</NavLink>
-            <NavLink to="/riwayat">Riwayat</NavLink>
+            <NavLink to="/" end>Beranda</NavLink>
             {user && <button type="button" onClick={() => setConfirming(true)} title={user.name}>Keluar</button>}
           </nav>
         )}

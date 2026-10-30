@@ -4,6 +4,7 @@ import { ApiError, apiURL, parseRetryAfter, request } from "../../api/client";
 import type { OTPStatusView } from "../../api/types";
 import { adminSession } from "./session";
 import type {
+  AdminGroup,
   AdminLabel,
   AdminMe,
   AdminOTPTicket,
@@ -18,6 +19,7 @@ import type {
   LabelInput,
   LabelReplace,
   LabelStats,
+  SurveyStats,
   Page,
   ReviewInput,
   ReviewResponse,
@@ -66,6 +68,13 @@ export const adminApi = {
   reorderLabels: (ids: number[]) => adm<unknown>("PUT", "/labels/order", { body: { ids } }),
   deleteLabel: (id: number) => adm<void>("DELETE", `/labels/${id}`),
 
+  // ---- kelompok (spec-pendataan §5.5)
+  groups: () => adm<{ groups: AdminGroup[] }>("GET", "/groups").then((r) => r.groups ?? []),
+  createGroup: (body: { name: string }) => adm<AdminGroup>("POST", "/groups", { body }),
+  updateGroup: (id: number, body: { name: string; archived: boolean }) => adm<AdminGroup>("PUT", `/groups/${id}`, { body }),
+  deleteGroup: (id: number) => adm<void>("DELETE", `/groups/${id}`),
+  setUserGroup: (userId: string, groupId: number) => adm<unknown>("PUT", `/users/${enc(userId)}/group`, { body: { group_id: groupId } }),
+
   // ---- submission (§5.4)
   submissions: (q: SubmissionQuery, signal?: AbortSignal) =>
     adm<Page<SubmissionListItem>>("GET", `/submissions${qs({ ...q })}`, { signal }),
@@ -92,6 +101,8 @@ export const adminApi = {
 
   // ---- statistik & status (§5.9, §5.10)
   labelStats: (q: { from?: string; to?: string; review_status?: ReviewStatus }) => adm<LabelStats>("GET", `/stats/labels${qs(q)}`),
+  /** Statistik pendataan atas `a_date` (tanggal `YYYY-MM-DD`, inklusif) dan RW. */
+  surveyStats: (q: { from?: string; to?: string; rw?: string }) => adm<SurveyStats>("GET", `/stats/survey${qs(q)}`),
   system: () => adm<SystemStatus>("GET", "/system"),
 };
 
@@ -108,11 +119,27 @@ export interface ExportResult {
  * harus JSON utuh diakhiri baris baru.
  */
 export async function exportJSONL(q: { from?: string; to?: string; review_status?: ReviewStatus; label_id?: number }): Promise<ExportResult> {
+  const res = await fetchExport(`/export${qs({ format: "jsonl", ...q })}`, "application/x-ndjson");
+  const text = await res.text();
+  return { blob: new Blob([text], { type: "application/x-ndjson" }), ...checkJSONL(text, res.headers.get("X-Export-Complete")) };
+}
+
+/**
+ * GET /admin/export.csv (spec-pendataan §5.7): satu baris per pendataan, UTF-8 + BOM. Lewat fetch karena
+ * butuh header Authorization; isi disimpan apa adanya (BOM tetap ada agar rapi di Excel).
+ */
+export async function exportCSV(q: { from?: string; to?: string; consent?: "yes" | "no"; review_status?: ReviewStatus }): Promise<Blob> {
+  const res = await fetchExport(`/export.csv${qs(q)}`, "text/csv");
+  return new Blob([await res.arrayBuffer()], { type: "text/csv;charset=utf-8" });
+}
+
+/** fetch export bertoken admin; error API → ApiError (401 → sesi admin dibuang). */
+async function fetchExport(path: string, accept: string): Promise<Response> {
   const token = adminSession.token();
   let res: Response;
   try {
-    res = await fetch(apiURL(`${BASE}/export${qs({ format: "jsonl", ...q })}`), {
-      headers: { Accept: "application/x-ndjson", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    res = await fetch(apiURL(BASE + path), {
+      headers: { Accept: accept, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     });
   } catch {
     throw new ApiError(0, "NETWORK_ERROR", "Tidak bisa terhubung ke server.");
@@ -127,8 +154,7 @@ export async function exportJSONL(q: { from?: string; to?: string; review_status
     if (res.status === 401) adminSession.expire();
     throw new ApiError(res.status, err?.code ?? `HTTP_${res.status}`, err?.message ?? res.statusText, parseRetryAfter(res.headers.get("Retry-After")));
   }
-  const text = await res.text();
-  return { blob: new Blob([text], { type: "application/x-ndjson" }), ...checkJSONL(text, res.headers.get("X-Export-Complete")) };
+  return res;
 }
 
 export function checkJSONL(text: string, completeHeader: string | null): { rows: number; complete: boolean } {

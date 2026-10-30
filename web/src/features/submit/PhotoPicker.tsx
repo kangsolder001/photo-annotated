@@ -2,6 +2,7 @@ import { faCamera } from "@fortawesome/free-solid-svg-icons/faCamera";
 import { faImages } from "@fortawesome/free-solid-svg-icons/faImages";
 import { useRef } from "react";
 import { Icon } from "../../components/Icon";
+import { limits } from "../../config";
 
 /** Dua tombol besar selebar layar: kamera belakang langsung, atau pilih dari galeri (boleh beberapa sekaligus). */
 export function PhotoPicker({ remaining, onFiles }: { remaining: number; onFiles(files: FileList): void }) {
@@ -22,7 +23,7 @@ export function PhotoPicker({ remaining, onFiles }: { remaining: number; onFiles
           <Icon icon={faImages} /> <span>Pilih dari galeri</span>
         </button>
       </div>
-      <p className="muted">{full ? "Maksimal 5 foto per laporan." : `Bisa menambah ${remaining} foto lagi.`}</p>
+      <p className="muted">{full ? `Maksimal ${limits.maxPhotos} foto per pendataan.` : `Bisa menambah ${remaining} foto lagi.`}</p>
       <input ref={camera} type="file" accept="image/*" capture="environment" hidden onChange={(e) => take(e.currentTarget)} />
       <input ref={gallery} type="file" accept="image/*" multiple hidden onChange={(e) => take(e.currentTarget)} />
     </div>

@@ -1,6 +1,6 @@
 import { faRotate } from "@fortawesome/free-solid-svg-icons/faRotate";
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Icon } from "../../components/Icon";
 import { Banner, Spinner } from "../../components/ui";
 import { adminApi } from "./api";
@@ -13,7 +13,7 @@ const nf = new Intl.NumberFormat("id-ID");
 const pf = new Intl.NumberFormat("id-ID", { style: "percent", maximumFractionDigits: 1 });
 
 /**
- * /admin/statistik: jumlah kotak per label (batang horizontal berwarna label, urut terbanyak), dengan
+ * /admin/statistik/label: jumlah kotak per label (batang horizontal berwarna label, urut terbanyak), dengan
  * angka kotak / foto / submission + persentase; label tanpa contoh di bawah. Filter tanggal dan
  * status review (default: diterima = dataset).
  */
@@ -56,7 +56,10 @@ export function StatsPage() {
     <div className="admin-page">
       <div className="page-head">
         <h1>Statistik label</h1>
-        <button type="button" className="btn" onClick={() => void load()}><Icon icon={faRotate} /> Muat ulang</button>
+        <div className="row">
+          <Link className="btn" to="/admin/statistik">Statistik pendataan</Link>
+          <button type="button" className="btn" onClick={() => void load()}><Icon icon={faRotate} /> Muat ulang</button>
+        </div>
       </div>
       <form className="card filter-bar" aria-label="Filter statistik" onSubmit={(e) => e.preventDefault()}>
         <label className="field">Dari<input type="date" value={from} max={to || undefined} onChange={(e) => set("from", e.target.value)} /></label>

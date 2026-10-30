@@ -17,7 +17,8 @@ export const config = {
 
 /** Batas yang sama dengan API (config.json limits). */
 export const limits = {
-  maxPhotos: 5,
+  /** Foto per pendataan yang bersedia (spec-pendataan §3.2: 1–3). */
+  maxPhotos: 3,
   maxBoxesPerPhoto: 50,
   maxLabelName: 50,
   maxLabelDescription: 200,

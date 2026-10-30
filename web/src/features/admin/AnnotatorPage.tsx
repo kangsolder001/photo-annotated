@@ -4,6 +4,7 @@ import { faEnvelope } from "@fortawesome/free-solid-svg-icons/faEnvelope";
 import { faImages } from "@fortawesome/free-solid-svg-icons/faImages";
 import { faLockOpen } from "@fortawesome/free-solid-svg-icons/faLockOpen";
 import { faPhone } from "@fortawesome/free-solid-svg-icons/faPhone";
+import { faRightLeft } from "@fortawesome/free-solid-svg-icons/faRightLeft";
 import { faTrashCan } from "@fortawesome/free-solid-svg-icons/faTrashCan";
 import { faUserXmark } from "@fortawesome/free-solid-svg-icons/faUserXmark";
 import { useCallback, useEffect, useState } from "react";
@@ -16,7 +17,7 @@ import { adminApi } from "./api";
 import { BlockedBadge } from "./AnnotatorsPage";
 import { usePageTitle } from "./context";
 import { adminErrorMessage } from "./errors";
-import type { AdminUser } from "./types";
+import type { AdminGroup, AdminUser } from "./types";
 import { ConfirmDelete } from "./ui/ConfirmDelete";
 import { Dialog } from "../../components/Dialog";
 import { ReasonDialog } from "./ui/ReasonDialog";
@@ -33,6 +34,8 @@ export function AnnotatorPage() {
   const [dialog, setDialog] = useState<"block" | "unblock" | "delete" | "account" | null>(null);
   const [includeAccepted, setIncludeAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [groups, setGroups] = useState<AdminGroup[]>();
+  const [groupId, setGroupId] = useState("");
 
   const load = useCallback(async () => {
     setError(undefined);
@@ -46,6 +49,15 @@ export function AnnotatorPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // pilihan kelompok untuk dipindah: hanya kelompok aktif
+  useEffect(() => {
+    let alive = true;
+    adminApi.groups().then((g) => alive && setGroups(g.filter((x) => !x.archived)), () => alive && setGroups([]));
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   if (error) return <div className="admin-page"><Banner kind="error">{error}</Banner><Link className="btn" to="/admin/annotator"><Icon icon={faArrowLeft} /> Daftar annotator</Link></div>;
   if (!u) return <div className="admin-page"><Spinner label="Memuat annotator" /></div>;
@@ -80,6 +92,21 @@ export function AnnotatorPage() {
     toast(r.status === "deleted" ? "ok" : "warn", `Akun ${u.name} dihapus beserta ${r.submissions} submission (${r.photos} foto, ${r.annotations} kotak)${r.status === "deleted" ? "." : "; file dibersihkan otomatis."}`);
     navigate("/admin/annotator", { replace: true });
   };
+  const moveGroup = async () => {
+    const target = groups?.find((g) => String(g.id) === groupId);
+    if (!target || busy) return;
+    setBusy(true);
+    try {
+      await adminApi.setUserGroup(u.id, target.id);
+      toast("ok", `${u.name} dipindah ke ${target.name}.`);
+      setGroupId("");
+      await load();
+    } catch (e) {
+      toast("error", adminErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
   const s = u.stats;
   const toDelete = includeAccepted ? s.submissions : s.submissions - s.accepted;
 
@@ -97,6 +124,8 @@ export function AnnotatorPage() {
             <a href={`mailto:${u.email}`} className="contact"><Icon icon={faEnvelope} /> {u.email}</a>
             <a href={`tel:+${u.phone}`} className="contact"><Icon icon={faPhone} /> {u.phone}</a>
             <dl className="meta">
+              <dt>NIM</dt><dd>{u.nim ?? "-"}</dd>
+              <dt>Kelompok</dt><dd>{u.group?.name ?? "-"}</dd>
               <dt>Terdaftar</dt><dd>{formatDateTime(u.created_at)}</dd>
               <dt>Login terakhir</dt><dd>{u.last_login_at ? formatDateTime(u.last_login_at) : "-"}</dd>
               <dt>Submission terakhir</dt><dd>{s.last_submission_at ? formatDateTime(s.last_submission_at) : "-"}</dd>
@@ -123,6 +152,18 @@ export function AnnotatorPage() {
                 <button type="button" className="btn btn-danger" onClick={() => setDialog("block")}><Icon icon={faBan} /> Blokir</button>
               </>
             )}
+          </div>
+          <div className="card stack">
+            <h2>Kelompok</h2>
+            <p className="muted">Pindahkan mahasiswa ke kelompok lain. Pendataan yang sudah ada tidak berubah.</p>
+            <label className="field">
+              Kelompok baru
+              <select value={groupId} onChange={(e) => setGroupId(e.target.value)} disabled={!groups?.length}>
+                <option value="">Pilih kelompok</option>
+                {groups?.filter((g) => g.id !== u.group?.id).map((g) => <option key={g.id} value={String(g.id)}>{g.name}</option>)}
+              </select>
+            </label>
+            <button type="button" className="btn" onClick={() => void moveGroup()} disabled={!groupId || busy}><Icon icon={faRightLeft} /> Pindahkan</button>
           </div>
           <div className="card stack">
             <h2>Hapus data</h2>
