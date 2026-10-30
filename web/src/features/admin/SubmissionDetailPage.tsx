@@ -10,6 +10,7 @@ import { faUserSlash } from "@fortawesome/free-solid-svg-icons/faUserSlash";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Icon } from "../../components/Icon";
+import { SurveyAnswers } from "../../components/SurveyAnswers";
 import { Banner, Spinner } from "../../components/ui";
 import { textOn } from "../../lib/color";
 import { isCode } from "../../lib/errors";
@@ -25,10 +26,15 @@ import type { AdminPhoto, AdminSubmission } from "./types";
 import { AnnotatedPhoto } from "./ui/AnnotatedPhoto";
 import { ConfirmDelete, deleteResultText } from "./ui/ConfirmDelete";
 import { useToast } from "./ui/Toasts";
+import { useSurveyForm } from "../survey/useSurveyForm";
 
-/** /admin/anotasi/:id: semua foto + kotak, annotator, waktu, versi (spec-labels-admin §7.2). */
+/**
+ * /admin/anotasi/:id: jawaban pendataan per bagian (teks opsi), semua foto + kotak, mahasiswa, waktu,
+ * versi (spec-labels-admin §7.2, spec-pendataan §7.2).
+ */
 export function SubmissionDetailPage() {
-  usePageTitle("Detail anotasi");
+  usePageTitle("Detail pendataan");
+  const { form, error: formError, reload: reloadForm } = useSurveyForm();
   const { id = "" } = useParams();
   const { authMode } = useAdmin();
   const [sub, setSub] = useState<AdminSubmission>();
@@ -100,6 +106,11 @@ export function SubmissionDetailPage() {
       </div>
       <div className="detail-grid">
         <div className="detail-photos">
+          {sub.answers && (form ? (
+            <SurveyAnswers form={form} answers={sub.answers} />
+          ) : formError ? (
+            <Banner kind="error">Formulir gagal dimuat: {formError} <button type="button" className="btn btn-small" onClick={() => void reloadForm()}>Coba lagi</button></Banner>
+          ) : <Spinner label="Memuat jawaban" />)}
           {sub.photos.map((p, i) => (
             <PhotoCard key={p.photo_id} photo={p} index={i} total={sub.photos.length} onImageError={refreshUrls}
               onDelete={() => setConfirm({ kind: "photo", photo: p, index: i })} />
@@ -160,6 +171,12 @@ function AnnotatorCard({ sub, showProfile }: { sub: AdminSubmission; showProfile
     <div className="card stack">
       <h2><Icon icon={a.blocked ? faUserSlash : faUser} /> <span className="label-name">{a.name}</span></h2>
       {a.blocked && <span className="badge badge-danger"><Icon icon={faUserSlash} /> Diblokir</span>}
+      {(a.nim || a.group) && (
+        <dl className="meta">
+          <dt>NIM</dt><dd>{a.nim ?? "-"}</dd>
+          <dt>Kelompok</dt><dd>{a.group?.name ?? "-"}</dd>
+        </dl>
+      )}
       <a href={`mailto:${a.email}`} className="contact"><Icon icon={faEnvelope} /> {a.email}</a>
       <a href={`tel:+${a.phone}`} className="contact"><Icon icon={faPhone} /> {a.phone}</a>
       <div className="row">

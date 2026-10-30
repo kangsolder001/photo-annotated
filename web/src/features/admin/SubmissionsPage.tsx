@@ -2,6 +2,7 @@ import { faClock } from "@fortawesome/free-regular-svg-icons/faClock";
 import { faCheck } from "@fortawesome/free-solid-svg-icons/faCheck";
 import { faCheckDouble } from "@fortawesome/free-solid-svg-icons/faCheckDouble";
 import { faDownload } from "@fortawesome/free-solid-svg-icons/faDownload";
+import { faFileCsv } from "@fortawesome/free-solid-svg-icons/faFileCsv";
 import { faFilter } from "@fortawesome/free-solid-svg-icons/faFilter";
 import { faMagnifyingGlass } from "@fortawesome/free-solid-svg-icons/faMagnifyingGlass";
 import { faRotate } from "@fortawesome/free-solid-svg-icons/faRotate";
@@ -15,12 +16,12 @@ import { Icon } from "../../components/Icon";
 import { ReviewBadge } from "../../components/ReviewBadge";
 import { Banner, Spinner } from "../../components/ui";
 import { formatDateTime } from "../../lib/time";
-import { adminApi, exportJSONL, saveBlob } from "./api";
+import { adminApi, exportCSV, exportJSONL, saveBlob } from "./api";
 import { usePageTitle } from "./context";
 import { adminErrorMessage } from "./errors";
-import { daysUntil, exportFilename, filtersToParams, parseFilters, toQuery, type Filters } from "./filters";
+import { csvFilename, daysUntil, exportFilename, filtersToParams, parseFilters, toQuery, type Filters } from "./filters";
 import { listContext } from "./listContext";
-import type { AdminLabel, ReviewStatus, SubmissionListItem } from "./types";
+import type { AdminGroup, AdminLabel, ReviewStatus, SubmissionListItem } from "./types";
 import { AnnotatedPhoto } from "./ui/AnnotatedPhoto";
 import { ConfirmDelete } from "./ui/ConfirmDelete";
 import { Dialog } from "../../components/Dialog";
@@ -32,15 +33,28 @@ export const PAGE_SIZE = 24;
 /** Batas aksi massal (hapus/review) per permintaan. */
 export const MAX_BULK = 50;
 
+const CONSENT_OPTIONS: ["" | "yes" | "no", string][] = [["", "Semua"], ["yes", "Bersedia"], ["no", "Menolak"]];
+
+/** Tanggal pendataan `YYYY-MM-DD` sebagai teks (tanpa geser zona waktu). */
+function surveyDate(d: string): string {
+  const t = Date.parse(`${d}T00:00:00Z`);
+  return Number.isNaN(t) ? d : new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeZone: "UTC" }).format(t);
+}
+
 const REVIEW_OPTIONS: [ReviewStatus | "", string][] = [["", "Semua status"], ["pending", "Menunggu review"], ["accepted", "Diterima"], ["rejected", "Ditolak"]];
 
-/** /admin/anotasi: daftar submission terbaru dengan filter, cursor "Muat lagi", dan export. */
+/**
+ * /admin/anotasi: daftar pendataan terbaru (tanggal, RT/RW, kode rumah tangga, mahasiswa, bersedia/menolak,
+ * review) dengan filter, cursor "Muat lagi", export JSONL, dan export CSV (spec-pendataan §7.2).
+ */
 export function SubmissionsPage() {
-  usePageTitle("Anotasi");
+  usePageTitle("Pendataan");
   const [sp, setSp] = useSearchParams();
   const search = sp.toString();
   const filters = useMemo(() => parseFilters(new URLSearchParams(search)), [search]);
   const [labels, setLabels] = useState<AdminLabel[]>([]);
+  const [groups, setGroups] = useState<AdminGroup[]>([]);
+  const [csvBusy, setCsvBusy] = useState(false);
   const [items, setItems] = useState<SubmissionListItem[]>();
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -56,7 +70,23 @@ export function SubmissionsPage() {
 
   useEffect(() => {
     adminApi.labels().then(setLabels, () => {});
+    adminApi.groups().then(setGroups, () => {});
   }, []);
+
+  /** Export CSV untuk filter aktif (tanggal, bersedia/menolak, status review). */
+  const downloadCSV = async () => {
+    if (csvBusy) return;
+    setCsvBusy(true);
+    try {
+      const q = toQuery(filters);
+      saveBlob(await exportCSV({ from: q.from, to: q.to, consent: filters.consent, review_status: filters.review_status }), csvFilename(filters));
+      toast("ok", "Export CSV selesai (satu baris per rumah tangga).");
+    } catch (e) {
+      toast("error", adminErrorMessage(e));
+    } finally {
+      setCsvBusy(false);
+    }
+  };
 
   const load = useCallback(async (after?: string) => {
     abort.current?.abort();
@@ -165,19 +195,22 @@ export function SubmissionsPage() {
   return (
     <div className="admin-page">
       <div className="page-head">
-        <h1>Anotasi</h1>
+        <h1>Pendataan</h1>
         <div className="row">
           <button type="button" className={`btn${isQueue ? " btn-primary" : ""}`} aria-pressed={isQueue}
             onClick={() => setFilters(isQueue ? {} : { review_status: "pending", sort: "oldest" })}>
             <Icon icon={faClock} /> Antrean review
           </button>
           <button type="button" className="btn" onClick={() => setExporting(true)}><Icon icon={faDownload} /> Export JSONL</button>
+          <button type="button" className="btn" onClick={() => void downloadCSV()} disabled={csvBusy}>
+            {csvBusy ? <><span className="spinner" aria-hidden="true" /> Mengunduh…</> : <><Icon icon={faFileCsv} /> Export CSV</>}
+          </button>
           {isPhone && !selectMode && <button type="button" className="btn" onClick={() => setSelectMode(true)}><Icon icon={faCheckDouble} /> Pilih</button>}
         </div>
       </div>
       {isQueue && <p className="muted">Antrean review: submission yang belum direview, paling dekat batas retensi lebih dulu.</p>}
 
-      <FilterBar filters={filters} labels={labels} onChange={setFilters} />
+      <FilterBar filters={filters} labels={labels} groups={groups} onChange={setFilters} />
 
       {error && <Banner kind="error">{error} <button type="button" className="btn btn-small" onClick={() => void load()}><Icon icon={faRotate} /> Coba lagi</button></Banner>}
       {!items && !error && <Spinner label="Memuat anotasi" />}
@@ -230,7 +263,8 @@ export function AnnotatorLine({ a }: { a: SubmissionListItem["annotator"] }) {
   return (
     <span className="sub-who">
       {a.blocked && <span className="badge badge-danger" title="Annotator diblokir"><Icon icon={faUserSlash} /> Diblokir</span>}
-      <strong>{a.name}</strong> <span className="muted nowrap">{a.phone}</span>
+      <strong>{a.name}</strong>{a.nim && <span className="nowrap"> · {a.nim}</span>} <span className="muted nowrap">{a.phone}</span>
+      {a.group && <span className="muted"> · {a.group.name}</span>}
     </span>
   );
 }
@@ -260,6 +294,13 @@ function SubmissionCard({ item, colors, selectable, selected, onToggle }: {
         ) : <div className="sub-cover-empty">Tanpa foto</div>}
       </Link>
       <div className="sub-body">
+        {item.consent != null && (
+          <span className="row">
+            <strong>{item.a_date ? surveyDate(item.a_date) : formatDateTime(item.created_at)}</strong>
+            <span className={`badge ${item.consent ? "badge-ok" : "badge-muted"}`}>{item.consent ? "Bersedia" : "Menolak"}</span>
+          </span>
+        )}
+        {item.consent != null && <span>RT {item.a_rt || "-"} / RW {item.a_rw || "-"} · {item.a_household_code || "-"}</span>}
         <AnnotatorLine a={item.annotator} />
         <span className="muted">{formatDateTime(item.created_at)} · {item.photo_count} foto · {item.annotation_count} kotak</span>
         {item.labels.length > 0 && (
@@ -280,16 +321,19 @@ function SubmissionCard({ item, colors, selectable, selected, onToggle }: {
   );
 }
 
-function FilterBar({ filters, labels, onChange }: { filters: Filters; labels: AdminLabel[]; onChange(f: Filters): void }) {
+function FilterBar({ filters, labels, groups, onChange }: { filters: Filters; labels: AdminLabel[]; groups: AdminGroup[]; onChange(f: Filters): void }) {
   const isPhone = useIsPhone();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState(filters.q ?? "");
   useEffect(() => setQ(filters.q ?? ""), [filters.q]);
+  const [rw, setRw] = useState(filters.rw ?? "");
+  useEffect(() => setRw(filters.rw ?? ""), [filters.rw]);
   const set = (p: Partial<Filters>) => onChange({ ...filters, ...p });
   const submitQ = (e: FormEvent) => {
     e.preventDefault();
-    set({ q: q.trim() || undefined });
+    set({ q: q.trim() || undefined, rw: rw.trim() || undefined });
   };
+  const groupName = (id: number) => groups.find((g) => g.id === id)?.name ?? `#${id}`;
   const labelName = (id: number) => labels.find((l) => l.id === id)?.name ?? `#${id}`;
 
   const chips: [string, () => void][] = [];
@@ -297,6 +341,9 @@ function FilterBar({ filters, labels, onChange }: { filters: Filters; labels: Ad
   if (filters.to) chips.push([`Sampai ${filters.to}`, () => set({ to: undefined })]);
   if (filters.label_id) chips.push([`Label: ${labelName(filters.label_id)}`, () => set({ label_id: undefined })]);
   if (filters.review_status) chips.push([REVIEW_OPTIONS.find(([v]) => v === filters.review_status)![1], () => set({ review_status: undefined, sort: undefined })]);
+  if (filters.consent) chips.push([filters.consent === "yes" ? "Bersedia" : "Menolak", () => set({ consent: undefined })]);
+  if (filters.rw) chips.push([`RW ${filters.rw}`, () => set({ rw: undefined })]);
+  if (filters.group_id) chips.push([`Kelompok: ${groupName(filters.group_id)}`, () => set({ group_id: undefined })]);
   if (filters.q) chips.push([`Cari: ${filters.q}`, () => set({ q: undefined })]);
   if (filters.user_id) chips.push(["Satu annotator", () => set({ user_id: undefined })]);
   if (filters.unlabeled) chips.push(["Masih ada catatan lama", () => set({ unlabeled: undefined })]);
@@ -321,6 +368,23 @@ function FilterBar({ filters, labels, onChange }: { filters: Filters; labels: Ad
           {REVIEW_OPTIONS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
         </select>
       </label>
+      <label className="field">Persetujuan
+        <select value={filters.consent ?? ""} onChange={(e) => set({ consent: (e.target.value || undefined) as Filters["consent"] })}>
+          {CONSENT_OPTIONS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+        </select>
+      </label>
+      <label className="field">Kelompok
+        <select value={filters.group_id ?? ""} onChange={(e) => set({ group_id: e.target.value ? Number(e.target.value) : undefined })}>
+          <option value="">Semua kelompok</option>
+          {groups.map((g) => <option key={g.id} value={g.id}>{g.archived ? `${g.name} (diarsipkan)` : g.name}</option>)}
+        </select>
+      </label>
+      <div className="field">
+        <label htmlFor="filter-rw">RW</label>
+        <div className="row nowrap-row">
+          <input id="filter-rw" value={rw} onChange={(e) => setRw(e.target.value)} onBlur={() => set({ rw: rw.trim() || undefined })} maxLength={10} inputMode="numeric" placeholder="mis. 05" />
+        </div>
+      </div>
       <div className="field filter-q">
         <label htmlFor="filter-q">Annotator</label>
         <div className="row nowrap-row">

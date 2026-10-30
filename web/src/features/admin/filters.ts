@@ -13,6 +13,10 @@ export interface Filters {
   q?: string;
   unlabeled?: boolean;
   review_status?: ReviewStatus;
+  /** Pendataan: bersedia/menolak, RW, kelompok (spec-pendataan §5.6). */
+  consent?: "yes" | "no";
+  rw?: string;
+  group_id?: number;
   sort?: "newest" | "oldest";
 }
 
@@ -33,6 +37,12 @@ export function parseFilters(sp: URLSearchParams): Filters {
   if (sp.get("unlabeled") === "true") f.unlabeled = true;
   const rs = sp.get("review_status");
   if (rs && REVIEW.has(rs)) f.review_status = rs as ReviewStatus;
+  const consent = sp.get("consent");
+  if (consent === "yes" || consent === "no") f.consent = consent;
+  const rw = sp.get("rw")?.trim();
+  if (rw) f.rw = rw;
+  const group = Number(sp.get("group_id"));
+  if (sp.get("group_id") && Number.isInteger(group) && group > 0) f.group_id = group;
   if (sp.get("sort") === "oldest") f.sort = "oldest";
   return f;
 }
@@ -68,6 +78,9 @@ export function toQuery(f: Filters): SubmissionQuery {
     q: f.q,
     unlabeled: f.unlabeled || undefined,
     review_status: f.review_status,
+    consent: f.consent,
+    rw: f.rw,
+    group_id: f.group_id,
     sort: f.sort,
   };
 }
@@ -75,6 +88,11 @@ export function toQuery(f: Filters): SubmissionQuery {
 /** Nama berkas export: photo-annotated-<from>-<to>.jsonl ("awal"/"sekarang" bila kosong). */
 export function exportFilename(f: Pick<Filters, "from" | "to">): string {
   return `photo-annotated-${f.from ?? "awal"}-${f.to ?? "sekarang"}.jsonl`;
+}
+
+/** Nama berkas export CSV pendataan: pendataan-<from>-<to>.csv. */
+export function csvFilename(f: Pick<Filters, "from" | "to">): string {
+  return `pendataan-${f.from ?? "awal"}-${f.to ?? "sekarang"}.csv`;
 }
 
 /** Hari tersisa sampai `iso` (dibulatkan ke atas; 0 bila sudah lewat). */

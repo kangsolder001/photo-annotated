@@ -431,7 +431,22 @@ diasumsikan `INVALID_GROUP_NAME` (pola `INVALID_LABEL_NAME`).
 **Langkah:** kolom tanggal, RW/RT, kode RT, mahasiswa (nama + NIM), Bersedia/Menolak, review; filter
 `consent`, `rw`, `group_id`. Detail: jawaban per bagian dengan **teks opsi** (dari `GET /survey/form`), foto
 berkotak. Tombol "Export CSV" (unduh lewat fetch + blob, karena butuh header auth).
-**Acceptance:** [ ] test filter → query string; [ ] detail menampilkan teks opsi, bukan id.
+**Acceptance:** [x] test filter → query string; [x] detail menampilkan teks opsi, bukan id.
+**Hasil:** `SubmissionsPage` (menu "Pendataan", rute tetap `/admin/anotasi`): kartu menampilkan tanggal
+pendataan + Bersedia/Menolak, "RT x / RW y · kode", mahasiswa (nama · NIM · kelompok) di samping sampul
+foto + review yang sudah ada. Filter baru `consent`, `rw`, `group_id` (URL ↔ query API, chip). Tombol
+"Export CSV" di samping JSONL: `exportCSV()` (fetch + blob dengan header auth) memakai `from`/`to` (RFC 3339
+seperti JSONL), `consent`, `review_status` dari filter aktif; berkas `pendataan-<from>-<to>.csv`. Detail:
+jawaban per bagian lewat `components/SurveyAnswers` (teks opsi dari `GET /survey/form`), NIM + kelompok
+di kartu mahasiswa, foto berkotak tetap. Test: `features/admin/pendataan.test.tsx`.
+**Catatan (asumsi kontrak, cocokkan dengan T62/T63):**
+- Nama field item daftar mengikuti **spec §5.6**: `a_date`, `a_rw`, `a_rt`, `a_household_code`, `consent`
+  (bool), dan NIM + kelompok di objek `annotator` yang sudah ada (`annotator.nim`, `annotator.group:
+  {id, name}`). Plan T62 menulis `survey_date`, `rw`, `rt`, `household_code`, `user: {name, nim, group}`;
+  bila backend memilih itu, salah satu sisi harus disesuaikan.
+- Detail admin: `answers` + `form_version` di akar objek (sama dengan `GET /submissions/{id}`).
+- `GET /admin/export.csv`: `from`/`to` dikirim sebagai RFC 3339 (awal hari lokal, `to` eksklusif) seperti
+  export JSONL; spec tidak menyebut apakah atas `created_at` atau `a_date`.
 
 #### Task 72: FE admin statistik — S
 **Tiru:** `StatsPage.tsx`.

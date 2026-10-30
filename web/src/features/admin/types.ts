@@ -1,5 +1,5 @@
 // Kontrak API admin (docs/spec-labels-admin.md §5). Nama field mengikuti JSON API apa adanya.
-import type { AnnotationView, OTPTicket, PhotoView } from "../../api/types";
+import type { AnnotationView, Answers, OTPTicket, PhotoView } from "../../api/types";
 
 export type AuthMode = "none" | "otp";
 
@@ -75,6 +75,9 @@ export interface Annotator {
   /** Nomor utuh (admin perlu bisa menghubungi). */
   phone: string;
   blocked: boolean;
+  /** NIM + kelompok mahasiswa (spec-pendataan §5.6). */
+  nim?: string | null;
+  group?: { id: number; name: string } | null;
 }
 
 export interface CoverAnnotation {
@@ -98,6 +101,12 @@ export interface SubmissionListItem {
   labels: { id: number; name: string; color: string; count: number }[];
   legacy_text_count: number;
   cover: { photo_id: string; url: string; width: number; height: number; annotations: CoverAnnotation[] } | null;
+  /** Ringkasan pendataan (spec-pendataan §5.6); null/tidak ada pada laporan lama. */
+  a_date?: string | null;
+  a_rw?: string | null;
+  a_rt?: string | null;
+  a_household_code?: string | null;
+  consent?: boolean | null;
 }
 
 export interface Page<T> {
@@ -113,6 +122,9 @@ export interface SubmissionQuery {
   q?: string;
   unlabeled?: boolean;
   review_status?: ReviewStatus;
+  consent?: "yes" | "no";
+  rw?: string;
+  group_id?: number;
   sort?: "newest" | "oldest";
   limit?: number;
   cursor?: string;
@@ -135,6 +147,9 @@ export interface AdminSubmission {
   annotator: Annotator | null;
   review: Review;
   retention_deletes_at: string | null;
+  /** Pendataan (spec-pendataan §5.6): jawaban lengkap + versi form. */
+  form_version?: number | null;
+  answers?: Answers | null;
 }
 
 export interface ReviewInput {

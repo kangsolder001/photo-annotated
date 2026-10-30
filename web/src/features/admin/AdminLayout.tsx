@@ -25,7 +25,7 @@ interface NavItem { to: string; label: string; icon: IconDefinition; end?: boole
 
 const NAV: NavItem[] = [
   { to: "/admin", label: "Beranda", icon: faGauge, end: true },
-  { to: "/admin/anotasi", label: "Anotasi", icon: faImages },
+  { to: "/admin/anotasi", label: "Pendataan", icon: faImages },
   { to: "/admin/label", label: "Label", icon: faTags },
   { to: "/admin/kelompok", label: "Kelompok", icon: faUserGroup },
   { to: "/admin/annotator", label: "Annotator", icon: faUsers, otpOnly: true },

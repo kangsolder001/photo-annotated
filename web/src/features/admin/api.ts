@@ -116,11 +116,27 @@ export interface ExportResult {
  * harus JSON utuh diakhiri baris baru.
  */
 export async function exportJSONL(q: { from?: string; to?: string; review_status?: ReviewStatus; label_id?: number }): Promise<ExportResult> {
+  const res = await fetchExport(`/export${qs({ format: "jsonl", ...q })}`, "application/x-ndjson");
+  const text = await res.text();
+  return { blob: new Blob([text], { type: "application/x-ndjson" }), ...checkJSONL(text, res.headers.get("X-Export-Complete")) };
+}
+
+/**
+ * GET /admin/export.csv (spec-pendataan §5.7): satu baris per pendataan, UTF-8 + BOM. Lewat fetch karena
+ * butuh header Authorization; isi disimpan apa adanya (BOM tetap ada agar rapi di Excel).
+ */
+export async function exportCSV(q: { from?: string; to?: string; consent?: "yes" | "no"; review_status?: ReviewStatus }): Promise<Blob> {
+  const res = await fetchExport(`/export.csv${qs(q)}`, "text/csv");
+  return new Blob([await res.arrayBuffer()], { type: "text/csv;charset=utf-8" });
+}
+
+/** fetch export bertoken admin; error API → ApiError (401 → sesi admin dibuang). */
+async function fetchExport(path: string, accept: string): Promise<Response> {
   const token = adminSession.token();
   let res: Response;
   try {
-    res = await fetch(apiURL(`${BASE}/export${qs({ format: "jsonl", ...q })}`), {
-      headers: { Accept: "application/x-ndjson", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    res = await fetch(apiURL(BASE + path), {
+      headers: { Accept: accept, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     });
   } catch {
     throw new ApiError(0, "NETWORK_ERROR", "Tidak bisa terhubung ke server.");
@@ -135,8 +151,7 @@ export async function exportJSONL(q: { from?: string; to?: string; review_status
     if (res.status === 401) adminSession.expire();
     throw new ApiError(res.status, err?.code ?? `HTTP_${res.status}`, err?.message ?? res.statusText, parseRetryAfter(res.headers.get("Retry-After")));
   }
-  const text = await res.text();
-  return { blob: new Blob([text], { type: "application/x-ndjson" }), ...checkJSONL(text, res.headers.get("X-Export-Complete")) };
+  return res;
 }
 
 export function checkJSONL(text: string, completeHeader: string | null): { rows: number; complete: boolean } {
