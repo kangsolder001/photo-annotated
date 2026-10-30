@@ -411,7 +411,20 @@ bersedia (1 foto + 1 kotak) → admin lihat detail. DB: schema sementara di DB t
 **Tiru:** `LabelsPage.tsx`, `AnnotatorPage.tsx`, `features/admin/api.ts`.
 **Langkah:** menu "Kelompok" (daftar + jumlah mahasiswa, tambah, ubah nama, arsip/aktifkan, hapus dengan
 pesan `GROUP_IN_USE`). Profil annotator: NIM, kelompok, pilih kelompok lain.
-**Acceptance:** [ ] test komponen + api admin.
+**Acceptance:** [x] test komponen + api admin.
+**Hasil:** `GroupsPage` (`/admin/kelompok`, menu "Kelompok"): tabel (desktop) / kartu (HP) nama, jumlah
+mahasiswa, status; tambah, ubah nama, arsipkan/aktifkan (`PUT {name, archived}`), hapus hanya bila belum
+dipakai (dialog konfirmasi; `GROUP_IN_USE` → pesan). `adminApi.groups/createGroup/updateGroup/deleteGroup/
+setUserGroup`; tipe `AdminGroup`; `AdminUser` + `nim?`, `group?`. Profil annotator: NIM + kelompok di
+meta, kartu "Kelompok" dengan dropdown kelompok aktif (selain kelompok saat ini) + "Pindahkan"
+(`PUT /admin/users/{id}/group {group_id}`). Pesan `GROUP_NAME_TAKEN`, `GROUP_IN_USE`, `INVALID_GROUP_NAME`,
+`INVALID_GROUP`. Test: `features/admin/groups.test.tsx`.
+**Catatan (asumsi kontrak, cocokkan dengan T58/T59):** spec §5.5 tidak menyebut bentuk JSON admin.
+FE memakai pola label: `GET /admin/groups` → `{ "groups": [ { id, name, archived: bool, user_count,
+created_at, updated_at } ] }`; `POST`/`PUT` membalas objek kelompok; `DELETE` → 204; `PUT
+/admin/users/{id}/group` → isi respons diabaikan (profil dimuat ulang). `GET /admin/users/{id}` memuat
+`nim` (string|null) dan `group` (`{id, name}`|null), sama dengan `/auth/me`. Kode nama tidak valid
+diasumsikan `INVALID_GROUP_NAME` (pola `INVALID_LABEL_NAME`).
 
 #### Task 71: FE admin daftar/detail pendataan + export CSV — M
 **Tiru:** `SubmissionsPage.tsx`, `SubmissionDetailPage.tsx`, `filters.ts`, `ui/AnnotatedPhoto.tsx`.

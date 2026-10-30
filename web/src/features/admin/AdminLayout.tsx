@@ -7,6 +7,7 @@ import { faGauge } from "@fortawesome/free-solid-svg-icons/faGauge";
 import { faImages } from "@fortawesome/free-solid-svg-icons/faImages";
 import { faRightFromBracket } from "@fortawesome/free-solid-svg-icons/faRightFromBracket";
 import { faTags } from "@fortawesome/free-solid-svg-icons/faTags";
+import { faUserGroup } from "@fortawesome/free-solid-svg-icons/faUserGroup";
 import { faUsers } from "@fortawesome/free-solid-svg-icons/faUsers";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { useEffect, useMemo, useState } from "react";
@@ -26,6 +27,7 @@ const NAV: NavItem[] = [
   { to: "/admin", label: "Beranda", icon: faGauge, end: true },
   { to: "/admin/anotasi", label: "Anotasi", icon: faImages },
   { to: "/admin/label", label: "Label", icon: faTags },
+  { to: "/admin/kelompok", label: "Kelompok", icon: faUserGroup },
   { to: "/admin/annotator", label: "Annotator", icon: faUsers, otpOnly: true },
   { to: "/admin/statistik", label: "Statistik", icon: faChartSimple },
 ];

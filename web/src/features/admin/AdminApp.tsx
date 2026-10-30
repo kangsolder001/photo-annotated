@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AdminLayout } from "./AdminLayout";
 import { AnnotatorPage } from "./AnnotatorPage";
 import { AnnotatorsPage } from "./AnnotatorsPage";
+import { GroupsPage } from "./GroupsPage";
 import { HomePage } from "./HomePage";
 import { LabelsPage } from "./LabelsPage";
 import { SubmissionDetailPage } from "./SubmissionDetailPage";
@@ -36,6 +37,7 @@ export default function AdminApp() {
         <Route path="label" element={<LabelsPage />} />
         <Route path="anotasi" element={<SubmissionsPage />} />
         <Route path="anotasi/:id" element={<SubmissionDetailPage />} />
+        <Route path="kelompok" element={<GroupsPage />} />
         <Route path="annotator" element={<AnnotatorsPage />} />
         <Route path="annotator/:id" element={<AnnotatorPage />} />
         <Route path="statistik" element={<StatsPage />} />

@@ -26,7 +26,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T67** (M) Wizard bagian A–R2 + draf — butuh T66
 - [x] **T68** (M) Langkah foto, ringkasan, kirim, riwayat; alur lama dihapus — butuh T61, T67
 - [ ] **T69** (S) E2E browser `web/e2e/flow.mjs` — butuh T65, T68
-- [ ] **T70** (S) Admin: kelompok + profil annotator — butuh T59
+- [x] **T70** (S) Admin: kelompok + profil annotator — butuh T59
 - [ ] **T71** (M) Admin: daftar/detail pendataan + tombol Export CSV — butuh T62, T63
 - [ ] **T72** (S) Admin: statistik pendataan — butuh T64
 

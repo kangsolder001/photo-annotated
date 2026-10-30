@@ -4,6 +4,7 @@ import { ApiError, apiURL, parseRetryAfter, request } from "../../api/client";
 import type { OTPStatusView } from "../../api/types";
 import { adminSession } from "./session";
 import type {
+  AdminGroup,
   AdminLabel,
   AdminMe,
   AdminOTPTicket,
@@ -65,6 +66,13 @@ export const adminApi = {
   updateLabel: (id: number, body: LabelReplace) => adm<AdminLabel>("PUT", `/labels/${id}`, { body }),
   reorderLabels: (ids: number[]) => adm<unknown>("PUT", "/labels/order", { body: { ids } }),
   deleteLabel: (id: number) => adm<void>("DELETE", `/labels/${id}`),
+
+  // ---- kelompok (spec-pendataan §5.5)
+  groups: () => adm<{ groups: AdminGroup[] }>("GET", "/groups").then((r) => r.groups ?? []),
+  createGroup: (body: { name: string }) => adm<AdminGroup>("POST", "/groups", { body }),
+  updateGroup: (id: number, body: { name: string; archived: boolean }) => adm<AdminGroup>("PUT", `/groups/${id}`, { body }),
+  deleteGroup: (id: number) => adm<void>("DELETE", `/groups/${id}`),
+  setUserGroup: (userId: string, groupId: number) => adm<unknown>("PUT", `/users/${enc(userId)}/group`, { body: { group_id: groupId } }),
 
   // ---- submission (§5.4)
   submissions: (q: SubmissionQuery, signal?: AbortSignal) =>

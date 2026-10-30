@@ -48,6 +48,17 @@ export interface LabelReplace {
   archived: boolean;
 }
 
+// ---- kelompok (spec-pendataan §5.5)
+export interface AdminGroup {
+  id: number;
+  name: string;
+  archived: boolean;
+  /** Jumlah mahasiswa di kelompok ini. */
+  user_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // ---- submission (§5.4, §5.7)
 export type ReviewStatus = "pending" | "accepted" | "rejected";
 
@@ -173,6 +184,9 @@ export interface AdminUser {
   blocked: boolean;
   blocked_at: string | null;
   blocked_reason: string | null;
+  /** NIM + kelompok (spec-pendataan §5.4); null pada akun lama. */
+  nim?: string | null;
+  group?: { id: number; name: string } | null;
   stats: AnnotatorStats;
 }
 

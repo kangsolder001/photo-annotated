@@ -16,6 +16,10 @@ const MESSAGES: Record<string, string> = {
   INVALID_LABEL_DESCRIPTION: "Deskripsi maksimal 200 karakter.",
   INVALID_REASON: "Alasan wajib diisi (maksimal 500 karakter).",
   INVALID_REVIEW: "Status review tidak valid.",
+  GROUP_NAME_TAKEN: "Nama kelompok sudah dipakai (termasuk kelompok yang diarsipkan).",
+  GROUP_IN_USE: "Kelompok ini sudah dipakai akun mahasiswa sehingga tidak bisa dihapus. Arsipkan saja.",
+  INVALID_GROUP_NAME: "Nama kelompok 1–100 karakter, tanpa karakter khusus.",
+  INVALID_GROUP: "Kelompok tidak tersedia (mungkin sudah diarsipkan). Pilih kelompok lain.",
   ADMIN_READ_ONLY: "Admin tidak bisa mengubah anotasi user.",
 };
 
