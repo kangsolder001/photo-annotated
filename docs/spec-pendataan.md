@@ -203,6 +203,11 @@ Pola sama dengan label, tanpa warna dan urutan manual:
 
 Aksi dicatat `logAdminAction` (`group.create`, `group.update`, `group.delete`, `user.set_group`).
 
+Bentuk respons (ditetapkan saat implementasi T58): item admin `{ "id", "name", "archived", "student_count",
+"created_at", "updated_at" }`; `GET /admin/groups` → `{ "groups": [ … ] }` (aktif dulu, lalu arsip; urut
+nama); `POST` → `201` + item; `PUT` → `200` + item; `DELETE` → `204`. Nama tidak valid → `422
+INVALID_GROUP_NAME`; id tidak ada/bukan angka → `404 NOT_FOUND`.
+
 ### 5.6 Admin: daftar & detail (berubah)
 - `GET /admin/submissions` ditambah filter `consent` (`yes`/`no`), `rw`, `group_id`; tiap item memuat
   `a_date`, `a_rw`, `a_rt`, `a_household_code`, `consent`, nama + NIM + kelompok mahasiswa.

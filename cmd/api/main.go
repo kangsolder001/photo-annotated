@@ -149,6 +149,7 @@ func run() error {
 
 	deps := httpapi.Deps{
 		Labels: labels,
+		Groups: usecase.NewGroups(postgres.NewGroupRepo(pool), usecase.SystemClock{}),
 		Logger: log, TrustedProxies: trusted, DB: pool, AllowedOrigins: cfg.App.AllowedOrigins,
 		Presigner: presign, PresignPerMin: cfg.Limits.RateLimitPerMin.Presign,
 		Reader:    reader,

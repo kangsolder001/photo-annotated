@@ -54,6 +54,8 @@ type Deps struct {
 	Reader handler.Reader // usecase baca submission & foto (spec §5.3–5.5)
 	// Label terkontrol (spec-labels-admin §4); nil = rute /labels dan /admin/labels tidak dipasang.
 	Labels handler.LabelService
+	// Kelompok mahasiswa (spec-pendataan §5.2, §5.5); nil = rute /groups dan /admin/groups tidak dipasang.
+	Groups handler.GroupService
 	Editor handler.Editor // usecase edit submission (spec §5.4)
 
 	// Auth OTP (spec §5.8); nil bila auth.mode = none sehingga rute /auth/* menjadi 404.
@@ -182,6 +184,13 @@ func NewRouter(d Deps) *gin.Engine {
 		api.GET("/labels", chain(read, []gin.HandlerFunc{labels.Active})...)
 	}
 
+	var groups *handler.GroupHandler
+	if d.Groups != nil {
+		groups = handler.NewGroupHandler(d.Groups, d.Logger)
+		// publik: dipakai form registrasi sebelum punya sesi
+		api.GET("/groups", groups.Active)
+	}
+
 	if d.OTPRequester != nil {
 		if d.OTPRequestPerMin < 1 || d.OTPChannel == nil || d.OTPVerifier == nil || d.Sessions == nil || d.OTPVerifyPerMin < 1 ||
 			d.PasswordLogin == nil || d.LoginPerMin < 1 {
@@ -228,6 +237,12 @@ func NewRouter(d Deps) *gin.Engine {
 			api.PUT("/admin/labels/order", adminOnly, labels.Reorder)
 			api.PUT("/admin/labels/:id", adminOnly, labels.Update)
 			api.DELETE("/admin/labels/:id", adminOnly, labels.Delete)
+		}
+		if groups != nil {
+			api.GET("/admin/groups", adminOnly, groups.AdminList)
+			api.POST("/admin/groups", adminOnly, groups.Create)
+			api.PUT("/admin/groups/:id", adminOnly, groups.Update)
+			api.DELETE("/admin/groups/:id", adminOnly, groups.Delete)
 		}
 		if d.AdminSubmissions != nil {
 			subsAdmin := handler.NewAdminSubmissionHandler(d.AdminSubmissions, d.Logger)

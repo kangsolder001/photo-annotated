@@ -208,6 +208,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		Uploader: upload, MaxUploadBytes: o.maxBytes, UploadTimeout: time.Minute,
 		Submitter: submit, SubmissionsPerMin: 1_000_000,
 		Reader: reader, Editor: editor,
+		Groups:       usecase.NewGroups(postgres.NewGroupRepo(pool), usecase.SystemClock{}),
 		Labels:       usecase.NewLabels(postgres.NewLabelRepo(pool), txm, usecase.SystemClock{}, usecase.LabelsConfig{MaxActive: 200}),
 		OTPRequester: otp.req, OTPVerifier: otp.verify, PasswordLogin: otp.login, LoginPerMin: 1_000_000, Sessions: otp.sessions, OTPVerifyPerMin: 1_000_000, OTPChannel: channel, Turnstile: o.turnstile, OTPRequestPerMin: o.otpPerMin, UploadTurnstile: o.uploadTurnstile, Admin: adm.login, AdminLoginPerMin: o.adminPerMin, AuthMode: authMode,
 		AdminDelete: usecase.NewAdminDelete(postgres.NewDeletionRepo(pool), txm, o.wrapStore(store), usecase.SystemClock{}),

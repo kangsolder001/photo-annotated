@@ -361,6 +361,28 @@ type LabelUsage struct {
 	UsageCount int
 }
 
+// GroupUsage adalah kelompok beserta jumlah mahasiswa (akun) yang memakainya.
+type GroupUsage struct {
+	domain.Group
+	StudentCount int
+}
+
+// GroupRepo menyimpan kelompok mahasiswa (spec-pendataan §5.5, §6).
+type GroupRepo interface {
+	// ListActive: kelompok aktif urut nama.
+	ListActive(ctx context.Context) ([]domain.Group, error)
+	// ListAll: semua kelompok (aktif dulu, lalu arsip; masing-masing urut nama) dengan jumlah mahasiswa.
+	ListAll(ctx context.Context) ([]GroupUsage, error)
+	// Create mengisi ID. Nama kembar (tanpa beda huruf besar-kecil) → domain.Conflict GROUP_NAME_TAKEN.
+	Create(ctx context.Context, g *domain.Group) error
+	// Update mengganti nama dan status arsip (archived_at diisi now bila baru diarsipkan, dipertahankan
+	// bila sudah). Tidak ada → domain.ErrNotFound.
+	Update(ctx context.Context, id int, name string, archived bool, now time.Time) (*GroupUsage, error)
+	// Delete menghapus kelompok dan mengembalikan isinya; dipakai akun → domain.Conflict GROUP_IN_USE;
+	// tidak ada → domain.ErrNotFound.
+	Delete(ctx context.Context, id int) (*domain.Group, error)
+}
+
 // LabelRepo menyimpan label (spec-labels-admin §4, §6.1). Penulisan dilakukan di dalam transaksi
 // yang memegang LockForWrite, sehingga batas jumlah, urutan, dan nama unik tetap konsisten walau
 // dua admin (tab) menulis berbarengan.

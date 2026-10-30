@@ -136,6 +136,13 @@ retensi mati, `RetentionDeletesAt`, status sistem.
 **Test baru:** `internal/delivery/http/e2e_groups_test.go` (tiru `e2e_labels_test.go`).
 **Verifikasi:** perintah standar backend.
 
+**Hasil:** migrasi `0011_groups.sql`, `domain.Group` + `NormalizeGroupName`, `usecase.Groups` + port
+`GroupRepo`, `postgres.GroupRepo`, `handler/groups.go`; `GET /groups` publik (tanpa auth, `no-store`), CRUD
+`/admin/groups` dengan `logAdminAction` `group.create|update|delete`. `student_count` masih 0 (diisi T59);
+hapus kelompok terpakai ditangkap dari FK (`23503` → `409 GROUP_IN_USE`). Test: `e2e_groups_test.go`, domain.
+**Catatan:** spec tidak menyebut bentuk item admin dan kode error nama; ditetapkan `student_count` dan
+`422 INVALID_GROUP_NAME` (spec §5.5 diperbarui).
+
 #### Task 59: Registrasi dengan NIM + kelompok — M ⚠️
 **Spec:** §5.4, §6 (kolom `users`). **Baca dulu:** `otp_request.go` (`Register`), `otp_verify.go`,
 `otp_repo.go`, `user_repo.go`, `migrations/0004_auth.sql`, `migrations/0005_password.sql` (cara nama/email/
