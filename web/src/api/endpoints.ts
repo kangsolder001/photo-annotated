@@ -12,6 +12,7 @@ import type {
   SubmissionView,
   SubmitPhotoDTO,
   SubmitResponse,
+  SurveyForm,
   User,
 } from "./types";
 
@@ -43,6 +44,9 @@ export const api = {
 
   photoURL: (photoId: string, editToken?: string) =>
     request<PhotoURL>("GET", `/api/v1/photos/${enc(photoId)}/url`, { headers: editTokenHeader(editToken) }),
+
+  /** Definisi instrumen pendataan (publik). */
+  getSurveyForm: () => request<SurveyForm>("GET", "/api/v1/survey/form", { auth: false }),
 
   /** Kelompok aktif untuk dropdown registrasi (publik, urut nama). */
   groups: () => request<{ groups: GroupRef[] }>("GET", "/api/v1/groups", { auth: false }).then((r) => r.groups ?? []),

@@ -125,3 +125,43 @@ export interface LoginResponse {
   expires_at: string;
   user: User;
 }
+
+// ---- pendataan (spec-pendataan §4, §5.1)
+
+export type QuestionType = "date" | "text" | "textarea" | "int" | "choice" | "multi";
+
+export interface SurveyOption {
+  id: string;
+  label: string;
+  /** Opsi "Lainnya" pada `multi`: wajib disertai teks (lihat `otherKey` di lib/survey.ts). */
+  other?: boolean;
+}
+
+export interface SurveyQuestion {
+  id: string;
+  label: string;
+  help?: string | null;
+  type: QuestionType;
+  required: boolean;
+  min?: number | null;
+  max?: number | null;
+  options?: SurveyOption[] | null;
+}
+
+export interface SurveySection {
+  id: string;
+  title: string;
+  help?: string | null;
+  questions: SurveyQuestion[];
+}
+
+/** GET /survey/form: definisi instrumen (satu sumber di backend). */
+export interface SurveyForm {
+  version: number;
+  consent_text: string;
+  sections: SurveySection[];
+}
+
+/** Nilai jawaban: `date`/`text`/`textarea`/`choice` = string, `int` = number, `multi` = id opsi. */
+export type AnswerValue = string | number | string[];
+export type Answers = Record<string, AnswerValue>;

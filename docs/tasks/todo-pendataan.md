@@ -22,7 +22,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 
 ## Phase 2: Frontend
 - [x] **T65** (S) Registrasi NIM + dropdown kelompok — butuh T59
-- [ ] **T66** (S) `src/lib/survey.ts` (logika murni + test) — butuh T60
+- [x] **T66** (S) `src/lib/survey.ts` (logika murni + test) — butuh T60
 - [ ] **T67** (M) Wizard bagian A–R2 + draf — butuh T66
 - [ ] **T68** (M) Langkah foto, ringkasan, kirim, riwayat; alur lama dihapus — butuh T61, T67
 - [ ] **T69** (S) E2E browser `web/e2e/flow.mjs` — butuh T65, T68

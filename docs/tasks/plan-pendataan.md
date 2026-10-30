@@ -338,8 +338,20 @@ ulang). `User` ditambah `nim?`, `group?` (`{id, name}`, opsional agar sesi lama 
 **Langkah:** tipe definisi di `api/types.ts`; `getSurveyForm()` di `endpoints.ts`; `src/lib/survey.ts`:
 `visibleSections(form, answers)` (menolak → hanya A), `missingRequired(form, answers)`,
 `validateAnswer(question, value)` (aturan §4.1, sama dengan backend), `isConsented(answers)`.
-**Acceptance:** [ ] `src/lib/survey.test.ts` meniru kasus test tabel T60 (fixture form kecil di test).
+**Acceptance:** [x] `src/lib/survey.test.ts` meniru kasus test tabel T60 (fixture form kecil di test).
 **Verifikasi:** perintah standar FE.
+**Hasil:** tipe `SurveyForm`/`SurveySection`/`SurveyQuestion`/`SurveyOption`/`Answers` di `api/types.ts`;
+`api.getSurveyForm()` (publik). `src/lib/survey.ts`: `visibleSections`, `missingRequired`,
+`validateAnswer(q, value, answers, today)`, `sectionErrors`, `incompleteSections`, `isConsented`,
+`cleanAnswers` (menolak → hanya A, kosong dibuang, teks di-trim), `answerText` (teks opsi untuk tampilan),
+`todayJakarta`. Fixture form di `src/test/surveyFixture.ts`.
+**Catatan (asumsi kontrak, cocokkan dengan T60/T61):**
+- Teks opsi "Lainnya" pada `multi` dikirim sebagai **kunci jawaban terpisah** `<id>_other` (mis.
+  `"r3_container_types_other": "Galon bekas"`), hanya bila opsi `other` dipilih. Spec §4.1 tidak menyebut
+  tempat teks itu; backend harus menerima kunci ini (bukan id tak dikenal).
+- `Option.other` dibaca dari JSON `"other": true` (boleh tidak ada = false); `help`, `min`, `max`,
+  `options` boleh `null`/tidak ada.
+- `int` dikirim sebagai angka JSON; jawaban kosong tidak dikirim (bukan `""`/`null`).
 
 #### Task 67: FE wizard bagian A–R2 + draf — M
 **Baca dulu:** `features/submit/NewSubmissionPage.tsx`, `lib/draft.ts`, `components/ui.tsx`.
