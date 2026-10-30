@@ -1,0 +1,68 @@
+# Instance pendataan baseline Cipadung Kulon (spec-pendataan §10). Salinan docker-compose.yml induk dengan
+# project, image, port, dan folder foto sendiri; instance lama (photo-annotated) tidak tersentuh.
+# Di Pi: /home/myrpi/docker/baseline-cipadung/ berisi file ini + config.json
+#   chown myrpi:65532 config.json && chmod 640 config.json
+# lalu: docker compose up -d
+# cloudflared di host: public hostname kknsampah.zipzip.my.id -> http://localhost:8091
+name: baseline-cipadung
+
+x-app: &app
+  image: baseline-cipadung:${BASELINE_TAG:-latest}
+  environment:
+    TZ: Asia/Jakarta
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
+services:
+  migrate:
+    <<: *app
+    entrypoint: ["/usr/local/bin/migrate", "up"]
+    restart: "no"
+    volumes:
+      - ./config.json:/etc/photo-annotated/config.json:ro
+    networks: [shared-db]
+
+  api:
+    <<: *app
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./config.json:/etc/photo-annotated/config.json:ro
+      # folder foto di SSD (pemilik UID 65532) dengan file penanda store
+      - /mnt/ssd/baseline_cipadung/photos:/data/photos
+    ports:
+      - "127.0.0.1:8090:8080"
+    networks: [default, shared-db, wa-notif]
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+    stop_grace_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  web:
+    image: baseline-cipadung-web:${BASELINE_TAG:-latest}
+    restart: unless-stopped
+    depends_on: [api]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    ports:
+      - "8091:8080"
+    networks: [default]
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+
+networks:
+  shared-db:
+    external: true
+  wa-notif:
+    name: wa-notif_default
+    external: true

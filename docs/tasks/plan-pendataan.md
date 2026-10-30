@@ -592,7 +592,24 @@ Kredensial SSH: `docs/raspi_auth.md` — **jangan pernah ditampilkan/di-commit**
 **Acceptance:**
 - [ ] `/readyz` 200 lewat `kknsampah.<domain>`; instance lama tetap 200 di `cam.<domain>`
 - [ ] Login admin OTP ke nomor asli; buat kelompok; satu pendataan uji dari HP lalu dihapus
-- [ ] Log project baru masuk Loki
+- [x] Log project baru masuk Loki
+
+**Hasil (30 Okt 2026, image `3f7a445`):** domain `kknsampah.zipzip.my.id`. Role + DB `baseline_cipadung`
+(password acak, hanya di `config.json` Pi), `/mnt/ssd/baseline_cipadung/photos` (65532, mode 750, penanda
+store), `/home/myrpi/docker/baseline-cipadung/` berisi `docker-compose.yml` (dari
+`deploy/baseline-cipadung/`), `.env` (`BASELINE_TAG`) dan `config.json` (640, `myrpi:65532`). Config
+diturunkan dari config instance lama: secret baru (kecuali `wa_notif_token`), `public_base_url` dan
+`allowed_origins` domain baru, template OTP "Pendataan Sampah KKN", `retention.days: 0`, superadmin nomor
+dari Anda. `docker compose up -d`: 13 migrasi diterapkan; `/readyz` 200 di `127.0.0.1:8090`, web 200 di
+`:8091`, `GET /api/v1/survey/form` 200; instance lama tetap 200. Container `baseline-cipadung-*` ada di Loki.
+
+**Catatan:**
+- Akses SSH memakai kunci (`ssh-copy-id` oleh Anda), bukan `docs/raspi_auth.md`.
+- Image web harus di-build dengan `--no-cache` bila cache buildkit berisi `npm ci` lama (gejala:
+  `Cannot find module '../lightningcss.linux-x64-musl.node'`).
+- Saat deploy, sesi WhatsApp di `wa-notif-service` berstatus `DISCONNECTED` (berlaku juga untuk instance
+  lama), jadi OTP belum bisa terkirim. Sesuai aturan, `wa-notif-service` tidak diubah; perlu dipasangkan
+  ulang oleh Anda. Dua acceptance di atas menunggu itu + public hostname Cloudflare.
 
 ### Checkpoint C: Go-live
 - [ ] Uji lapangan oleh 1–2 mahasiswa dari HP (seluler), bersedia + menolak
