@@ -236,6 +236,13 @@ INVALID_GROUP_NAME`; id tidak ada/bukan angka → `404 NOT_FOUND`.
   `a_date`, `a_rw`, `a_rt`, `a_household_code`, `consent`, nama + NIM + kelompok mahasiswa.
 - `GET /admin/submissions/{id}` memuat `answers` lengkap dan `form_version`.
 
+Rincian (T62): field ringkasan pendataan `a_date`, `a_rw`, `a_rt`, `a_household_code` (string) dan `consent`
+(bool) ada di akar item; NIM + kelompok di objek `annotator` (`nim`: string|null, `group`: `{id, name}`|null).
+Semuanya `null` untuk submission tanpa pendataan. `consent=yes|no`, `rw` dicocokkan persis dengan
+`answers.a_rw` (maks. 10 karakter), `group_id` = kelompok annotator **saat ini**; nilai tidak sah →
+`422 INVALID_QUERY`. Pendataan yang menolak (tanpa foto) ikut tampil (`photo_count` 0, `cover` null). Detail
+user (`GET /submissions/{id}`) dan admin memuat `form_version`, `answers`, `consent` di akar objek.
+
 ### 5.7 Export CSV
 `GET /admin/export.csv?from&to&consent&review_status` — satu baris per pendataan, UTF-8 dengan BOM (agar
 rapi di Excel), streaming.

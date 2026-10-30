@@ -335,10 +335,20 @@ lama tetap mulai dari tabel kosong; `pgtest.PoolWithSeed` untuk menguji seed. St
 **Spec:** §5.3 (GET), §5.6. **Baca dulu:** `read.go`, `admin_submissions.go`, handler terkait,
 `e2e_read_test.go`, `e2e_admin_submissions_test.go`.
 **Langkah:** `GET /submissions/{id}` dan riwayat user memuat `form_version`, `answers`, `consent`.
-`GET /admin/submissions`: filter `consent` (`yes`/`no`), `rw`, `group_id`; item memuat `survey_date`, `rw`,
-`rt`, `household_code`, `consent`, `user: {name, nim, group}`. Detail admin memuat `answers` lengkap.
+`GET /admin/submissions`: filter `consent` (`yes`/`no`), `rw`, `group_id`; item memuat (spec §5.6) `a_date`,
+`a_rw`, `a_rt`, `a_household_code`, `consent` (bool), dan NIM + kelompok di objek `annotator` yang sudah ada
+(`annotator.nim`, `annotator.group: {id, name}`). Detail admin memuat `answers` + `form_version` di akar.
 **Acceptance:** [ ] filter tunggal dan gabungan; [ ] filter lama tetap jalan; [ ] cursor tetap stabil.
 **Verifikasi:** perintah standar backend.
+
+**Hasil:** `GET /submissions/{id}` dan detail admin memuat `form_version`, `answers`, `consent` di akar.
+Daftar admin: item + `a_date`, `a_rw`, `a_rt`, `a_household_code`, `consent`; `annotator.nim` +
+`annotator.group`; filter `consent`, `rw`, `group_id` (gabung dengan filter lama, cursor keyset tetap).
+Syarat "punya ≥ 1 foto attached" dikecualikan untuk pendataan menolak (`s.consent IS FALSE`). Test:
+`e2e_survey_admin_test.go` (baca pemilik, isi item, filter tunggal/gabungan, filter lama, cursor, query
+salah, detail).
+**Catatan:** teks langkah task ini diselaraskan dengan spec §5.6 (nama field `a_*` + `annotator`); rincian
+dicatat di spec §5.6.
 
 #### Task 63: Export CSV — S
 **Spec:** §5.7. **Tiru:** `internal/usecase/export.go`, `internal/adapter/export/jsonl.go`,

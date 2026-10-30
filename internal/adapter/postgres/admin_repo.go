@@ -42,8 +42,9 @@ func (r *AdminSubmissionRepo) List(ctx context.Context, q usecase.AdminListQuery
 	var a sqlArgs
 	where := []string{
 		`s.deleted_at IS NULL`,
-		// hanya submission yang masih punya foto terlihat (retensi/hapus menandai foto deleted lebih dulu)
-		`EXISTS (SELECT 1 FROM photos ep WHERE ep.submission_id = s.id AND ep.status = 'attached')`,
+		// hanya submission yang masih punya foto terlihat (retensi/hapus menandai foto deleted lebih dulu),
+		// kecuali pendataan yang menolak: memang tanpa foto (spec-pendataan §4.3)
+		`(s.consent IS FALSE OR EXISTS (SELECT 1 FROM photos ep WHERE ep.submission_id = s.id AND ep.status = 'attached'))`,
 	}
 	if q.From != nil {
 		where = append(where, `s.created_at >= `+a.add(*q.From))
@@ -60,6 +61,15 @@ func (r *AdminSubmissionRepo) List(ctx context.Context, q usecase.AdminListQuery
 	}
 	if q.Review != nil {
 		where = append(where, `s.review_status = `+a.add(string(*q.Review)))
+	}
+	if q.Consent != nil {
+		where = append(where, `s.consent = `+a.add(*q.Consent))
+	}
+	if q.RW != "" {
+		where = append(where, `s.rw = `+a.add(q.RW))
+	}
+	if q.GroupID != nil {
+		where = append(where, `u.group_id = `+a.add(*q.GroupID))
 	}
 	if q.Unlabeled {
 		where = append(where, `EXISTS (SELECT 1 FROM photos fp JOIN annotations fa ON fa.photo_id = fp.id
@@ -83,8 +93,9 @@ func (r *AdminSubmissionRepo) List(ctx context.Context, q usecase.AdminListQuery
 		where = append(where, `(s.created_at, s.id) `+cmp+` (`+a.add(q.After.CreatedAt)+`, `+a.add(q.After.ID)+`::uuid)`)
 	}
 	sql := `SELECT s.id, s.owner_id, s.version, s.created_at, s.updated_at, s.review_status, s.review_reason, s.reviewed_at,
-		       u.id, u.name, u.email, u.phone, u.blocked_at IS NOT NULL
-		  FROM submissions s LEFT JOIN users u ON u.id = s.owner_id
+		       s.form_version, s.answers,
+		       u.id, u.name, u.email, u.phone, u.blocked_at IS NOT NULL, u.nim, u.group_id, g.name
+		  FROM submissions s LEFT JOIN users u ON u.id = s.owner_id LEFT JOIN groups g ON g.id = u.group_id
 		 WHERE ` + strings.Join(where, " AND ") + `
 		 ORDER BY s.created_at ` + order + `, s.id ` + order + `
 		 LIMIT ` + a.add(q.Limit)
@@ -104,16 +115,23 @@ func (r *AdminSubmissionRepo) List(ctx context.Context, q usecase.AdminListQuery
 		)
 		s := &row.Submission
 		var (
-			rv      reviewScan
-			blocked *bool
+			rv             reviewScan
+			blocked        *bool
+			fv             *int
+			nim, groupName *string
+			groupID        *int
 		)
 		if err := rows.Scan(&s.ID, &s.OwnerID, &s.Version, &s.CreatedAt, &s.UpdatedAt, &rv.status, &rv.reason, &rv.at,
-			&uid, &name, &email, &phone, &blocked); err != nil {
+			&fv, &s.Answers, &uid, &name, &email, &phone, &blocked, &nim, &groupID, &groupName); err != nil {
 			return nil, fmt.Errorf("postgres: scan admin submission: %w", err)
 		}
 		s.Review = rv.review()
+		if fv != nil {
+			s.FormVersion = *fv
+		}
 		if uid != nil {
-			row.Annotator = &usecase.Annotator{ID: *uid, Name: *name, Email: *email, Phone: *phone, Blocked: blocked != nil && *blocked}
+			row.Annotator = &usecase.Annotator{ID: *uid, Name: *name, Email: *email, Phone: *phone, Blocked: blocked != nil && *blocked,
+				NIM: deref(nim), GroupID: groupID, GroupName: deref(groupName)}
 		}
 		row.Labels = []usecase.LabelCount{}
 		index[s.ID] = len(out)
@@ -231,10 +249,22 @@ func (r *AdminSubmissionRepo) fillCovers(ctx context.Context, ids []uuid.UUID, i
 	return rows.Err()
 }
 
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 func (r *AdminSubmissionRepo) Annotator(ctx context.Context, userID uuid.UUID) (*usecase.Annotator, error) {
-	var a usecase.Annotator
-	err := r.db(ctx).QueryRow(ctx, `SELECT id, name, email, phone, blocked_at IS NOT NULL FROM users WHERE id = $1`, userID).
-		Scan(&a.ID, &a.Name, &a.Email, &a.Phone, &a.Blocked)
+	var (
+		a              usecase.Annotator
+		nim, groupName *string
+	)
+	err := r.db(ctx).QueryRow(ctx, `SELECT u.id, u.name, u.email, u.phone, u.blocked_at IS NOT NULL, u.nim, u.group_id, g.name
+		FROM users u LEFT JOIN groups g ON g.id = u.group_id WHERE u.id = $1`, userID).
+		Scan(&a.ID, &a.Name, &a.Email, &a.Phone, &a.Blocked, &nim, &a.GroupID, &groupName)
+	a.NIM, a.GroupName = deref(nim), deref(groupName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

@@ -439,7 +439,10 @@ type AdminListQuery struct {
 	PhoneQ    string     // awalan nomor kanonik; kosong = tanpa filter (NameQ/PhoneQ digabung OR)
 	Unlabeled bool       // masih punya kotak teks lama
 	Review    *domain.ReviewStatus
-	Oldest    bool // urut created_at naik (default: terbaru dulu)
+	Consent   *bool  // pendataan: bersedia (true) / menolak (false); nil = semua
+	RW        string // pendataan: salinan answers.a_rw sama persis; kosong = semua
+	GroupID   *int   // kelompok annotator
+	Oldest    bool   // urut created_at naik (default: terbaru dulu)
 	Limit     int
 	After     *AdminCursor
 }
@@ -449,6 +452,9 @@ type Annotator struct {
 	ID                 uuid.UUID
 	Name, Email, Phone string
 	Blocked            bool
+	NIM                string // kosong untuk akun lama
+	GroupID            *int
+	GroupName          string
 }
 
 // LabelCount: jumlah kotak berlabel tertentu dalam satu submission.

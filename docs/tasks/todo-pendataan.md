@@ -12,7 +12,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T59** (M) ⚠️ Registrasi dengan NIM (unik) + kelompok; `/auth/me`; pindah kelompok oleh admin — butuh T58
 - [x] **T60** (M) `internal/domain/survey` (definisi v1 + validasi) + `GET /survey/form`
 - [x] **T61** (M) ⚠️ Submit/edit dengan `answers` (migrasi 0013, 0 / 1–3 foto, seed label) — butuh T60
-- [ ] **T62** (S) Baca + admin daftar/detail pendataan — butuh T61
+- [x] **T62** (S) Baca + admin daftar/detail pendataan — butuh T61
 - [ ] **T63** (S) `GET /admin/export.csv` — butuh T61
 - [ ] **T64** (S) `GET /admin/stats/survey` — butuh T61
 

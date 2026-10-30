@@ -92,6 +92,10 @@ type submissionViewDTO struct {
 	Editable      bool           `json:"editable"`
 	Photos        []photoViewDTO `json:"photos"`
 	Review        userReviewDTO  `json:"review"`
+	// pendataan (spec-pendataan §5.3); null untuk submission tanpa pendataan
+	FormVersion *int           `json:"form_version"`
+	Answers     map[string]any `json:"answers"`
+	Consent     *bool          `json:"consent"`
 }
 
 func toPhotoView(p domain.PhotoWithAnnotations) photoViewDTO {
@@ -122,7 +126,8 @@ func (h *ReadHandler) GetSubmission(c *gin.Context) {
 		ID: v.Detail.Submission.ID, Version: v.Detail.Submission.Version,
 		CreatedAt: v.Detail.Submission.CreatedAt.UTC(), UpdatedAt: v.Detail.Submission.UpdatedAt.UTC(),
 		EditableUntil: v.EditableUntil.UTC(), Editable: v.Editable,
-		Photos: make([]photoViewDTO, len(v.Detail.Photos)),
+		Photos:      make([]photoViewDTO, len(v.Detail.Photos)),
+		FormVersion: formVersion(v.Detail.Submission), Answers: v.Detail.Submission.Answers, Consent: surveyConsent(v.Detail.Submission),
 	}
 	rv := toReviewDTO(v.Detail.Submission.Review)
 	dto.Review = userReviewDTO{Status: rv.Status, Reason: rv.Reason}

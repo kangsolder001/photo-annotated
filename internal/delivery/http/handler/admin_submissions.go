@@ -132,6 +132,23 @@ func parseAdminListQuery(c *gin.Context) (usecase.AdminListQuery, error) {
 		}
 		q.Review = &st
 	}
+	switch v := c.Query("consent"); v {
+	case "":
+	case "yes", "no":
+		b := v == "yes"
+		q.Consent = &b
+	default:
+		return q, invalidQuery("consent must be yes or no")
+	}
+	if v := c.Query("rw"); v != "" {
+		if !utf8.ValidString(v) || utf8.RuneCountInString(v) > 10 {
+			return q, invalidQuery("rw must be at most 10 characters")
+		}
+		q.RW = v
+	}
+	if q.GroupID, err = positiveInt(c, "group_id"); err != nil {
+		return q, err
+	}
 	if v := c.Query("unlabeled"); v != "" {
 		b, perr := strconv.ParseBool(v)
 		if perr != nil {
@@ -186,13 +203,45 @@ type annotatorDTO struct {
 	Email   string    `json:"email"`
 	Phone   string    `json:"phone"` // utuh: admin perlu bisa menghubungi annotator (§8)
 	Blocked bool      `json:"blocked"`
+	NIM     *string   `json:"nim"`
+	Group   *groupDTO `json:"group"`
 }
 
 func toAnnotatorDTO(a *usecase.Annotator) *annotatorDTO {
 	if a == nil {
 		return nil
 	}
-	return &annotatorDTO{ID: a.ID, Name: a.Name, Email: a.Email, Phone: a.Phone, Blocked: a.Blocked}
+	out := &annotatorDTO{ID: a.ID, Name: a.Name, Email: a.Email, Phone: a.Phone, Blocked: a.Blocked, NIM: optString(a.NIM)}
+	if a.GroupID != nil {
+		out.Group = &groupDTO{ID: *a.GroupID, Name: a.GroupName}
+	}
+	return out
+}
+
+// surveyStr: jawaban teks pendataan, atau nil bila tidak ada.
+func surveyStr(s domain.Submission, id string) *string {
+	if v, ok := s.Answers[id].(string); ok {
+		return &v
+	}
+	return nil
+}
+
+// surveyConsent: bersedia/menolak, atau nil untuk submission tanpa pendataan.
+func surveyConsent(s domain.Submission) *bool {
+	if s.Answers == nil {
+		return nil
+	}
+	b := s.Consented()
+	return &b
+}
+
+// formVersion: nil untuk submission tanpa pendataan.
+func formVersion(s domain.Submission) *int {
+	if s.FormVersion == 0 {
+		return nil
+	}
+	v := s.FormVersion
+	return &v
 }
 
 type labelCountDTO struct {
@@ -231,6 +280,12 @@ type adminSubmissionItemDTO struct {
 	Labels             []labelCountDTO `json:"labels"`
 	LegacyTextCount    int             `json:"legacy_text_count"`
 	Cover              *coverDTO       `json:"cover"`
+	// ringkasan pendataan (spec-pendataan §5.6); null untuk submission tanpa pendataan
+	ADate          *string `json:"a_date"`
+	ARW            *string `json:"a_rw"`
+	ART            *string `json:"a_rt"`
+	AHouseholdCode *string `json:"a_household_code"`
+	Consent        *bool   `json:"consent"`
 }
 
 func utcPtr(t *time.Time) *time.Time {
@@ -248,6 +303,8 @@ func toAdminItem(it usecase.AdminListItem) adminSubmissionItemDTO {
 		Review: reviewOf(s), RetentionDeletesAt: utcPtr(it.RetentionDeletesAt), Annotator: toAnnotatorDTO(it.Annotator),
 		PhotoCount: it.PhotoCount, AnnotationCount: it.AnnotationCount, LegacyTextCount: it.LegacyTextCount,
 		Labels: make([]labelCountDTO, len(it.Labels)),
+		ADate:  surveyStr(s, "a_date"), ARW: surveyStr(s, "a_rw"), ART: surveyStr(s, "a_rt"),
+		AHouseholdCode: surveyStr(s, "a_household_code"), Consent: surveyConsent(s),
 	}
 	for i, l := range it.Labels {
 		out.Labels[i] = labelCountDTO{ID: l.ID, Name: l.Name, Color: l.Color, Count: l.Count}
@@ -306,6 +363,9 @@ type adminSubmissionDetailDTO struct {
 	Annotator          *annotatorDTO   `json:"annotator"`
 	URLExpiresAt       time.Time       `json:"url_expires_at"`
 	Photos             []adminPhotoDTO `json:"photos"`
+	FormVersion        *int            `json:"form_version"`
+	Answers            map[string]any  `json:"answers"`
+	Consent            *bool           `json:"consent"`
 }
 
 // Detail menangani GET /api/v1/admin/submissions/{id}.
@@ -326,6 +386,7 @@ func (h *AdminSubmissionHandler) Detail(c *gin.Context) {
 		EditableUntil: d.View.EditableUntil.UTC(), Editable: d.View.Editable,
 		Review: reviewOf(s), RetentionDeletesAt: utcPtr(d.RetentionDeletesAt), Annotator: toAnnotatorDTO(d.Annotator),
 		URLExpiresAt: d.URLExpiresAt.UTC(), Photos: make([]adminPhotoDTO, len(d.View.Detail.Photos)),
+		FormVersion: formVersion(s), Answers: s.Answers, Consent: surveyConsent(s),
 	}
 	for i, p := range d.View.Detail.Photos {
 		out.Photos[i] = adminPhotoDTO{photoViewDTO: toPhotoView(p), URL: d.PhotoURLs[p.Photo.ID], SHA256: hex.EncodeToString(p.Photo.SHA256)}
