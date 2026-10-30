@@ -76,11 +76,21 @@ a { color: var(--primary); }
   background: none; border: 0; font: inherit; cursor: pointer;
 }
 .app-header nav a.active { color: var(--primary); background: var(--primary-soft); }
-/* HP: tiga menu tidak muat di samping judul, jadi pindah ke baris kedua selebar layar */
+.nav-panel { display: flex; align-items: center; gap: 0.75rem; }
+.app-header .nav-toggle, .nav-theme { display: none; }
+/* HP: navigasi + tema dilipat ke tombol burger; panel turun di bawah header */
 @media (max-width: 560px) {
-  .app-header { flex-wrap: wrap; }
-  .app-header nav { order: 3; width: 100%; justify-content: space-between; }
-  .app-header nav a, .app-header nav button { flex: 1; text-align: center; min-height: 44px; }
+  .app-header .nav-toggle { display: inline-flex; }
+  .header-theme { display: none; }
+  .nav-panel { display: none; }
+  .nav-panel.open {
+    display: flex; flex-direction: column; align-items: stretch; gap: 0.5rem;
+    position: absolute; left: 0; right: 0; top: 100%; padding: 0.5rem 0.75rem 0.75rem;
+    background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--shadow);
+  }
+  .nav-panel.open nav { flex-direction: column; }
+  .nav-panel.open nav a, .nav-panel.open nav button { min-height: 44px; display: flex; align-items: center; padding: 0 0.75rem; font-size: 1rem; }
+  .nav-panel.open .nav-theme { display: block; }
 }
 
 main { max-width: 760px; margin: 0 auto; padding: 1rem 1rem 7rem; }

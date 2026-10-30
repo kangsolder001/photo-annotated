@@ -42,3 +42,18 @@ it("Keluar lalu konfirmasi → logout dan ke halaman masuk", async () => {
   expect(await screen.findByText("Halaman masuk")).toBeTruthy();
   await waitFor(() => expect(api.count("POST", "/api/v1/auth/logout")).toBe(1));
 });
+
+it("HP: burger membuka panel menu (navigasi + tema), memilih menu menutupnya, Escape juga", () => {
+  renderApp();
+  const toggle = screen.getByRole("button", { name: "Buka menu" });
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(toggle);
+  expect(screen.getByRole("button", { name: "Tutup menu" }).getAttribute("aria-expanded")).toBe("true");
+  expect(document.getElementById("app-menu")!.className).toContain("open");
+  expect(within(document.getElementById("app-menu")!).getByRole("radiogroup", { name: "Tema" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("link", { name: "Riwayat" }));
+  expect(screen.getByRole("button", { name: "Buka menu" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Buka menu" }));
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(document.getElementById("app-menu")!.className).not.toContain("open");
+});

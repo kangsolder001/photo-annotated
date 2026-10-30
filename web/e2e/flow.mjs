@@ -310,6 +310,7 @@ await page.locator(".history-item", { hasText: "Menolak" }).getByText("RT 03 / R
 await noHorizontalScroll("beranda");
 await shot("13-riwayat");
 step("riwayat: Bersedia/Menolak, RT/RW, kode, lencana review");
+await page.getByRole("button", { name: "Buka menu" }).click(); // HP: Keluar ada di menu burger
 await page.getByRole("button", { name: "Keluar" }).click();
 await page.getByRole("dialog").getByRole("button", { name: "Keluar" }).click();
 await page.waitForURL(/\/masuk/);
@@ -330,6 +331,7 @@ step("password salah ditolak; password benar → kembali ke /pendataan/baru tanp
 
 // 8. lupa password → kode → password baru → masuk
 await page.goto(BASE + "/");
+await page.getByRole("button", { name: "Buka menu" }).click(); // HP: Keluar ada di menu burger
 await page.getByRole("button", { name: "Keluar" }).click();
 await page.getByRole("dialog").getByRole("button", { name: "Keluar" }).click();
 await page.waitForURL(/\/masuk/);
