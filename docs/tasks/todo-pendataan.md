@@ -28,7 +28,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [ ] **T69** (S) E2E browser `web/e2e/flow.mjs` — butuh T65, T68
 - [x] **T70** (S) Admin: kelompok + profil annotator — butuh T59
 - [x] **T71** (M) Admin: daftar/detail pendataan + tombol Export CSV — butuh T62, T63
-- [ ] **T72** (S) Admin: statistik pendataan — butuh T64
+- [x] **T72** (S) Admin: statistik pendataan — butuh T64
 
 ### Checkpoint B: Aplikasi utuh (lokal)
 - [ ] FE + BE hijau; E2E lulus

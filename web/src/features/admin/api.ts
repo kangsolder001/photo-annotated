@@ -19,6 +19,7 @@ import type {
   LabelInput,
   LabelReplace,
   LabelStats,
+  SurveyStats,
   Page,
   ReviewInput,
   ReviewResponse,
@@ -100,6 +101,8 @@ export const adminApi = {
 
   // ---- statistik & status (§5.9, §5.10)
   labelStats: (q: { from?: string; to?: string; review_status?: ReviewStatus }) => adm<LabelStats>("GET", `/stats/labels${qs(q)}`),
+  /** Statistik pendataan atas `a_date` (tanggal `YYYY-MM-DD`, inklusif) dan RW. */
+  surveyStats: (q: { from?: string; to?: string; rw?: string }) => adm<SurveyStats>("GET", `/stats/survey${qs(q)}`),
   system: () => adm<SystemStatus>("GET", "/system"),
 };
 

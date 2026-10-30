@@ -226,6 +226,10 @@ kbd { font: inherit; font-family: ui-monospace, monospace; font-size: 0.85em; pa
 .bar-track { height: 14px; }
 .bar { height: 100%; border-radius: 0 4px 4px 0; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 25%); }
 .bar-table tbody tr:hover { background: var(--primary-soft); }
+.bar-primary { background: var(--primary); }
+.survey-item { font-weight: 400; overflow-wrap: anywhere; }
+.survey-item strong { margin-right: 0.25rem; }
+.bar-track-soft { background: var(--primary-soft); border-radius: 0 4px 4px 0; }
 @media (max-width: 767px) {
   .bar-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .bar-table, .bar-table tbody { display: block; }

@@ -8,6 +8,7 @@ import { HomePage } from "./HomePage";
 import { LabelsPage } from "./LabelsPage";
 import { SubmissionDetailPage } from "./SubmissionDetailPage";
 import { StatsPage } from "./StatsPage";
+import { SurveyStatsPage } from "./SurveyStatsPage";
 import { SubmissionsPage } from "./SubmissionsPage";
 import { AdminLoginPage } from "./LoginPage";
 import { adminSession } from "./session";
@@ -40,7 +41,8 @@ export default function AdminApp() {
         <Route path="kelompok" element={<GroupsPage />} />
         <Route path="annotator" element={<AnnotatorsPage />} />
         <Route path="annotator/:id" element={<AnnotatorPage />} />
-        <Route path="statistik" element={<StatsPage />} />
+        <Route path="statistik" element={<SurveyStatsPage />} />
+        <Route path="statistik/label" element={<StatsPage />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Route>
     </Routes>

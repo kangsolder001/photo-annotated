@@ -92,7 +92,7 @@ it("statistik: default diterima; urut terbanyak; label 0 contoh di bawah; filter
         { id: 3, name: "Retak", color: "#e4572e", archived: false, annotations: 1520, photos: 610, submissions: 300, share: 0.835 },
       ] } },
   });
-  renderAdmin("/admin/statistik");
+  renderAdmin("/admin/statistik/label");
   await screen.findByText("Kotak per label");
   expect(api.last("GET", "/api/v1/admin/stats/labels")?.query.get("review_status")).toBe("accepted");
   const rows = within(screen.getByRole("table")).getAllByRole("row").slice(1);

@@ -245,6 +245,16 @@ export interface LabelStats {
   labels: LabelStat[];
 }
 
+// ---- statistik pendataan (spec-pendataan §5.8)
+export interface SurveyStats {
+  totals: { households: number; consented: number; declined: number };
+  by_rw: { rw: string; households: number; consented: number; declined: number }[];
+  by_student: { user_id: string; name: string; nim: string; group: string; households: number; declined: number }[];
+  b: { id: string; label: string; yes: number; no: number; yes_share: number }[];
+  c: { id: string; label: string; yes: number; no: number; na: number }[];
+  r3_sorting: { sorted: number; partial: number; mixed: number; unknown: number };
+}
+
 // ---- status sistem (§5.10); tiap bagian bisa berisi { error } bila gagal dihitung
 export type Part<T> = T | { error: string };
 

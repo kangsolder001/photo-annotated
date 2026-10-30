@@ -452,7 +452,17 @@ di kartu mahasiswa, foto berkotak tetap. Test: `features/admin/pendataan.test.ts
 **Tiru:** `StatsPage.tsx`.
 **Langkah:** kartu total/bersedia/menolak; tabel per RW dan per mahasiswa; bar horizontal % Ya per B (CSS,
 tanpa library chart baru); distribusi C (tiga angka per butir) dan kondisi pemilahan. Filter tanggal + RW.
-**Acceptance:** [ ] test render dari fixture; [ ] kontras AA (`src/styles/contrast.test.ts` hijau).
+**Acceptance:** [x] test render dari fixture; [x] kontras AA (`src/styles/contrast.test.ts` hijau).
+**Hasil:** `SurveyStatsPage` di `/admin/statistik` (menu "Statistik"): kartu rumah tangga / bersedia /
+menolak (+ % penolakan), tabel per RW dan per mahasiswa (nama, NIM, kelompok, rumah tangga, menolak),
+batang horizontal CSS % Ya per butir B (warna `--primary` di atas `--primary-soft`), tabel distribusi C
+(Ada/Sesuai, Tidak, Tidak teramati), dan batang kondisi pemilahan R3 (porsi dari total jawaban). Filter
+tanggal + RW di URL. Statistik label kotak lama dipindah ke `/admin/statistik/label` (tautan dua arah;
+test lama ikut path baru). `adminApi.surveyStats`, tipe `SurveyStats` persis contoh §5.8. Test:
+`features/admin/surveyStats.test.tsx`.
+**Catatan (asumsi kontrak, cocokkan dengan T64):** `from`/`to` dikirim sebagai tanggal `YYYY-MM-DD`
+(inklusif, atas `a_date`), bukan RFC 3339 seperti statistik label, karena `a_date` adalah tanggal.
+`by_student[].group` dibaca sebagai string (nama kelompok) persis contoh spec.
 
 ### Checkpoint B: Aplikasi utuh (lokal)
 - [ ] Perintah standar FE + BE hijau; T69 lulus
