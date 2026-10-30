@@ -122,3 +122,89 @@ func (h *ExportHandler) Export(c *gin.Context) {
 		_ = c.Error(err)
 	}
 }
+
+// SurveyExporter dipenuhi oleh *usecase.SurveyExport.
+type SurveyExporter interface {
+	Run(ctx context.Context, f usecase.SurveyExportFilter, enc usecase.SurveyExportEncoder, afterPage func() error) (int, error)
+}
+
+// SurveyExportStream adalah encoder CSV yang bisa di-flush per halaman.
+type SurveyExportStream interface {
+	usecase.SurveyExportEncoder
+	Flush() error
+}
+
+// SurveyExportHandler menangani GET /api/v1/admin/export.csv (spec-pendataan §5.7).
+type SurveyExportHandler struct {
+	exporter  SurveyExporter
+	newCSV    func(io.Writer) SurveyExportStream
+	pageGrace time.Duration
+}
+
+func NewSurveyExportHandler(e SurveyExporter, newCSV func(io.Writer) SurveyExportStream, pageGrace time.Duration) *SurveyExportHandler {
+	return &SurveyExportHandler{exporter: e, newCSV: newCSV, pageGrace: pageGrace}
+}
+
+func parseSurveyExportQuery(c *gin.Context) (usecase.SurveyExportFilter, error) {
+	var f usecase.SurveyExportFilter
+	var err error
+	if f.From, f.To, err = parseTimeRange(c); err != nil {
+		return f, err
+	}
+	switch v := c.Query("consent"); v {
+	case "":
+	case "yes", "no":
+		b := v == "yes"
+		f.Consent = &b
+	default:
+		return f, invalidQuery("consent must be yes or no")
+	}
+	if v := c.Query("review_status"); v != "" {
+		st, perr := domain.ParseReviewStatus(v)
+		if perr != nil {
+			return f, invalidQuery("review_status must be pending, accepted, or rejected")
+		}
+		f.Review = &st
+	}
+	return f, nil
+}
+
+// Export mengalirkan CSV satu baris per pendataan. Seperti export JSONL, status 200 dikirim sebelum
+// data; kegagalan di tengah dilaporkan lewat trailer X-Export-Complete dan X-Export-Rows.
+func (h *SurveyExportHandler) Export(c *gin.Context) {
+	f, err := parseSurveyExportQuery(c)
+	if err != nil {
+		httpx.WriteError(c, err)
+		return
+	}
+	hdr := c.Writer.Header()
+	hdr.Set("Content-Type", "text/csv; charset=utf-8")
+	hdr.Set("Content-Disposition", `attachment; filename="pendataan-`+time.Now().UTC().Format("20060102T150405Z")+`.csv"`)
+	hdr.Set("Cache-Control", "no-store")
+	hdr.Set("Trailer", "X-Export-Rows, X-Export-Complete")
+	c.Status(http.StatusOK)
+
+	rc := http.NewResponseController(c.Writer)
+	stream := h.newCSV(c.Writer)
+	afterPage := func() error {
+		if err := stream.Flush(); err != nil {
+			return err
+		}
+		if err := rc.Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			return err
+		}
+		if err := rc.SetWriteDeadline(time.Now().Add(h.pageGrace)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			return err
+		}
+		return nil
+	}
+	n, err := h.exporter.Run(c.Request.Context(), f, stream, afterPage)
+	if err == nil {
+		err = stream.Flush()
+	}
+	hdr.Set("X-Export-Rows", strconv.Itoa(n))
+	hdr.Set("X-Export-Complete", strconv.FormatBool(err == nil))
+	if err != nil {
+		_ = c.Error(err)
+	}
+}

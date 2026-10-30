@@ -360,6 +360,15 @@ digabung `; `, awalan `'` untuk sel diawali `= + - @`, BOM `\xEF\xBB\xBF` di awa
 opsi, tanpa nomor HP/email; [ ] sel `=1+1` jadi `'=1+1`.
 **Verifikasi:** perintah standar backend.
 
+**Hasil:** `usecase.SurveyExport` (halaman keyset `created_at, id`), `postgres.SurveyExportRepo` (tanpa
+nomor HP/email/IP; jumlah foto + kotak attached), encoder `adapter/export/csv.go` (`SurveyCSV`: BOM, header
+dari definisi v1, teks opsi, `multi` digabung `; `, awalan `'`), handler `SurveyExportHandler` + rute
+`GET /admin/export.csv` (deadline per halaman seperti JSONL). Test: `e2e_survey_export_test.go` (header +
+urutan kolom, satu baris per pendataan lintas halaman, teks opsi, `<id>_other`, `=1+1` → `'=1+1`, tanpa
+nomor/email, filter, query salah, 401).
+**Catatan:** filter waktu atas `created_at` (RFC 3339) seperti JSONL; kolom `<id>_other` ditambahkan; rincian
+di spec §5.7.
+
 #### Task 64: Statistik pendataan — S
 **Spec:** §5.8. **Tiru:** `label_stats.go`, `stats_repo.go`, `handler/admin_stats.go`,
 `e2e_admin_stats_test.go`.

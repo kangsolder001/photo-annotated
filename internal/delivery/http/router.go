@@ -96,6 +96,9 @@ type Deps struct {
 	// Export dataset (spec §5.7); hanya aktif bila Admin juga diisi.
 	Exporter handler.Exporter
 	NewJSONL func(io.Writer) handler.ExportStream
+	// Export CSV pendataan (spec-pendataan §5.7); hanya aktif bila Admin juga diisi.
+	SurveyExporter handler.SurveyExporter
+	NewSurveyCSV   func(io.Writer) handler.SurveyExportStream
 
 	Uploader       handler.Uploader // usecase upload (spec §5.1b)
 	MaxUploadBytes int64            // batas ukuran file (config limits.max_upload_bytes)
@@ -284,6 +287,11 @@ func NewRouter(d Deps) *gin.Engine {
 		exports := handler.NewExportHandler(d.Exporter, d.NewJSONL, exportPageGrace)
 		r.GET("/api/v1/admin/export", middleware.Deadlines(jsonReadDeadline, exportPageGrace),
 			authn.Require(middleware.Access{Admin: true}), exports.Export)
+	}
+	if d.Admin != nil && d.SurveyExporter != nil {
+		csvExports := handler.NewSurveyExportHandler(d.SurveyExporter, d.NewSurveyCSV, exportPageGrace)
+		r.GET("/api/v1/admin/export.csv", middleware.Deadlines(jsonReadDeadline, exportPageGrace),
+			authn.Require(middleware.Access{Admin: true}), csvExports.Export)
 	}
 
 	// Konten foto: di luar grup JSON karena deadline tulisnya harus lebih panjang (klien lambat).

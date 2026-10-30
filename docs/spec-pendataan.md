@@ -252,6 +252,14 @@ lalu satu kolom per id pertanyaan (urutan §4.2). Nilai `choice` ditulis sebagai
 "Ya", "Tidak teramati"); `multi` digabung dengan `; `. Nomor HP dan email tidak ikut. Sel yang diawali
 `= + - @` diberi awalan `'` (cegah formula injection). Export JSONL dataset lama tetap ada.
 
+Rincian (T63): `from`/`to` RFC 3339 atas `created_at` submission (`from` inklusif, `to` eksklusif), sama
+dengan export JSONL; `consent=yes|no`, `review_status`; nilai salah → `422 INVALID_QUERY`. Hanya submission
+ber-`answers` yang belum dihapus, urut `created_at`. `Content-Type: text/csv; charset=utf-8`,
+`Content-Disposition: attachment; filename="pendataan-<waktu>.csv"`, trailer `X-Export-Rows` /
+`X-Export-Complete` seperti JSONL. `created_at` RFC 3339 UTC; `mahasiswa`/`nim`/`kelompok` kosong bila tidak
+ada. Teks opsi "Lainnya" pada `multi` mendapat kolom sendiri `<id>_other` tepat setelah pertanyaannya.
+Jawaban kosong / bagian yang tidak berlaku = sel kosong. Awalan `'` juga untuk sel diawali tab/CR.
+
 ### 5.8 Statistik pendataan
 `GET /admin/stats/survey?from&to&rw` (atas `a_date`):
 ```json

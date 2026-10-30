@@ -168,6 +168,8 @@ func run() error {
 			PublicBaseURL: cfg.App.PublicBaseURL, URLTTL: exportURLTTL, PageSize: exportPageSize,
 		})
 		deps.NewJSONL = func(w io.Writer) handler.ExportStream { return export.NewJSONL(w) }
+		deps.SurveyExporter = usecase.NewSurveyExport(postgres.NewSurveyExportRepo(pool), exportPageSize)
+		deps.NewSurveyCSV = func(w io.Writer) handler.SurveyExportStream { return export.NewSurveyCSV(w) }
 	}
 	if cfg.Turnstile.Enabled {
 		ts, err := turnstile.New(cfg.Secrets.TurnstileSecret, "", turnstileTimeout)

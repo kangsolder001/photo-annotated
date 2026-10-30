@@ -214,8 +214,10 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		AdminDelete: usecase.NewAdminDelete(postgres.NewDeletionRepo(pool), txm, o.wrapStore(store), usecase.SystemClock{}),
 		AdminSubmissions: usecase.NewAdminSubmissions(postgres.NewAdminSubmissionRepo(pool), subs, sg, usecase.SystemClock{},
 			usecase.AdminSubmissionsConfig{PublicBaseURL: srv.URL, ViewURLTTL: o.viewTTL, EditWindow: 24 * time.Hour, RetentionDays: 90}),
-		Exporter: usecase.NewExport(postgres.NewExportRepo(pool), sg, usecase.SystemClock{}, usecase.ExportConfig{PublicBaseURL: srv.URL, URLTTL: time.Hour, PageSize: 2}),
-		NewJSONL: func(w io.Writer) handler.ExportStream { return export.NewJSONL(w) },
+		Exporter:       usecase.NewExport(postgres.NewExportRepo(pool), sg, usecase.SystemClock{}, usecase.ExportConfig{PublicBaseURL: srv.URL, URLTTL: time.Hour, PageSize: 2}),
+		NewJSONL:       func(w io.Writer) handler.ExportStream { return export.NewJSONL(w) },
+		SurveyExporter: usecase.NewSurveyExport(postgres.NewSurveyExportRepo(pool), 2),
+		NewSurveyCSV:   func(w io.Writer) handler.SurveyExportStream { return export.NewSurveyCSV(w) },
 	})
 	inner.Store(&h)
 	return &stack{admin: adm, cleanupRequests: cleanupRequests, store: store, pool: pool, srv: srv, repo: repo, subs: subs, signer: sg, dir: dir, client: &http.Client{Timeout: 60 * time.Second}}
