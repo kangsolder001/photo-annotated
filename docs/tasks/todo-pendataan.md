@@ -17,8 +17,8 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T64** (S) `GET /admin/stats/survey` — butuh T61
 
 ### Checkpoint A: Backend lengkap
-- [ ] `go vet`, `go build ./cmd/...`, `go test ./... -race` hijau
-- [ ] Alur lengkap lewat `curl` di schema sementara
+- [x] `go vet`, `go build ./cmd/...`, `go test ./... -race` hijau
+- [x] Alur lengkap lewat `curl` di schema sementara
 
 ## Phase 2: Frontend
 - [ ] **T65** (S) Registrasi NIM + dropdown kelompok — butuh T59

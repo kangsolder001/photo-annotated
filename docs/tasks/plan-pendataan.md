@@ -388,10 +388,19 @@ rute `GET /admin/stats/survey`. Test: `e2e_survey_stats_test.go` (3 pendataan: 2
 `YYYY-MM-DD` inklusif atas `a_date`; `by_student[].group` = string|null. Rincian di spec §5.8.
 
 ### Checkpoint A: Backend lengkap
-- [ ] Perintah standar backend hijau
-- [ ] Alur `curl` di schema sementara DB test (`?search_path=<schema>`, hapus setelahnya): register NIM →
+- [x] Perintah standar backend hijau
+- [x] Alur `curl` di schema sementara DB test (`?search_path=<schema>`, hapus setelahnya): register NIM →
       pendataan bersedia + menolak → admin daftar/detail → CSV → statistik
-- [ ] Spec diperbarui bila ada penyimpangan
+- [x] Spec diperbarui bila ada penyimpangan
+
+**Hasil:** `go vet`/`go build ./cmd/...`/`go test ./... -race` hijau (810 test). Alur curl terhadap API lokal
+(mode `otp`, `cmd/wanotif-stub`, schema sementara di DB test lokal, dihapus setelahnya): login admin OTP →
+buat kelompok → `GET /groups` → `GET /survey/form` → register NIM huruf kecil (tersimpan besar, `user.nim`
++ `group`) → NIM kembar `409 NIM_TAKEN` → menolak 0 foto `201`, menolak + B `422` → presign + PUT foto →
+bersedia tanpa b7 `422 answers.b7` → bersedia 1 foto + kotak Organik `201` → `GET /submissions/{id}` →
+admin daftar (ringkasan + NIM/kelompok), filter `consent`/`rw`/`group_id`, detail → CSV (BOM, 71 kolom,
+teks opsi, `<id>_other`) → statistik (total, per RW, per mahasiswa, B/C, r3_sorting; filter tanggal) →
+`user_count` 1. Log API tidak memuat kode rumah, inisial, NIM, keterangan, maupun nomor utuh.
 
 ### Phase 2: Frontend
 
