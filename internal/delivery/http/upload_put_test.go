@@ -114,7 +114,7 @@ func TestPutHandlerRejectsOversizeBeforeCallingUsecase(t *testing.T) {
 func TestPutRouteIsNotSubjectToJSONBodyLimit(t *testing.T) {
 	fu := &fakeUploader{}
 	h := routerWithUploader(t, fu, 1<<20)
-	big := make([]byte, 300<<10) // 300 KB > 64 KB batas rute JSON
+	big := make([]byte, 300<<10) // 300 KB > 128 KB batas rute JSON
 	if w := put(h, "/api/v1/uploads/"+putID+"?exp=1&sig=x", bytes.NewReader(big), "image/webp"); w.Code != 204 {
 		t.Fatalf("status = %d", w.Code)
 	}

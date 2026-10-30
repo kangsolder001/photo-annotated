@@ -128,7 +128,7 @@ func NewRouter(d Deps) *gin.Engine {
 		middleware.CORS(d.AllowedOrigins),
 	)
 
-	// Rute JSON: deadline 10s/15s dan body maks 64 KB. Rute upload foto (T12) sengaja tidak
+	// Rute JSON: deadline 10s/15s dan body maks 128 KB. Rute upload foto (T12) sengaja tidak
 	// memakai grup ini: ia punya deadline dan batas body sendiri.
 	ops := r.Group("", middleware.Deadlines(jsonReadDeadline, jsonWriteDeadline), middleware.BodyLimit(middleware.JSONBodyLimit))
 	ops.GET("/healthz", handler.Healthz)
@@ -289,7 +289,7 @@ func NewRouter(d Deps) *gin.Engine {
 	// Konten foto: di luar grup JSON karena deadline tulisnya harus lebih panjang (klien lambat).
 	r.GET("/api/v1/photos/:id/content", middleware.Deadlines(0, d.UploadTimeout), reads.PhotoContent)
 
-	// Upload foto: di luar grup JSON (tanpa batas body 64 KB dan tanpa deadline baca 10 detik).
+	// Upload foto: di luar grup JSON (tanpa batas body 128 KB dan tanpa deadline baca 10 detik).
 	// Batas ukuran ditegakkan usecase (tepat sebesar yang dideklarasikan); deadline baca total
 	// mengikuti limits.upload_timeout supaya klien lambat tidak menahan slot selamanya.
 	r.PUT("/api/v1/uploads/:photo_id", middleware.Deadlines(d.UploadTimeout, jsonWriteDeadline), uploads.Put)

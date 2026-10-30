@@ -318,6 +318,19 @@ dikirim; error pertama = id tak dikenal (abjad) lalu urut definisi. Zona waktu W
 **Test baru:** `e2e_survey_test.go`.
 **Verifikasi:** perintah standar backend.
 
+**Hasil:** migrasi `0013_survey.sql` (kolom §6 + seed 4 label bila `labels` kosong; Down menolak bila ada
+`answers`). `SubmitInput`/`EditInput` + `FormVersion`/`Answers`; `validateSurvey` (langkah 1: `survey.Normalize`
+lalu jumlah foto: menolak = 0, bersedia = 1–`MaxPhotos`, `INVALID_PHOTO_COUNT`). Repo menyimpan
+`form_version`, `answers` (jsonb ternormalisasi), `survey_date`, `rw` di insert; edit memanggil `SetAnswers`
+setelah `BumpVersion` di transaksi yang sama. `Get`/`GetDetail` membaca `form_version` + `answers`.
+`JSONBodyLimit` 128 KB; default `max_photos_per_submission` 3 (`config.json.example` ikut). Test:
+`e2e_survey_test.go` (aturan foto, `INVALID_ANSWER` berlokasi, versi, replay, edit mengubah salinan +
+consent + reset review, `VERSION_CONFLICT`, bersedia→menolak), log hygiene (kode rumah, inisial,
+keterangan, catatan), seed label; test lama memakai helper `withSurvey` (e2e) / `surveyAnswers` (usecase).
+**Catatan:** `pgtest.Pool` kini mengosongkan label bawaan 0013 (`TRUNCATE … RESTART IDENTITY`) agar test
+lama tetap mulai dari tabel kosong; `pgtest.PoolWithSeed` untuk menguji seed. Stack e2e memakai
+`MaxPhotos: 3`; test Turnstile reuse disesuaikan (3 presign + 1 submit). Spec §5.3 dilengkapi (PUT, normalisasi).
+
 #### Task 62: Baca + admin daftar/detail — S
 **Spec:** §5.3 (GET), §5.6. **Baca dulu:** `read.go`, `admin_submissions.go`, handler terkait,
 `e2e_read_test.go`, `e2e_admin_submissions_test.go`.

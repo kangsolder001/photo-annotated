@@ -17,8 +17,20 @@ import (
 	"photo-annotated/internal/adapter/postgres"
 )
 
-// Pool mengembalikan pool yang search_path-nya terkunci ke schema baru bermigrasi penuh.
+// Pool mengembalikan pool yang search_path-nya terkunci ke schema baru bermigrasi penuh. Label bawaan
+// dari migrasi 0013 dibuang (identity diulang dari 1) agar test mulai dari tabel labels kosong; pakai
+// PoolWithSeed untuk menguji seed itu sendiri.
 func Pool(t testing.TB) *pgxpool.Pool {
+	t.Helper()
+	pool := PoolWithSeed(t)
+	if _, err := pool.Exec(context.Background(), `TRUNCATE labels RESTART IDENTITY CASCADE`); err != nil {
+		t.Fatalf("pgtest: kosongkan label bawaan: %v", err)
+	}
+	return pool
+}
+
+// PoolWithSeed seperti Pool, tetapi data bawaan migrasi (label 0013) dibiarkan.
+func PoolWithSeed(t testing.TB) *pgxpool.Pool {
 	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {

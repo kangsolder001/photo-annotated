@@ -51,7 +51,7 @@ func (r *editRig) detail(t *testing.T, id uuid.UUID) *domain.SubmissionDetail {
 }
 
 func (r *editRig) edit(out *usecase.SubmitOutput, version int, photos ...usecase.SubmitPhoto) (*usecase.EditOutput, error) {
-	return r.ed.Edit(bg, usecase.EditInput{
+	return r.ed.Edit(bg, usecase.EditInput{FormVersion: 1, Answers: surveyAnswers(true),
 		SubmissionID: out.SubmissionID, Caller: usecase.Caller{EditToken: out.EditToken}, Version: version, Photos: photos,
 	})
 }
@@ -280,7 +280,7 @@ func TestEditWindowIsCheckedBeforeVersionButAfterAuthorization(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	// tanpa hak: tetap 404 seragam, bukan membocorkan jendela tertutup
-	_, err := r.ed.Edit(bg, usecase.EditInput{SubmissionID: out.SubmissionID, Caller: usecase.Caller{EditToken: "salah"}, Version: 1, Photos: []usecase.SubmitPhoto{ep(p[0], "x")}})
+	_, err := r.ed.Edit(bg, usecase.EditInput{FormVersion: 1, Answers: surveyAnswers(true), SubmissionID: out.SubmissionID, Caller: usecase.Caller{EditToken: "salah"}, Version: 1, Photos: []usecase.SubmitPhoto{ep(p[0], "x")}})
 	isNotFound(t, err)
 }
 
@@ -292,7 +292,7 @@ func TestEditAuthorization(t *testing.T) {
 	other, _ := r.submitted(t, nil, 1)
 	alice := uuid.New()
 	do := func(c usecase.Caller, id uuid.UUID) error {
-		_, err := r.ed.Edit(bg, usecase.EditInput{SubmissionID: id, Caller: c, Version: 1, Photos: []usecase.SubmitPhoto{ep(mp[0], "x")}})
+		_, err := r.ed.Edit(bg, usecase.EditInput{FormVersion: 1, Answers: surveyAnswers(true), SubmissionID: id, Caller: c, Version: 1, Photos: []usecase.SubmitPhoto{ep(mp[0], "x")}})
 		return err
 	}
 	for name, err := range map[string]error{
@@ -324,7 +324,7 @@ func TestEditByOwnerUser(t *testing.T) {
 	alice, bob := pgtest.CreateUser(t, r.pool), pgtest.CreateUser(t, r.pool)
 	out, p := r.submitted(t, &alice, 1)
 	run := func(owner *uuid.UUID) error {
-		_, err := r.ed.Edit(bg, usecase.EditInput{SubmissionID: out.SubmissionID, Caller: usecase.Caller{UserID: owner}, Version: 1, Photos: []usecase.SubmitPhoto{ep(p[0], "oleh pemilik")}})
+		_, err := r.ed.Edit(bg, usecase.EditInput{FormVersion: 1, Answers: surveyAnswers(true), SubmissionID: out.SubmissionID, Caller: usecase.Caller{UserID: owner}, Version: 1, Photos: []usecase.SubmitPhoto{ep(p[0], "oleh pemilik")}})
 		return err
 	}
 	isNotFound(t, run(&bob))
@@ -333,7 +333,7 @@ func TestEditByOwnerUser(t *testing.T) {
 	}
 	// foto baru harus milik pemilik yang sama
 	foreign := r.uploaded(t, &bob)
-	_, err := r.ed.Edit(bg, usecase.EditInput{SubmissionID: out.SubmissionID, Caller: usecase.Caller{UserID: &alice}, Version: 2,
+	_, err := r.ed.Edit(bg, usecase.EditInput{FormVersion: 1, Answers: surveyAnswers(true), SubmissionID: out.SubmissionID, Caller: usecase.Caller{UserID: &alice}, Version: 2,
 		Photos: []usecase.SubmitPhoto{ep(p[0], "x"), ep(foreign, "curian")}})
 	wantCode(t, err, "PHOTO_NOT_FOUND")
 }
@@ -431,7 +431,7 @@ func TestEditIsAtomicWhenALaterStepFails(t *testing.T) {
 		usecase.EditConfig{SubmitConfig: usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50}, Window: 24 * time.Hour})
 
 	// edit besar: buang p[1], ubah p[0], tambah f1 dan f2 (Attach kedua gagal di tengah transaksi)
-	_, err := ed.Edit(bg, usecase.EditInput{SubmissionID: out.SubmissionID, Caller: usecase.Caller{EditToken: out.EditToken}, Version: 1,
+	_, err := ed.Edit(bg, usecase.EditInput{FormVersion: 1, Answers: surveyAnswers(true), SubmissionID: out.SubmissionID, Caller: usecase.Caller{EditToken: out.EditToken}, Version: 1,
 		Photos: []usecase.SubmitPhoto{ep(p[0], "TIDAK BOLEH TERSIMPAN"), ep(f1, "f1"), ep(f2, "f2")}})
 	wantCode(t, err, "PHOTO_NOT_AVAILABLE")
 
@@ -490,7 +490,7 @@ func (r *subRig) archive(t *testing.T, name string) {
 func TestSubmitRejectsMissingAndArchivedLabels(t *testing.T) {
 	r := newSubRig(t, rigOpts{})
 	// label "dipakai lalu diarsip" dibuat lewat submission pertama, lalu diarsipkan
-	if _, err := r.uc.Submit(bg, usecase.SubmitInput{ClientRequestID: uuid.New(), Photos: []usecase.SubmitPhoto{
+	if _, err := r.uc.Submit(bg, usecase.SubmitInput{FormVersion: 1, Answers: surveyAnswers(true), ClientRequestID: uuid.New(), Photos: []usecase.SubmitPhoto{
 		{PhotoID: r.uploaded(t, nil).ID, Annotations: []domain.Annotation{ann("arsip nanti")}}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -505,7 +505,7 @@ func TestSubmitRejectsMissingAndArchivedLabels(t *testing.T) {
 		{"label tidak ada", 999999, "INVALID_LABEL"},
 		{"label diarsipkan", lbl("arsip nanti"), "LABEL_ARCHIVED"},
 	} {
-		req := usecase.SubmitInput{ClientRequestID: uuid.New(), Photos: []usecase.SubmitPhoto{{PhotoID: p.ID, Annotations: []domain.Annotation{
+		req := usecase.SubmitInput{FormVersion: 1, Answers: surveyAnswers(true), ClientRequestID: uuid.New(), Photos: []usecase.SubmitPhoto{{PhotoID: p.ID, Annotations: []domain.Annotation{
 			ann("aktif"), {LabelID: tc.label, X: 0.5, Y: 0.5, W: 0.1, H: 0.1},
 		}}}}
 		_, err := r.uc.Submit(bg, req)

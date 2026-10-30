@@ -23,7 +23,7 @@ type editResp struct {
 
 func (s *stack) edit(t testing.TB, id uuid.UUID, token, body string) editResp {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodPut, s.srv.URL+"/api/v1/submissions/"+id.String(), strings.NewReader(body))
+	req, err := http.NewRequest(http.MethodPut, s.srv.URL+"/api/v1/submissions/"+id.String(), strings.NewReader(withSurvey(body)))
 	if err != nil {
 		t.Fatal(err)
 	}

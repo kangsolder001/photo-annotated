@@ -44,7 +44,7 @@ func (r *adminSubsRig) user(t *testing.T, name, phone string) uuid.UUID {
 func (r *adminSubsRig) submitAt(t *testing.T, owner *uuid.UUID, at time.Time, photos ...[]string) uuid.UUID {
 	t.Helper()
 	r.clock.t = at
-	in := usecase.SubmitInput{ClientRequestID: uuid.New(), OwnerID: owner}
+	in := usecase.SubmitInput{FormVersion: 1, Answers: surveyAnswers(true), ClientRequestID: uuid.New(), OwnerID: owner}
 	for _, names := range photos {
 		p := r.uploaded(t, owner)
 		sp := usecase.SubmitPhoto{PhotoID: p.ID, Annotations: []domain.Annotation{}}

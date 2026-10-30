@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"photo-annotated/internal/domain"
+	"photo-annotated/internal/domain/survey"
 )
 
 // SubmitConfig adalah batas-batas validasi submission (dari config limits.*).
@@ -49,6 +51,9 @@ type SubmitPhoto struct {
 }
 
 type SubmitInput struct {
+	// Jawaban pendataan mentah dari klien (spec-pendataan §5.3); divalidasi paket survey.
+	FormVersion     int
+	Answers         map[string]json.RawMessage
 	Photos          []SubmitPhoto
 	ClientRequestID uuid.UUID
 	OwnerID         *uuid.UUID  // nil pada auth.mode = none
@@ -64,8 +69,8 @@ type SubmitOutput struct {
 }
 
 func (u *Submit) Submit(ctx context.Context, in SubmitInput) (*SubmitOutput, error) {
-	// 1. Bentuk request (murah, tanpa I/O)
-	anns, err := u.validateShape(in)
+	// 1. Bentuk request (murah, tanpa I/O): jawaban pendataan lalu foto
+	answers, anns, err := u.validateShape(in)
 	if err != nil {
 		return nil, err
 	}
@@ -95,6 +100,7 @@ func (u *Submit) Submit(ctx context.Context, in SubmitInput) (*SubmitOutput, err
 	sub := &domain.Submission{
 		ID: u.newID(), OwnerID: in.OwnerID, ClientRequestID: in.ClientRequestID, ClientIP: in.ClientIP,
 		Version: 1, CreatedAt: now, UpdatedAt: now, Review: domain.Review{Status: domain.ReviewPending},
+		FormVersion: in.FormVersion, Answers: answers,
 	}
 	err = u.tx.WithTx(ctx, func(ctx context.Context) error {
 		// label dibaca FOR SHARE di transaksi yang sama: arsip/hapus berbarengan tidak bisa lolos
@@ -136,21 +142,37 @@ func (u *Submit) replayOnConflict(ctx context.Context, in SubmitInput, cause err
 
 var errDuplicateRequest = domain.Conflict("DUPLICATE_CLIENT_REQUEST", "a submission with this client_request_id already exists")
 
-// validateShape memvalidasi request submission baru dan mengembalikan anotasi yang sudah
-// dinormalisasi (indeks sejajar dengan in.Photos).
-func (u *Submit) validateShape(in SubmitInput) ([][]domain.Annotation, error) {
+// validateShape memvalidasi request submission baru dan mengembalikan jawaban ternormalisasi serta
+// anotasi yang sudah dinormalisasi (indeks sejajar dengan in.Photos).
+func (u *Submit) validateShape(in SubmitInput) (survey.Answers, [][]domain.Annotation, error) {
 	if in.ClientRequestID == uuid.Nil {
-		return nil, domain.Invalid("INVALID_CLIENT_REQUEST_ID", "client_request_id is required")
+		return nil, nil, domain.Invalid("INVALID_CLIENT_REQUEST_ID", "client_request_id is required")
 	}
-	return validatePhotos(u.cfg, in.Photos)
+	return validateSurvey(u.cfg, in.FormVersion, in.Answers, in.Photos, u.clock.Now())
 }
 
-// validatePhotos memvalidasi daftar foto beserta anotasinya (dipakai Submit dan Edit): 1..N foto,
-// tanpa duplikat, 0..M anotasi per foto, tiap anotasi lolos aturan domain. Mengembalikan anotasi
-// yang sudah dinormalisasi dengan indeks sejajar dengan photos.
-func validatePhotos(cfg SubmitConfig, photos []SubmitPhoto) ([][]domain.Annotation, error) {
-	if n := len(photos); n < 1 || n > cfg.MaxPhotos {
-		return nil, domain.Invalid("INVALID_PHOTO_COUNT", "a submission needs between 1 and %d photos", cfg.MaxPhotos)
+// validateSurvey memvalidasi jawaban pendataan (spec-pendataan §4) lalu foto sesuai persetujuan
+// (dipakai Submit dan Edit).
+func validateSurvey(cfg SubmitConfig, version int, raw map[string]json.RawMessage, photos []SubmitPhoto, now time.Time) (survey.Answers, [][]domain.Annotation, error) {
+	answers, err := survey.Normalize(version, raw, now)
+	if err != nil {
+		return nil, nil, err
+	}
+	anns, err := validatePhotos(cfg, photos, answers[survey.ConsentID] == survey.ConsentYes)
+	return answers, anns, err
+}
+
+// validatePhotos memvalidasi daftar foto beserta anotasinya (dipakai Submit dan Edit): 1..N foto bila
+// responden bersedia, 0 bila menolak (spec-pendataan §4.3), tanpa duplikat, 0..M anotasi per foto, tiap
+// anotasi lolos aturan domain. Mengembalikan anotasi yang sudah dinormalisasi dengan indeks sejajar
+// dengan photos.
+func validatePhotos(cfg SubmitConfig, photos []SubmitPhoto, consented bool) ([][]domain.Annotation, error) {
+	n := len(photos)
+	if consented && (n < 1 || n > cfg.MaxPhotos) {
+		return nil, domain.Invalid("INVALID_PHOTO_COUNT", "a consenting household needs between 1 and %d photos", cfg.MaxPhotos)
+	}
+	if !consented && n != 0 {
+		return nil, domain.Invalid("INVALID_PHOTO_COUNT", "photos must be empty when the respondent declines")
 	}
 	seen := make(map[uuid.UUID]struct{}, len(photos))
 	out := make([][]domain.Annotation, len(photos))

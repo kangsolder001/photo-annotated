@@ -176,7 +176,7 @@ func TestCleanupRemovesPhotosRemovedByEdit(t *testing.T) {
 	r := newCleanRig(t, cleanOpts{})
 	ed := newEditRigFrom(t, r.subRig)
 	out, ps := r.submittedVia(t, ed, 2)
-	if _, err := ed.ed.Edit(bg, usecase.EditInput{SubmissionID: out.SubmissionID, Caller: usecase.Caller{EditToken: out.EditToken}, Version: 1,
+	if _, err := ed.ed.Edit(bg, usecase.EditInput{FormVersion: 1, Answers: surveyAnswers(true), SubmissionID: out.SubmissionID, Caller: usecase.Caller{EditToken: out.EditToken}, Version: 1,
 		Photos: []usecase.SubmitPhoto{ep(ps[0], "tetap")}}); err != nil {
 		t.Fatal(err)
 	}

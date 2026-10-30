@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -22,8 +23,10 @@ type EditHandler struct{ editor Editor }
 func NewEditHandler(e Editor) *EditHandler { return &EditHandler{editor: e} }
 
 type editRequest struct {
-	Version int              `json:"version"`
-	Photos  []submitPhotoDTO `json:"photos"`
+	Version     int                        `json:"version"`
+	FormVersion int                        `json:"form_version"`
+	Answers     map[string]json.RawMessage `json:"answers"`
+	Photos      []submitPhotoDTO           `json:"photos"`
 }
 
 type editResponse struct {
@@ -44,7 +47,8 @@ func (h *EditHandler) Put(c *gin.Context) {
 	if !httpx.DecodeJSON(c, &req) {
 		return
 	}
-	in := usecase.EditInput{SubmissionID: id, Caller: callerFrom(c), Version: req.Version, Photos: toSubmitPhotos(req.Photos)}
+	in := usecase.EditInput{SubmissionID: id, Caller: callerFrom(c), Version: req.Version, Photos: toSubmitPhotos(req.Photos),
+		FormVersion: req.FormVersion, Answers: req.Answers}
 	out, err := h.editor.Edit(c.Request.Context(), in)
 	if err != nil {
 		httpx.WriteError(c, err)

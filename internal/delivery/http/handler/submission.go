@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/netip"
 	"time"
@@ -52,8 +53,10 @@ func toSubmitPhotos(in []submitPhotoDTO) []usecase.SubmitPhoto {
 }
 
 type submitRequest struct {
-	Photos          []submitPhotoDTO `json:"photos"`
-	ClientRequestID uuid.UUID        `json:"client_request_id"`
+	ClientRequestID uuid.UUID                  `json:"client_request_id"`
+	FormVersion     int                        `json:"form_version"`
+	Answers         map[string]json.RawMessage `json:"answers"`
+	Photos          []submitPhotoDTO           `json:"photos"`
 }
 
 type submitResponse struct {
@@ -70,7 +73,8 @@ func (h *SubmissionHandler) Create(c *gin.Context) {
 	if !httpx.DecodeJSON(c, &req) {
 		return
 	}
-	in := usecase.SubmitInput{ClientRequestID: req.ClientRequestID, OwnerID: sessionUser(c), Photos: toSubmitPhotos(req.Photos)}
+	in := usecase.SubmitInput{ClientRequestID: req.ClientRequestID, OwnerID: sessionUser(c), Photos: toSubmitPhotos(req.Photos),
+		FormVersion: req.FormVersion, Answers: req.Answers}
 	if ip, err := netip.ParseAddr(httpx.ClientIP(c)); err == nil {
 		in.ClientIP = &ip
 	}

@@ -100,3 +100,19 @@ func TestLabelsMigrationDownRefusesWhenUsed(t *testing.T) {
 		t.Fatalf("label harus tetap ada: %d %v", n, err)
 	}
 }
+
+// spec-pendataan §6: migrasi 0013 mengisi label kotak bawaan bila tabel labels kosong.
+func TestSurveyMigrationSeedsDefaultLabels(t *testing.T) {
+	pool := pgtest.PoolWithSeed(t)
+	ls, err := postgres.NewLabelRepo(pool).ListActive(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, l := range ls {
+		names = append(names, l.Name+" "+l.Color)
+	}
+	if got := strings.Join(names, ","); got != "Organik #2e7d32,Anorganik #1565c0,Residu #6d4c41,B3 #c62828" {
+		t.Fatalf("label bawaan: %s", got)
+	}
+}

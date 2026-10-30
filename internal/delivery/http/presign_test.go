@@ -100,7 +100,7 @@ func TestPresignHandlerSuccess(t *testing.T) {
 
 func TestPresignHandlerRequestErrors(t *testing.T) {
 	h, _ := routerWith(t, &fakePresigner{}, 100)
-	big := `{"content_type":"` + strings.Repeat("x", 70<<10) + `"}`
+	big := `{"content_type":"` + strings.Repeat("x", 130<<10) + `"}`
 	for _, tc := range []struct {
 		name, body, ct string
 		status         int
@@ -111,7 +111,7 @@ func TestPresignHandlerRequestErrors(t *testing.T) {
 		{"tipe field salah", `{"content_type":"image/webp","size_bytes":"besar","width":1,"height":1}`, "application/json", 400, "INVALID_JSON"},
 		{"content-type request salah", goodBody, "text/plain", 415, "UNSUPPORTED_MEDIA_TYPE"},
 		{"tanpa content-type", goodBody, "", 415, "UNSUPPORTED_MEDIA_TYPE"},
-		{"body > 64 KB", big, "application/json", 413, "PAYLOAD_TOO_LARGE"},
+		{"body > 128 KB", big, "application/json", 413, "PAYLOAD_TOO_LARGE"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := postPresign(h, tc.body, tc.ct)

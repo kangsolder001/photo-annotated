@@ -141,7 +141,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	}
 	labelRepo := postgres.NewLabelRepo(pool)
 	submit := usecase.NewSubmit(repo, subs, labelRepo, txm, store, et, usecase.SystemClock{},
-		usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50})
+		usecase.SubmitConfig{MaxPhotos: 3, MaxAnnotationsPerPhoto: 50})
 
 	var inner atomic.Pointer[http.Handler]
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +153,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		PublicBaseURL: srv.URL, EditWindow: 24 * time.Hour, ViewURLTTL: o.viewTTL,
 	})
 	editor := usecase.NewEdit(repo, subs, labelRepo, txm, store, et, usecase.SystemClock{}, usecase.EditConfig{
-		SubmitConfig: usecase.SubmitConfig{MaxPhotos: 5, MaxAnnotationsPerPhoto: 50},
+		SubmitConfig: usecase.SubmitConfig{MaxPhotos: 3, MaxAnnotationsPerPhoto: 50},
 		Window:       24 * time.Hour,
 	})
 	presign := usecase.NewPresign(repo, store, sg, usecase.SystemClock{}, usecase.PresignConfig{
@@ -612,4 +612,38 @@ func TestE2EConcurrentUploadsAllSucceed(t *testing.T) {
 
 func removeFile(s *stack, p *domain.Photo) error {
 	return os.Remove(filepath.Join(s.dir, p.StorageKey))
+}
+
+// surveyYesJSON / surveyNoJSON: jawaban pendataan versi 1 yang sah (bersedia / menolak). a_date lampau
+// agar tidak pernah "di masa depan".
+const (
+	surveyIdentityJSON = `"a_date":"2020-01-02","a_rw":"05","a_rt":"03","a_household_code":"RT03-RW05-12","a_initials":"Ny. S","a_respondent":"head"`
+	surveyNoJSON       = `{` + surveyIdentityJSON + `,"a_consent":"no"}`
+)
+
+var surveyYesJSON = func() string {
+	parts := []string{surveyIdentityJSON, `"a_consent":"yes"`, `"r3_sorting":"partial"`, `"r3_visible":"clear"`}
+	for i := 1; i <= 30; i++ {
+		parts = append(parts, `"b`+itoa(i)+`":"yes"`)
+	}
+	for i := 1; i <= 10; i++ {
+		parts = append(parts, `"c`+itoa(i)+`":"na"`)
+	}
+	return "{" + strings.Join(parts, ",") + "}"
+}()
+
+// withSurvey menambahkan form_version + jawaban "bersedia" ke body submit/edit yang belum memuat answers
+// (test lama yang menguji foto/anotasi). Body yang bukan objek JSON dibiarkan apa adanya.
+func withSurvey(body string) string {
+	var m map[string]json.RawMessage
+	if json.Unmarshal([]byte(body), &m) != nil {
+		return body
+	}
+	if _, ok := m["answers"]; ok {
+		return body
+	}
+	if _, ok := m["photos"]; !ok {
+		return body
+	}
+	return `{"form_version":1,"answers":` + surveyYesJSON + `,` + strings.TrimPrefix(strings.TrimSpace(body), "{")
 }

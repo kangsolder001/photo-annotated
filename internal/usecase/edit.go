@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -40,6 +41,8 @@ type EditInput struct {
 	SubmissionID uuid.UUID
 	Caller       Caller
 	Version      int // version yang terakhir dilihat klien
+	FormVersion  int
+	Answers      map[string]json.RawMessage
 	Photos       []SubmitPhoto
 }
 
@@ -54,7 +57,7 @@ func (u *Edit) Edit(ctx context.Context, in EditInput) (*EditOutput, error) {
 	if in.Version < 1 {
 		return nil, domain.Invalid("INVALID_VERSION", "version must be the version you last loaded (>= 1)")
 	}
-	anns, err := validatePhotos(u.cfg.SubmitConfig, in.Photos)
+	answers, anns, err := validateSurvey(u.cfg.SubmitConfig, in.FormVersion, in.Answers, in.Photos, u.clock.Now())
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +118,9 @@ func (u *Edit) Edit(ctx context.Context, in EditInput) (*EditOutput, error) {
 			return err
 		}
 		newVersion = v
+		if err := u.subs.SetAnswers(ctx, sub.ID, in.FormVersion, answers); err != nil {
+			return err
+		}
 		// Label arsip tetap boleh untuk kotak pada foto yang di versi sebelumnya sudah memakai label itu
 		// (spec-labels-admin §4.2): pengguna tidak terkunci dari submission miliknya hanya karena admin
 		// mengarsipkan label di tengah jendela edit. Dibaca setelah BumpVersion (baris submission terkunci).

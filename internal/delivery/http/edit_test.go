@@ -98,7 +98,7 @@ func TestEditHandlerSuccess(t *testing.T) {
 func TestEditHandlerBadRequests(t *testing.T) {
 	fe := &fakeEditor{}
 	h := routerWithEditor(t, fe, 100)
-	big := `{"version":1,"photos":[{"photo_id":"` + photoA + `","annotations":[{"text":"` + strings.Repeat("x", 70<<10) + `"}]}]}`
+	big := `{"version":1,"photos":[{"photo_id":"` + photoA + `","annotations":[{"text":"` + strings.Repeat("x", 130<<10) + `"}]}]}`
 	for _, tc := range []struct {
 		name, id, body string
 		status         int
@@ -110,7 +110,7 @@ func TestEditHandlerBadRequests(t *testing.T) {
 		{"field tak dikenal", subID, `{"version":1,"photos":[],"owner":"x"}`, 400, "INVALID_JSON"},
 		{"version bukan angka", subID, `{"version":"2","photos":[]}`, 400, "INVALID_JSON"},
 		{"photo_id bukan UUID", subID, `{"version":1,"photos":[{"photo_id":"x"}]}`, 400, "INVALID_JSON"},
-		{"body > 64 KB", subID, big, 413, "PAYLOAD_TOO_LARGE"},
+		{"body > 128 KB", subID, big, 413, "PAYLOAD_TOO_LARGE"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := putSubmission(h, tc.id, tc.body, "t")

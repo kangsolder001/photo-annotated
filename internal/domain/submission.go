@@ -18,7 +18,14 @@ type Submission struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	Review          Review
+	// Jawaban pendataan (spec-pendataan §4) yang sudah dinormalisasi paket survey; FormVersion 0 dan
+	// Answers nil untuk submission lama tanpa pendataan.
+	FormVersion int
+	Answers     map[string]any
 }
+
+// Consented: jawaban pendataan menyatakan responden bersedia.
+func (s *Submission) Consented() bool { return s.Answers["a_consent"] == "yes" }
 
 // ReviewStatus adalah hasil review admin atas satu submission utuh (spec-labels-admin §5.7).
 type ReviewStatus string

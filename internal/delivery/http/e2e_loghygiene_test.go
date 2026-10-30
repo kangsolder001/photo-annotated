@@ -50,13 +50,17 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 	user := s.with(map[string]string{"Authorization": "Bearer " + token})
 
 	pid := user.uploadedPhoto(t, 0x31)
-	body := `{"photos":[{"photo_id":"` + pid.String() + `","annotations":[{"label_id":1,"x":0.1,"y":0.1,"w":0.2,"h":0.2}]}],"client_request_id":"` + uuid.NewString() + `"}`
+	// pendataan dengan data yang bisa mengenali rumah (spec-pendataan §9)
+	answers := setAnswer(t, setAnswer(t, setAnswer(t, surveyYesJSON, "a_household_code", `"KODE-RUMAH-RAHASIA"`),
+		"a_initials", `"Ny. Rahasiawati"`), "b_note_1", `"KETERANGAN-RAHASIA"`)
+	body := `{"form_version":1,"answers":` + answers + `,"photos":[{"photo_id":"` + pid.String() + `","annotations":[{"label_id":1,"x":0.1,"y":0.1,"w":0.2,"h":0.2}]}],"client_request_id":"` + uuid.NewString() + `"}`
 	sub := user.submit(t, body)
 	if sub.Status != 201 {
 		t.Fatalf("submit: %d %s", sub.Status, sub.Raw)
 	}
 	user.edit(t, sub.SubmissionID, "", strings.Replace(body, `"client_request_id":"`, `"x":"`, 1)) // 400, body tidak dicatat
-	user.edit(t, sub.SubmissionID, "", `{"version":1,"photos":[{"photo_id":"`+pid.String()+`","annotations":[{"label_id":2,"x":0.1,"y":0.1,"w":0.2,"h":0.2}]}]}`)
+	user.edit(t, sub.SubmissionID, "", `{"version":1,"form_version":1,"answers":`+setAnswer(t, answers, "c_note", `"CATATAN-OBSERVASI-RAHASIA"`)+`,"photos":[{"photo_id":"`+pid.String()+`","annotations":[{"label_id":2,"x":0.1,"y":0.1,"w":0.2,"h":0.2}]}]}`)
+	user.submit(t, `{"form_version":1,"answers":`+setAnswer(t, answers, "a_initials", `"Tn. Ditolak\u0007"`)+`,"photos":[],"client_request_id":"`+uuid.NewString()+`"}`) // 422, isi tidak dicatat
 	_, _, urlBody := user.get(t, "/api/v1/photos/"+pid.String()+"/url", nil)
 	var pu struct{ URL string }
 	_ = json.Unmarshal(urlBody, &pu)
@@ -125,6 +129,8 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 		"password daftar": "PASSWORD-RAHASIA-1", "token palsu": "token-palsu-rahasia", "tanda tangan URL": "sig=",
 		"header Authorization": "Bearer", "turnstile": `"human"`,
 		"NIM": "NIMRAHASIA77", "NIM input": "nimrahasia77",
+		"kode rumah tangga": "KODE-RUMAH-RAHASIA", "inisial": "Rahasiawati", "keterangan": "KETERANGAN-RAHASIA",
+		"catatan observasi": "CATATAN-OBSERVASI-RAHASIA", "inisial ditolak": "Ditolak",
 	}
 	for what, v := range secrets {
 		if v != "" && strings.Contains(out, v) {

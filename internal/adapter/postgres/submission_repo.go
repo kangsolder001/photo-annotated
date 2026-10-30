@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -48,9 +49,31 @@ func (r *reviewScan) review() domain.Review {
 	return out
 }
 
+// surveyArgs memetakan jawaban pendataan ke parameter form_version dan answers (NULL bila tidak ada).
+func surveyArgs(formVersion int, answers map[string]any) (*int, []byte, error) {
+	if formVersion == 0 && answers == nil {
+		return nil, nil, nil
+	}
+	b, err := json.Marshal(answers)
+	if err != nil {
+		return nil, nil, fmt.Errorf("postgres: encode answers: %w", err)
+	}
+	return &formVersion, b, nil
+}
+
+// surveyCopies: survey_date dan rw disalin dari answers ($n = parameter answers) untuk filter/indeks.
+func surveyCopies(n string) string {
+	return `(` + n + `::jsonb->>'a_date')::date, ` + n + `::jsonb->>'a_rw'`
+}
+
 func (r *SubmissionRepo) Create(ctx context.Context, s *domain.Submission) error {
-	_, err := r.db(ctx).Exec(ctx, `INSERT INTO submissions (`+submissionColumns+`) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-		s.ID, s.OwnerID, s.ClientRequestID, s.ClientIP, s.Version, s.CreatedAt, s.UpdatedAt)
+	fv, ans, err := surveyArgs(s.FormVersion, s.Answers)
+	if err != nil {
+		return err
+	}
+	_, err = r.db(ctx).Exec(ctx, `INSERT INTO submissions (`+submissionColumns+`, form_version, answers, survey_date, rw)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,`+surveyCopies("$9")+`)`,
+		s.ID, s.OwnerID, s.ClientRequestID, s.ClientIP, s.Version, s.CreatedAt, s.UpdatedAt, fv, ans)
 	if err != nil {
 		if isUniqueViolation(err, "client_request_id") {
 			return domain.Conflict("DUPLICATE_CLIENT_REQUEST", "a submission with this client_request_id already exists")
@@ -74,9 +97,13 @@ func (r *SubmissionRepo) getBy(ctx context.Context, column string, id uuid.UUID)
 		rv reviewScan
 	)
 	// submission yang dihapus admin (deleted_at) tidak terlihat oleh siapa pun (spec-labels-admin §5.5)
-	err := r.db(ctx).QueryRow(ctx, `SELECT `+submissionColumns+`, `+reviewColumns+` FROM submissions WHERE `+column+` = $1 AND deleted_at IS NULL`, id).
-		Scan(append([]any{&s.ID, &s.OwnerID, &s.ClientRequestID, &s.ClientIP, &s.Version, &s.CreatedAt, &s.UpdatedAt}, rv.dst()...)...)
+	var fv *int
+	err := r.db(ctx).QueryRow(ctx, `SELECT `+submissionColumns+`, `+reviewColumns+`, form_version, answers FROM submissions WHERE `+column+` = $1 AND deleted_at IS NULL`, id).
+		Scan(append([]any{&s.ID, &s.OwnerID, &s.ClientRequestID, &s.ClientIP, &s.Version, &s.CreatedAt, &s.UpdatedAt}, append(rv.dst(), &fv, &s.Answers)...)...)
 	s.Review = rv.review()
+	if fv != nil {
+		s.FormVersion = *fv
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("submission %s: %w", id, domain.ErrNotFound)
 	}
@@ -91,7 +118,7 @@ func (r *SubmissionRepo) getBy(ctx context.Context, column string, id uuid.UUID)
 func (r *SubmissionRepo) GetDetail(ctx context.Context, id uuid.UUID) (*domain.SubmissionDetail, error) {
 	rows, err := r.db(ctx).Query(ctx, `
 		SELECT s.id, s.owner_id, s.client_request_id, s.client_ip, s.version, s.created_at, s.updated_at,
-		       s.review_status, s.review_reason, s.reviewed_at,
+		       s.review_status, s.review_reason, s.reviewed_at, s.form_version, s.answers,
 		       p.id, p.submission_id, p.owner_id, p.position, p.storage_key, p.content_type, p.size_bytes,
 		       p.width, p.height, p.uploaded_at, p.sha256, p.status, p.created_at,
 		       a.id, a.label_id, a.text, a.x, a.y, a.w, a.h, l.name, l.color, l.archived_at
@@ -121,15 +148,19 @@ func (r *SubmissionRepo) GetDetail(ctx context.Context, id uuid.UUID) (*domain.S
 			ax, ay, aw, ah      *float64
 			larchived           *time.Time
 			rv                  reviewScan
+			fv                  *int
 		)
 		if err := rows.Scan(&s.ID, &s.OwnerID, &s.ClientRequestID, &s.ClientIP, &s.Version, &s.CreatedAt, &s.UpdatedAt,
-			&rv.status, &rv.reason, &rv.at,
+			&rv.status, &rv.reason, &rv.at, &fv, &s.Answers,
 			&pid, &psub, &powner, &ppos, &pkey, &pct, &psize, &pw, &ph, &puploaded, &psha, &pstatus, &pcreated,
 			&aid, &alabel, &atext, &ax, &ay, &aw, &ah, &lname, &lcol, &larchived); err != nil {
 			return nil, fmt.Errorf("postgres: scan submission detail: %w", err)
 		}
 		if detail == nil {
 			s.Review = rv.review()
+			if fv != nil {
+				s.FormVersion = *fv
+			}
 			detail = &domain.SubmissionDetail{Submission: s, Photos: []domain.PhotoWithAnnotations{}}
 		}
 		if pid == nil {
@@ -234,6 +265,22 @@ func (r *SubmissionRepo) ReplaceAnnotations(ctx context.Context, photoID uuid.UU
 		}
 		return r.AddAnnotations(ctx, photoID, anns)
 	})
+}
+
+func (r *SubmissionRepo) SetAnswers(ctx context.Context, id uuid.UUID, formVersion int, answers map[string]any) error {
+	fv, ans, err := surveyArgs(formVersion, answers)
+	if err != nil {
+		return err
+	}
+	tag, err := r.db(ctx).Exec(ctx, `UPDATE submissions SET form_version = $2, answers = $3, (survey_date, rw) = (SELECT `+surveyCopies("$3")+`)
+		WHERE id = $1 AND deleted_at IS NULL`, id, fv, ans)
+	if err != nil {
+		return fmt.Errorf("postgres: set answers: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("submission %s: %w", id, domain.ErrNotFound)
+	}
+	return nil
 }
 
 func (r *SubmissionRepo) BumpVersion(ctx context.Context, id uuid.UUID, expected int, now time.Time) (int, error) {

@@ -28,7 +28,7 @@ type submitResp struct {
 
 func (s *stack) submit(t testing.TB, body string) submitResp {
 	t.Helper()
-	resp, err := s.client.Post(s.srv.URL+"/api/v1/submissions", "application/json", strings.NewReader(body))
+	resp, err := s.client.Post(s.srv.URL+"/api/v1/submissions", "application/json", strings.NewReader(withSurvey(body)))
 	if err != nil {
 		t.Fatal(err)
 	}

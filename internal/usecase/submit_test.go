@@ -3,7 +3,9 @@ package usecase_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -194,7 +196,7 @@ func ann(name string) domain.Annotation {
 }
 
 func in(photos ...*domain.Photo) usecase.SubmitInput {
-	si := usecase.SubmitInput{ClientRequestID: uuid.New()}
+	si := usecase.SubmitInput{FormVersion: 1, Answers: surveyAnswers(true), ClientRequestID: uuid.New()}
 	for _, p := range photos {
 		si.Photos = append(si.Photos, usecase.SubmitPhoto{PhotoID: p.ID, Annotations: []domain.Annotation{ann("catatan")}})
 	}
@@ -232,7 +234,7 @@ func TestSubmitSuccessSinglePhoto(t *testing.T) {
 	r := newSubRig(t, rigOpts{})
 	p := r.uploaded(t, nil)
 	ip := netip.MustParseAddr("203.0.113.9")
-	req := usecase.SubmitInput{
+	req := usecase.SubmitInput{FormVersion: 1, Answers: surveyAnswers(true),
 		ClientRequestID: uuid.New(), ClientIP: &ip,
 		Photos: []usecase.SubmitPhoto{{PhotoID: p.ID, Annotations: []domain.Annotation{
 			{LabelID: lbl("halo dunia"), Text: "diabaikan", X: 0.12, Y: 0.3, W: 0.25, H: 0.18},
@@ -677,4 +679,26 @@ func TestNewSubmitUsesErrorsIsForDuplicate(t *testing.T) {
 	if !errors.Is(err, domain.Conflict("DUPLICATE_CLIENT_REQUEST", "lain")) {
 		t.Fatal("errors.Is harus cocok berdasarkan Code")
 	}
+}
+
+// surveyAnswers membuat jawaban pendataan versi 1 yang sah (spec-pendataan §4). consent false = menolak
+// (hanya bagian A).
+func surveyAnswers(consent bool) map[string]json.RawMessage {
+	m := map[string]any{"a_date": "2020-01-02", "a_rw": "05", "a_rt": "03", "a_household_code": "RT03-RW05-12",
+		"a_initials": "Ny. S", "a_respondent": "head", "a_consent": "no"}
+	if consent {
+		m["a_consent"] = "yes"
+		for i := 1; i <= 30; i++ {
+			m[fmt.Sprintf("b%d", i)] = "yes"
+		}
+		for i := 1; i <= 10; i++ {
+			m[fmt.Sprintf("c%d", i)] = "na"
+		}
+		m["r3_sorting"], m["r3_visible"] = "partial", "clear"
+	}
+	out := map[string]json.RawMessage{}
+	for k, v := range m {
+		out[k], _ = json.Marshal(v)
+	}
+	return out
 }

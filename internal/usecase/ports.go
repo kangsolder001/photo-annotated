@@ -338,6 +338,9 @@ type SubmissionRepo interface {
 	// review ke pending (isi berubah sejak direview).
 	// Tidak cocok → domain.Conflict VERSION_CONFLICT; id tak ada → domain.ErrNotFound.
 	BumpVersion(ctx context.Context, id uuid.UUID, expected int, now time.Time) (newVersion int, err error)
+	// SetAnswers mengganti jawaban pendataan (beserta salinan survey_date/rw). Dipanggil edit di dalam
+	// transaksi setelah BumpVersion.
+	SetAnswers(ctx context.Context, id uuid.UUID, formVersion int, answers map[string]any) error
 }
 
 // ImageInfo adalah hasil pemeriksaan header gambar.

@@ -134,7 +134,7 @@ func TestE2ETurnstileInModeNone(t *testing.T) {
 		calls++
 		return ts.Verify(ctx, token, ip)
 	})
-	st := newStack(t, stackOpts{uploadTurnstile: turnstile.NewReusable(counting, 6, 5*time.Minute)})
+	st := newStack(t, stackOpts{uploadTurnstile: turnstile.NewReusable(counting, 4, 5*time.Minute)})
 
 	if resp, m := st.postJSON(t, "/api/v1/uploads/presign", `{"content_type":"image/webp","size_bytes":1000,"width":10,"height":10}`); resp.StatusCode != 403 || errField(m) != "TURNSTILE_FAILED" {
 		t.Fatalf("presign tanpa token: %d %v", resp.StatusCode, m)
@@ -147,11 +147,11 @@ func TestE2ETurnstileInModeNone(t *testing.T) {
 		t.Fatalf("token salah: %d", resp.StatusCode)
 	}
 
-	// satu token: 5 presign + 1 submit, siteverify hanya dipanggil sekali
+	// satu token: 3 presign (maks. foto) + 1 submit, siteverify hanya dipanggil sekali
 	calls = 0
 	human := st.with(map[string]string{"X-Turnstile-Token": "human"})
 	var photos []uuid.UUID
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 3; i++ {
 		photos = append(photos, human.uploadedPhoto(t, byte(0x20+i)))
 	}
 	r := human.submit(t, submitBody(uuid.New(), photos...))
@@ -161,9 +161,9 @@ func TestE2ETurnstileInModeNone(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("siteverify dipanggil %d kali, ingin 1", calls)
 	}
-	// pemakaian ke-7 ditolak
+	// pemakaian ke-5 ditolak
 	if resp, _ := human.postJSON(t, "/api/v1/uploads/presign", `{"content_type":"image/webp","size_bytes":1000,"width":10,"height":10}`); resp.StatusCode != 403 {
-		t.Fatalf("pemakaian ke-7: %d", resp.StatusCode)
+		t.Fatalf("pemakaian ke-5: %d", resp.StatusCode)
 	}
 	// edit dan baca memakai edit_token, tanpa Turnstile
 	if code, _, _ := st.get(t, "/api/v1/submissions/"+r.SubmissionID.String(), map[string]string{"X-Edit-Token": r.EditToken}); code != 200 {

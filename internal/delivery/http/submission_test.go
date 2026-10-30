@@ -125,7 +125,7 @@ func TestSubmissionHandlerReplayIs200AndTokenIsOptional(t *testing.T) {
 func TestSubmissionHandlerBadRequests(t *testing.T) {
 	fs := &fakeSubmitter{}
 	h, _ := routerWithSubmitter(t, fs, 100)
-	big := `{"photos":[{"photo_id":"` + photoA + `","annotations":[{"text":"` + strings.Repeat("x", 70<<10) + `"}]}],"client_request_id":"` + reqID + `"}`
+	big := `{"photos":[{"photo_id":"` + photoA + `","annotations":[{"text":"` + strings.Repeat("x", 130<<10) + `"}]}],"client_request_id":"` + reqID + `"}`
 	for _, tc := range []struct {
 		name, body, ct string
 		status         int
@@ -138,7 +138,7 @@ func TestSubmissionHandlerBadRequests(t *testing.T) {
 		{"client_request_id bukan UUID", `{"photos":[],"client_request_id":"123"}`, "application/json", 400, "INVALID_JSON"},
 		{"koordinat bukan angka", `{"photos":[{"photo_id":"` + photoA + `","annotations":[{"label_id":1,"x":"0.1","y":0,"w":1,"h":1}]}],"client_request_id":"` + reqID + `"}`, "application/json", 400, "INVALID_JSON"},
 		{"content-type salah", goodSub, "text/plain", 415, "UNSUPPORTED_MEDIA_TYPE"},
-		{"body > 64 KB", big, "application/json", 413, "PAYLOAD_TOO_LARGE"},
+		{"body > 128 KB", big, "application/json", 413, "PAYLOAD_TOO_LARGE"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := postSubmission(h, tc.body, tc.ct)

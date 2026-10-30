@@ -186,6 +186,11 @@ Body lama ditambah `form_version` dan `answers`:
 - Error jawaban: `422 INVALID_ANSWER` dengan lokasi, mis. `answers.b7: wajib diisi`.
 - `GET /submissions/{id}` dan daftar riwayat memuat `form_version` + `answers`.
 - Body maksimal naik dari 64 KB ke 128 KB.
+- `PUT /submissions/{id}` memakai field yang sama (`version`, `form_version`, `answers`, `photos`) sebagai
+  keadaan akhir; jawaban diganti utuh. Bersedia → menolak membuang semua foto (kirim `photos: []`).
+- Jawaban disimpan dalam bentuk ternormalisasi (§4.1: teks di-trim, jawaban kosong dibuang); `survey_date`
+  dan `rw` disalin dari `a_date`/`a_rw` pada insert dan edit. Default `limits.max_photos_per_submission` = 3
+  (batas atas foto saat bersedia).
 
 ### 5.4 Registrasi (berubah)
 `POST /auth/register` ditambah:

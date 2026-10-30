@@ -257,7 +257,7 @@ func Defaults() Config {
 		},
 		Limits: Limits{
 			MaxUploadBytes:         2 << 20,
-			MaxPhotosPerSubmission: 5,
+			MaxPhotosPerSubmission: 3,
 			MaxAnnotationsPerPhoto: 50,
 			MaxLabels:              200,
 			MaxConcurrentUploads:   200,

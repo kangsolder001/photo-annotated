@@ -50,7 +50,7 @@
   },
   "limits": {
     "max_upload_bytes": 2097152,
-    "max_photos_per_submission": 5,
+    "max_photos_per_submission": 3,
     "max_annotations_per_photo": 50,
     "max_labels": 200,
     "max_concurrent_uploads": 200,
