@@ -29,7 +29,7 @@ type AdminSubmissions struct {
 }
 
 func NewAdminSubmissions(repo AdminSubmissionRepo, subs SubmissionRepo, signer URLSigner, clock Clock, cfg AdminSubmissionsConfig) *AdminSubmissions {
-	if cfg.ViewURLTTL <= 0 || cfg.EditWindow <= 0 || cfg.RetentionDays < 1 {
+	if cfg.ViewURLTTL <= 0 || cfg.EditWindow <= 0 || cfg.RetentionDays < 0 {
 		panic("usecase: AdminSubmissionsConfig tidak valid")
 	}
 	return &AdminSubmissions{repo: repo, subs: subs, signer: signer, clock: clock, cfg: cfg}
@@ -58,9 +58,10 @@ func (u *AdminSubmissions) retentionDeletesAt(s *domain.Submission) *time.Time {
 	return RetentionDeletesAt(s, u.cfg.RetentionDays)
 }
 
-// RetentionDeletesAt = created_at + retention.days, atau nil untuk submission accepted (spec §5.7).
+// RetentionDeletesAt = created_at + retention.days, atau nil untuk submission accepted (spec §5.7) dan
+// bila retensi mati (days = 0, spec-pendataan §8).
 func RetentionDeletesAt(s *domain.Submission, days int) *time.Time {
-	if s.Review.Status == domain.ReviewAccepted {
+	if days == 0 || s.Review.Status == domain.ReviewAccepted {
 		return nil
 	}
 	t := s.CreatedAt.AddDate(0, 0, days)

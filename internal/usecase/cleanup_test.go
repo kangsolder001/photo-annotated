@@ -26,11 +26,12 @@ type cleanRig struct {
 }
 
 type cleanOpts struct {
-	batch      int
-	maxBatches int
-	store      func(usecase.PhotoStore) usecase.PhotoStore
-	repo       func(usecase.CleanupRepo) usecase.CleanupRepo
-	steps      []usecase.CleanupStep
+	retentionOff bool // RetentionDays = 0 (retensi mati)
+	batch        int
+	maxBatches   int
+	store        func(usecase.PhotoStore) usecase.PhotoStore
+	repo         func(usecase.CleanupRepo) usecase.CleanupRepo
+	steps        []usecase.CleanupStep
 }
 
 func newCleanRig(t *testing.T, o cleanOpts) *cleanRig {
@@ -42,6 +43,9 @@ func newCleanRig(t *testing.T, o cleanOpts) *cleanRig {
 	cfg := usecase.CleanupConfig{
 		RetentionDays: 90, PendingTTL: 24 * time.Hour, Batch: o.batch, MaxBatches: o.maxBatches,
 		TmpMaxAge: time.Hour, OrphanMinAge: 24 * time.Hour,
+	}
+	if o.retentionOff {
+		cfg.RetentionDays = 0
 	}
 	repo := postgres.NewCleanupRepo(base.pool)
 	var cr usecase.CleanupRepo = repo
@@ -323,6 +327,35 @@ func TestCleanupRetentionDeletesExpiredSubmissionsCompletely(t *testing.T) {
 	}
 	if !r.submissionExists(t, freshID) {
 		t.Fatal("submission baru tidak boleh terhapus")
+	}
+}
+
+// spec-pendataan §8: retention.days = 0 → submission setua apa pun tidak terhapus, tetapi foto
+// pending basi tetap dibersihkan.
+func TestCleanupRetentionDisabledKeepsOldSubmissions(t *testing.T) {
+	r := newCleanRig(t, cleanOpts{retentionOff: true})
+	oldID, oldPhotos := r.attachedSubmission(t, 2, 400*24*time.Hour)
+	empty := &domain.Submission{ID: uuid.New(), ClientRequestID: uuid.New(), Version: 1, CreatedAt: r.clock.t.Add(-200 * 24 * time.Hour), UpdatedAt: r.clock.t}
+	if err := r.subs.Create(bg, empty); err != nil {
+		t.Fatal(err)
+	}
+	stale := r.uploaded(t, nil)
+	r.setPhotoAge(t, stale, 25*time.Hour)
+
+	rep := mustRun(t, r)
+	if rep.RetentionPhotos != 0 || rep.SubmissionsDeleted != 0 || rep.StalePendingClaimed != 1 || rep.FilesDeleted != 1 {
+		t.Fatalf("laporan: %+v", rep)
+	}
+	if !r.submissionExists(t, oldID) || !r.submissionExists(t, empty.ID) {
+		t.Fatal("submission lama tidak boleh terhapus saat retensi mati")
+	}
+	for _, p := range oldPhotos {
+		if !r.fileExists(p) || !r.rowExists(t, p) {
+			t.Fatal("foto submission lama tidak boleh tersentuh")
+		}
+	}
+	if r.fileExists(stale) || r.rowExists(t, stale) {
+		t.Fatal("foto pending basi tetap harus dibersihkan")
 	}
 }
 

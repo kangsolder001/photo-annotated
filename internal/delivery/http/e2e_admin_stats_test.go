@@ -55,7 +55,7 @@ func TestE2EAdminStatsAndSystem(t *testing.T) {
 	wa := m["whatsapp"].(map[string]any)
 	st := m["storage"].(map[string]any)
 	if db["ok"] != true || data["submissions"] != 1.0 || data["review_pending"] != 1.0 || data["users_active"] != 1.0 ||
-		wa["otp_available"] != true || wa["daily_cap"] != 500.0 || st["available"] != true || m["api"].(map[string]any)["auth_mode"] != "otp" {
+		wa["otp_available"] != true || wa["daily_cap"] != 500.0 || m["api"].(map[string]any)["retention_enabled"] != true || st["available"] != true || m["api"].(map[string]any)["auth_mode"] != "otp" {
 		t.Fatalf("system: %v", m)
 	}
 	// tanpa data pribadi maupun secret

@@ -110,6 +110,12 @@ Task yang bisa paralel (tidak menyentuh file yang sama): T57, T58, T60.
 `RetentionDays: 0` (lihat test cleanup yang ada: `grep -rn RetentionDays internal --include=*_test.go`).
 **Verifikasi:** perintah standar backend.
 
+**Hasil:** validasi `retention.days >= 0`; `days = 0` melewati langkah retensi di `Cleanup.RunOnce` (foto
+pending/ditolak, file yatim, data auth tetap jalan); `RetentionDeletesAt` = `null` bila retensi mati; status
+sistem: `retention_due_7d = 0` bila mati dan field baru `api.retention_enabled` (bool) di `GET /admin/system`.
+`config.json.example` memakai `days: 0` (instance pendataan). Test: config (0 lolos, -1 ditolak), cleanup
+retensi mati, `RetentionDeletesAt`, status sistem.
+
 #### Task 58: Kelompok (`groups`) — M
 **Spec:** §5.2, §5.5, §6 (bagian `groups`). **Tiru:** seluruh pola label (lihat peta kode).
 **Langkah:**

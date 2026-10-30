@@ -17,7 +17,7 @@ const (
 
 // CleanupConfig adalah parameter job pembersihan (dari config retention.*).
 type CleanupConfig struct {
-	RetentionDays int           // submission lebih tua dari ini dihapus beserta fotonya
+	RetentionDays int           // submission lebih tua dari ini dihapus beserta fotonya; 0 = retensi mati
 	PendingTTL    time.Duration // foto pending yang tak pernah dipakai dibuang setelah ini
 	Batch         int           // ukuran satu putaran kueri
 	MaxBatches    int           // 0 = default
@@ -129,9 +129,9 @@ func (u *Cleanup) RunOnce(ctx context.Context) (CleanupReport, error) {
 	}
 
 	// 3. Retensi: tandai foto submission kedaluwarsa, hapus filenya, lalu hapus submission yang
-	//    sudah tidak punya baris foto. Diulang selama masih ada kemajuan.
+	//    sudah tidak punya baris foto. Diulang selama masih ada kemajuan. Dilewati bila retensi mati.
 	retentionCutoff := now.AddDate(0, 0, -u.cfg.RetentionDays)
-	for i := 0; i < u.cfg.MaxBatches; i++ {
+	for i := 0; u.cfg.RetentionDays > 0 && i < u.cfg.MaxBatches; i++ {
 		if err := ctx.Err(); err != nil {
 			return u.finish(rep, start, errs.with(err))
 		}

@@ -171,6 +171,8 @@ type RateLimits struct {
 }
 
 type Retention struct {
+	// Days: submission lebih tua dari ini dihapus. 0 = retensi mati (tidak ada yang dihapus karena umur);
+	// pembersihan foto pending/ditolak, file yatim, dan data auth tetap berjalan.
 	Days            int      `json:"days"`
 	PendingPhotoTTL Duration `json:"pending_photo_ttl"`
 	CleanupInterval Duration `json:"cleanup_interval"`
@@ -494,8 +496,8 @@ func (c *Config) Validate() error {
 
 	// retention
 	t := c.Retention
-	if t.Days < 1 || t.CleanupBatch < 1 || t.PendingPhotoTTL <= 0 || t.CleanupInterval <= 0 {
-		bad("retention", "days >= 1, cleanup_batch >= 1, pending_photo_ttl dan cleanup_interval > 0")
+	if t.Days < 0 || t.CleanupBatch < 1 || t.PendingPhotoTTL <= 0 || t.CleanupInterval <= 0 {
+		bad("retention", "days >= 0 (0 = retensi mati), cleanup_batch >= 1, pending_photo_ttl dan cleanup_interval > 0")
 	}
 	if t.OrphanSweepInterval <= 0 || t.TmpMaxAge <= 0 || t.OrphanMinAge <= 0 {
 		bad("retention", "orphan_sweep_interval, tmp_max_age, dan orphan_min_age harus > 0")

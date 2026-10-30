@@ -7,7 +7,7 @@ Detail tiap task (file yang dibaca, pola yang ditiru, langkah, verifikasi) ada d
 Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠️ risiko tinggi · S/M = ukuran
 
 ## Phase 1: Backend
-- [ ] **T57** (S) Retensi bisa dimatikan: `retention.days = 0`
+- [x] **T57** (S) Retensi bisa dimatikan: `retention.days = 0`
 - [ ] **T58** (M) Tabel `groups`, `GET /groups`, CRUD `/admin/groups`
 - [ ] **T59** (M) ⚠️ Registrasi dengan NIM (unik) + kelompok; `/auth/me`; pindah kelompok oleh admin — butuh T58
 - [ ] **T60** (M) `internal/domain/survey` (definisi v1 + validasi) + `GET /survey/form`

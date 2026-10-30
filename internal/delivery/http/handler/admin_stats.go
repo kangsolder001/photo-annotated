@@ -96,7 +96,8 @@ func (h *AdminStatsHandler) System(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusOK, gin.H{
 		"checked_at": r.CheckedAt.UTC(),
-		"api":        gin.H{"started_at": r.Config.StartedAt.UTC(), "version": r.Config.Version, "auth_mode": r.Config.AuthMode},
+		"api": gin.H{"started_at": r.Config.StartedAt.UTC(), "version": r.Config.Version, "auth_mode": r.Config.AuthMode,
+			"retention_enabled": r.Config.RetentionDays > 0},
 		"database": func() gin.H {
 			h := gin.H{"ok": r.Database.Value.OK, "latency_ms": r.Database.Value.LatencyMS}
 			if r.Database.Err != "" {

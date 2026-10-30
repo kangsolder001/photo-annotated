@@ -229,3 +229,14 @@ func TestAdminSubmissionDetail(t *testing.T) {
 		t.Fatalf("annotator terhapus: %+v %v", d, err)
 	}
 }
+
+// spec-pendataan §8: retensi mati → tidak ada tanggal hapus retensi.
+func TestRetentionDeletesAtNilWhenRetentionDisabled(t *testing.T) {
+	s := &domain.Submission{CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	if got := usecase.RetentionDeletesAt(s, 0); got != nil {
+		t.Fatalf("days 0: %v, want nil", got)
+	}
+	if got := usecase.RetentionDeletesAt(s, 30); got == nil || !got.Equal(s.CreatedAt.AddDate(0, 0, 30)) {
+		t.Fatalf("days 30: %v", got)
+	}
+}

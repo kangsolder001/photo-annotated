@@ -66,6 +66,22 @@ func TestParseOverridesDefaults(t *testing.T) {
 	}
 }
 
+// spec-pendataan §8: retention.days = 0 mematikan retensi; negatif tetap ditolak.
+func TestRetentionDaysZeroDisablesAndNegativeRejected(t *testing.T) {
+	raw := strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "retention": {"days": 0}`, 1)
+	cfg, err := Parse([]byte(raw), env(fullEnv()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Retention.Days != 0 {
+		t.Fatalf("days = %d, want 0", cfg.Retention.Days)
+	}
+	raw = strings.Replace(minimalNone, `"auth": {"mode": "none"}`, `"auth": {"mode": "none"}, "retention": {"days": -1}`, 1)
+	if _, err := Parse([]byte(raw), env(fullEnv())); err == nil || !strings.Contains(err.Error(), "retention") {
+		t.Fatalf("days -1 harus ditolak, err = %v", err)
+	}
+}
+
 func TestExampleConfigIsValid(t *testing.T) {
 	raw, err := os.ReadFile("../../config.json.example")
 	if err != nil {
@@ -79,6 +95,10 @@ func TestExampleConfigIsValid(t *testing.T) {
 	cfg, err := Parse(raw, env(fullEnv()))
 	if err != nil {
 		t.Fatalf("config.json.example (setelah nomor superadmin diisi) harus valid: %v", err)
+	}
+	// instance pendataan memakai retensi mati (spec-pendataan §8)
+	if cfg.Retention.Days != 0 {
+		t.Fatalf("contoh instance pendataan: retention.days = %d, want 0", cfg.Retention.Days)
 	}
 	if cfg.Auth.Mode != AuthModeOTP || !cfg.Admin.Enabled || cfg.Admin.Superadmin.Phone != "6281234567890" {
 		t.Fatalf("contoh seharusnya mode otp + admin dengan nomor kanonik: %+v %+v", cfg.Auth, cfg.Admin.Superadmin)

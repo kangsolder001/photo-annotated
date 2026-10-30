@@ -84,6 +84,15 @@ func TestSystemStatusSections(t *testing.T) {
 		r.Storage.Err != "" || r.Storage.Value.PhotosPending != nil || r.Uploads.Value.Max != 200 {
 		t.Fatalf("DB gagal: %+v", r)
 	}
+	// retensi mati: angka "akan terhapus retensi" disembunyikan (0)
+	cfgOff := cfg
+	cfgOff.RetentionDays = 0
+	due := fakeStatsRepo{counts: stats.counts, data: usecase.DataCounts{Submissions: 5, RetentionDue7d: 5}}
+	r = usecase.NewSystemStatus(usecase.SystemDeps{DB: fakePing{nil}, Stats: due, AdminStats: due, Storage: fakeStorage{total: 100, free: 50},
+		Uploads: fakeSlots{}, Channel: ch, Cleanup: cs, Clock: clock}, cfgOff).Report(bg)
+	if r.Data.Err != "" || r.Data.Value.RetentionDue7d != 0 || r.Data.Value.Submissions != 5 {
+		t.Fatalf("retensi mati: %+v", r.Data)
+	}
 	// query lambat → timeout
 	r = mk(nil, fakeStorage{total: 100, free: 50}, fakeStatsRepo{err: context.DeadlineExceeded})
 	if r.Data.Err != "timeout" || !r.Database.Value.OK {

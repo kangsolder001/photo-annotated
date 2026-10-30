@@ -67,7 +67,7 @@
     "turnstile_secret": "GANTI-dengan-secret-key-turnstile"
   },
   "retention": {
-    "days": 90,
+    "days": 0,
     "pending_photo_ttl": "24h",
     "cleanup_interval": "1h",
     "cleanup_batch": 100,

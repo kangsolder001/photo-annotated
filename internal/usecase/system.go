@@ -162,6 +162,9 @@ func (s *SystemStatus) Report(ctx context.Context) *SystemReport {
 		qctx, cancel = context.WithTimeout(ctx, systemPartTimeout)
 		days := s.cfg.RetentionDays
 		if d, err := s.d.AdminStats.DataCounts(qctx, now.AddDate(0, 0, -days+7)); err == nil {
+			if days == 0 {
+				d.RetentionDue7d = 0 // retensi mati: tidak ada yang akan terhapus karena umur
+			}
 			data = &d
 		} else {
 			dbErr = failMsg(err)
