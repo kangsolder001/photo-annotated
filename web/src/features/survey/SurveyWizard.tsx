@@ -119,6 +119,9 @@ export function SurveyWizard(props: {
   const total = sections.length;
   const at = declined ? 0 : Math.min(step, total); // total = ringkasan
   const section: SurveySection | undefined = sections[at];
+  // setelah ringkasan pernah dibuka, tiap bagian punya pintasan kembali ke ringkasan
+  const [reachedSummary, setReachedSummary] = useState(false);
+  if (!section && !reachedSummary) setReachedSummary(true);
   const draftId = view?.id ?? NEW_DRAFT_ID;
 
   // foto: tersimpan (edit) + baru
@@ -360,6 +363,9 @@ export function SurveyWizard(props: {
           <button type="button" className="btn" onClick={() => go(at - 1)} disabled={at === 0 || sending}>Kembali</button>
           <span className="summary" aria-live="polite">
             {!section || declined ? (canSend ? "" : declined ? "Bagian A belum lengkap." : `${incomplete.length} bagian belum lengkap.`) : ""}
+            {section && reachedSummary && !declined && (
+              <button type="button" className="btn" onClick={() => go(total)}>Ringkasan</button>
+            )}
           </span>
           {section && !declined ? (
             <button type="button" className="btn btn-primary" onClick={() => go(at + 1)}>Lanjut</button>

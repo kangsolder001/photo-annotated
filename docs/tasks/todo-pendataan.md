@@ -38,6 +38,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [ ] **T73** (M) 🔒 Instance baru di Pi: DB `baseline_cipadung`, `/mnt/ssd/baseline_cipadung/photos`, port 8090/8091, `kknsampah.<domain>`
 - [x] **T74** (XS) Form: tanda `*` pertanyaan wajib berwarna merah + keterangan "* wajib diisi" per bagian
 - [x] **T75** (S) Navbar user jadi Pendataan baru / Riwayat / Keluar (baris kedua di HP); tombol "Pendataan baru" di bawah rekap pendataan
+- [x] **T76** (XS) Wizard: tombol "Ringkasan" di tengah bar Kembali/Lanjut, muncul setelah ringkasan pernah dibuka
 
 ### Checkpoint C: Go-live
 - [ ] Uji lapangan dari HP (seluler)

@@ -160,6 +160,9 @@ describe("kirim (T68)", () => {
     // bagian yang kurang bisa diklik: kembali ke langkah foto dengan pesannya
     fireEvent.click(items[3]!);
     expect(screen.getByText("Tambahkan minimal 1 foto.")).toBeTruthy();
+    // pintasan kembali ke ringkasan tanpa menekan Lanjut di tiap bagian
+    fireEvent.click(screen.getByRole("button", { name: "Ringkasan" }));
+    expect(screen.getByRole("heading", { name: "Ringkasan" })).toBeTruthy();
   });
 
   it("422 INVALID_ANSWER dari server → pesan + bagian pertanyaannya dibuka", async () => {
