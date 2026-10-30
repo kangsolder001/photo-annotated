@@ -21,7 +21,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [ ] Alur lengkap lewat `curl` di schema sementara
 
 ## Phase 2: Frontend
-- [ ] **T65** (S) Registrasi NIM + dropdown kelompok — butuh T59
+- [x] **T65** (S) Registrasi NIM + dropdown kelompok — butuh T59
 - [ ] **T66** (S) `src/lib/survey.ts` (logika murni + test) — butuh T60
 - [ ] **T67** (M) Wizard bagian A–R2 + draf — butuh T66
 - [ ] **T68** (M) Langkah foto, ringkasan, kirim, riwayat; alur lama dihapus — butuh T61, T67

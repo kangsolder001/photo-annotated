@@ -109,6 +109,15 @@ export interface User {
   email: string;
   phone: string; // disamarkan oleh API
   role: "user";
+  /** NIM + kelompok mahasiswa (spec-pendataan §5.4); null pada akun lama / mode none. */
+  nim?: string | null;
+  group?: GroupRef | null;
+}
+
+/** Kelompok mahasiswa (GET /groups, spec-pendataan §5.2). */
+export interface GroupRef {
+  id: number;
+  name: string;
 }
 
 export interface LoginResponse {

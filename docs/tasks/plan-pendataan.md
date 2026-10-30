@@ -326,8 +326,13 @@ Aturan FE tambahan: tanpa emoji; ikon via `components/Icon.tsx` (import per berk
 **Langkah:** field NIM (otomatis huruf besar, `autocapitalize="characters"`), dropdown kelompok dari
 `GET /groups`; tampilkan pesan `INVALID_NIM`, `NIM_TAKEN`, `INVALID_GROUP` di field-nya; tanpa kelompok aktif
 → teks "Belum ada kelompok. Hubungi admin." Tipe `User` ditambah `nim`, `group`.
-**Acceptance:** [ ] test komponen: kirim body berisi `nim` + `group_id`; error tampil di field benar.
+**Acceptance:** [x] test komponen: kirim body berisi `nim` + `group_id`; error tampil di field benar.
 **Verifikasi:** perintah standar FE.
+**Hasil:** `LoginPage` tab Daftar: field NIM (huruf besar otomatis, `autocapitalize="characters"`, cek
+`^[A-Z0-9]{5,20}$` di FE) + dropdown Kelompok dari `GET /groups` (tanpa token; dimuat saat tab Daftar
+dibuka). `INVALID_NIM`/`NIM_TAKEN` tampil di field NIM, `INVALID_GROUP` di field Kelompok (daftar dimuat
+ulang). `User` ditambah `nim?`, `group?` (`{id, name}`, opsional agar sesi lama tetap terbaca);
+`api.groups()`; pesan error di `lib/errors.ts`. Test: `LoginPage.test.tsx` (5 kasus baru).
 
 #### Task 66: FE logika survey (murni) — S
 **Langkah:** tipe definisi di `api/types.ts`; `getSurveyForm()` di `endpoints.ts`; `src/lib/survey.ts`:

@@ -2,6 +2,7 @@
 import { request } from "./client";
 import type {
   EditResponse,
+  GroupRef,
   Label,
   LoginResponse,
   OTPStatusView,
@@ -43,8 +44,19 @@ export const api = {
   photoURL: (photoId: string, editToken?: string) =>
     request<PhotoURL>("GET", `/api/v1/photos/${enc(photoId)}/url`, { headers: editTokenHeader(editToken) }),
 
+  /** Kelompok aktif untuk dropdown registrasi (publik, urut nama). */
+  groups: () => request<{ groups: GroupRef[] }>("GET", "/api/v1/groups", { auth: false }).then((r) => r.groups ?? []),
+
   // ---- auth (mode otp)
-  register: (body: { name: string; email: string; phone: string; password: string; turnstile_token?: string }) =>
+  register: (body: {
+    name: string;
+    email: string;
+    phone: string;
+    password: string;
+    nim: string;
+    group_id: number;
+    turnstile_token?: string;
+  }) =>
     request<OTPTicket>("POST", "/api/v1/auth/register", { body, auth: false }),
   login: (body: { phone: string; password: string }) =>
     request<LoginResponse>("POST", "/api/v1/auth/login", { body, auth: false }),
