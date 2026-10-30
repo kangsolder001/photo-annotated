@@ -1,4 +1,4 @@
-import type { AnnotationView } from "../api/types";
+import type { AnnotationView, Answers } from "../api/types";
 import type { DraftAnnotation } from "./annotation";
 import { readJSON, remove, writeJSON } from "./storage";
 
@@ -8,11 +8,21 @@ import { readJSON, remove, writeJSON } from "./storage";
 // tempat lain, draf lama dibuang agar tidak menimpa perubahan orang lain.
 // Draf menyimpan `label_id`. Draf dari sebelum label (`{ text, … }`) tetap dipulihkan: kotaknya
 // dipertahankan, labelnya kosong, dan teksnya ikut sebagai "catatan lama" (spec-labels-admin §7.1).
+// Pendataan (spec-pendataan §7.1): draf juga memuat jawaban + versi form. Pendataan baru memakai id
+// `NEW_DRAFT_ID` dengan version 0; foto barunya tidak ikut (foto `pending` tidak bisa ditampilkan ulang).
+
+/** Id draf untuk pendataan yang belum dikirim. */
+export const NEW_DRAFT_ID = "baru";
 
 export interface Draft {
   version: number;
   savedAt: string;
   photos: { photoId: string; annotations: DraftAnnotation[] }[];
+  /** Jawaban pendataan dan versi form-nya; jawaban versi lain diabaikan saat dipulihkan. */
+  answers?: Answers;
+  form_version?: number;
+  /** Langkah wizard terakhir (pendataan baru). */
+  step?: number;
 }
 
 const key = (id: string, owner: string) => `pa.draft.${owner}.${id}`;
@@ -42,8 +52,10 @@ export const drafts = {
       remove(key(id, owner));
       return null;
     }
+    const answersOk = d.answers && typeof d.answers === "object" && !Array.isArray(d.answers);
     return {
       ...d,
+      answers: answersOk ? d.answers : undefined,
       photos: d.photos.map((p) => ({
         photoId: p.photoId,
         annotations: (Array.isArray(p.annotations) ? p.annotations : []).map(migrateAnnotation).filter((a): a is DraftAnnotation => a !== null),

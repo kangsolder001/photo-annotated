@@ -359,9 +359,20 @@ ulang). `User` ditambah `nim?`, `group?` (`{id, name}`, opsional agar sesi lama 
 C sebagai tombol besar), satu layar per bagian, Kembali/Lanjut, progres "Bagian x dari y". Kartu identitas
 (nama, NIM, kelompok dari sesi). Draf: tambah `answers` + `form_version` ke struktur `lib/draft.ts`.
 Menolak di A → langsung ke langkah Kirim.
-**Acceptance:** [ ] test komponen: navigasi, menolak melompati bagian lain, draf dipulihkan setelah mount
-ulang; [ ] 360 px OK.
+**Acceptance:** [x] test komponen: navigasi, menolak melompati bagian lain, draf dipulihkan setelah mount
+ulang; [x] 360 px OK.
 **Verifikasi:** perintah standar FE.
+**Hasil:** `features/survey/`: `SurveyPage` (rute `/pendataan/baru`), `SurveyWizard` (satu layar per bagian,
+Kembali/Lanjut, "Bagian x dari y", kartu identitas nama/NIM/kelompok dari sesi, teks persetujuan di atas
+`a_consent`, ringkasan dengan bagian "Belum lengkap" yang bisa diklik), `QuestionField` (render per tipe;
+`choice` = radio asli bergaya tombol besar ≥ 48 px, `multi` = kotak centang besar + isian "Sebutkan
+lainnya"), `useSurveyForm` (GET /survey/form sekali per pemuatan). Menolak → hanya bagian A. Draf: `Draft`
+ditambah `answers`, `form_version`, `step`; pendataan baru memakai id `baru` (version 0), draf versi form
+lain diabaikan, tombol "Mulai dari awal". Error per pertanyaan tampil setelah bagian ditinggalkan lewat
+Lanjut. Test: `SurveyPage.test.tsx`. Layout 360 px: grid `auto-fit` (opsi membungkus, tanpa scroll
+horizontal).
+**Catatan:** foto pendataan baru tidak ikut draf (foto `pending` tidak punya URL lihat, spec induk §5.5),
+sama seperti draf lama; jawaban + langkah tetap pulih.
 
 #### Task 68: FE langkah foto, ringkasan, kirim, riwayat — M
 **Baca dulu:** `PhotoPicker.tsx`, `usePhotoUploads.ts`, `features/annotate/PhotoAnnotator.tsx`,

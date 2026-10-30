@@ -10,6 +10,7 @@ import { RequireAuth } from "./features/auth/RequireAuth";
 import { HistoryPage } from "./features/history/HistoryPage";
 import { NewSubmissionPage } from "./features/submit/NewSubmissionPage";
 import { SubmissionPage } from "./features/submission/SubmissionPage";
+import { SurveyPage } from "./features/survey/SurveyPage";
 
 // Dashboard admin dimuat terpisah (chunk sendiri): bundle user tidak memuat kode admin.
 const AdminApp = lazy(() => import("./features/admin/AdminApp"));
@@ -19,6 +20,7 @@ function UserApp() {
     <Layout>
       <Routes>
         <Route path="/" element={<RequireAuth><NewSubmissionPage /></RequireAuth>} />
+        <Route path="/pendataan/baru" element={<RequireAuth><SurveyPage /></RequireAuth>} />
         <Route path="/riwayat" element={<RequireAuth><HistoryPage /></RequireAuth>} />
         <Route path="/s/:id" element={<RequireAuth><SubmissionPage /></RequireAuth>} />
         {config.authMode === "otp" && <Route path="/masuk" element={<LoginPage />} />}
