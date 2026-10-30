@@ -25,13 +25,13 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T66** (S) `src/lib/survey.ts` (logika murni + test) — butuh T60
 - [x] **T67** (M) Wizard bagian A–R2 + draf — butuh T66
 - [x] **T68** (M) Langkah foto, ringkasan, kirim, riwayat; alur lama dihapus — butuh T61, T67
-- [ ] **T69** (S) E2E browser `web/e2e/flow.mjs` — butuh T65, T68
+- [x] **T69** (S) E2E browser `web/e2e/flow.mjs` — butuh T65, T68
 - [x] **T70** (S) Admin: kelompok + profil annotator — butuh T59
 - [x] **T71** (M) Admin: daftar/detail pendataan + tombol Export CSV — butuh T62, T63
 - [x] **T72** (S) Admin: statistik pendataan — butuh T64
 
 ### Checkpoint B: Aplikasi utuh (lokal)
-- [ ] FE + BE hijau; E2E lulus
+- [x] FE + BE hijau; E2E lulus
 - [ ] Review dengan Anda
 
 ## Phase 3: Deploy

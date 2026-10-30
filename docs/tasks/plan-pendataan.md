@@ -491,7 +491,24 @@ KKN"; `limits.maxPhotos` = 3. Test: `SurveyPage.test.tsx`, `SubmissionPage.test.
 **Baca dulu:** `web/e2e/flow.mjs`, `web/README.md` (cara menjalankan dengan `cmd/wanotif-stub`).
 **Langkah:** ubah alur: buat kelompok (admin) → register dengan NIM → pendataan menolak → pendataan
 bersedia (1 foto + 1 kotak) → admin lihat detail. DB: schema sementara di DB test, hapus setelahnya.
-**Acceptance:** [ ] `flow.mjs` lulus penuh.
+**Acceptance:** [x] `flow.mjs` lulus penuh.
+**Hasil:** `web/e2e/flow.mjs` ditulis ulang untuk alur pendataan (HP 390 px + dashboard desktop): admin masuk
+OTP → buat label + kelompok → mahasiswa daftar (NIM diketik huruf kecil → huruf besar, pilih kelompok;
+password tidak sama dan kode salah ditolak) → pendataan menolak (hanya bagian A, "Bagian 1 dari 1", Kirim
+langsung) → pendataan bersedia: A, B1–B5, C (opsi pertama), R2 (angka + pilihan), R3 tanpa foto dulu
+(ringkasan menandai R3 "Belum lengkap", Kirim ditahan) lalu 1 foto + 1 kotak berlabel + multi "Lainnya"
+dengan teks → terkirim, foto termuat, jawaban tampil dengan teks opsi → edit + reload (draf jawaban pulih)
+→ simpan → admin: daftar memuat kedua pendataan + NIM, detail menolak hanya bagian A, detail bersedia
+(foto berkotak, label, NIM, kelompok, teks opsi, "Galon bekas") → tolak dengan alasan → mahasiswa melihat
+"Ditolak" + alasan → riwayat (Bersedia/Menolak, RT/RW, kode, lencana) → keluar/masuk password, lupa
+password → admin hapus pendataan → mahasiswa melihat "sudah dihapus" → admin arsipkan label + kelompok
+terpakai (tombol Hapus kelompok tidak ada). Cek tanpa scroll horizontal di form daftar, bagian A/B1/R3,
+dan beranda. Dijalankan terhadap schema sementara di DB test (dihapus setelahnya), API mode `otp` +
+`cmd/wanotif-stub` + Vite dev: semua langkah OK; console browser hanya berisi respons error yang
+memang diuji (422 kode salah, 401 password salah, 404 pendataan terhapus).
+**Catatan:** tidak ada ketidakcocokan kontrak FE/BE yang ditemukan. Temuan kecil di luar lingkup (tidak
+diubah): bila klien menutup request (admin pindah halaman saat `GET /admin/submissions` masih berjalan),
+API mencatat `ERROR` status 500 `context canceled`; tidak terlihat pengguna, hanya mengotori log.
 
 #### Task 70: FE admin kelompok + profil annotator — S
 **Tiru:** `LabelsPage.tsx`, `AnnotatorPage.tsx`, `features/admin/api.ts`.
@@ -551,7 +568,7 @@ test lama ikut path baru). `adminApi.surveyStats`, tipe `SurveyStats` persis con
 `by_student[].group` dibaca sebagai string (nama kelompok) persis contoh spec.
 
 ### Checkpoint B: Aplikasi utuh (lokal)
-- [ ] Perintah standar FE + BE hijau; T69 lulus
+- [x] Perintah standar FE + BE hijau; T69 lulus
 - [ ] Review dengan Anda (tampilan wizard di HP)
 
 ### Phase 3: Deploy
