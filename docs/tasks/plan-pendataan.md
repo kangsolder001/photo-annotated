@@ -382,9 +382,24 @@ lama, lalu pertanyaan R3. Ringkasan (bagian yang kurang bisa diklik) + Kirim (`P
 `answers`). Riwayat: tanggal, RT/RW, kode rumah tangga, Bersedia/Menolak, lencana review. Edit 24 jam memakai
 wizard yang sama. Halaman utama → tombol besar "Pendataan baru" + riwayat; route alur foto lama dihapus.
 Judul aplikasi "Pendataan Sampah KKN".
-**Acceptance:** [ ] tidak bisa kirim bila wajib kurang atau 0 foto (bersedia); [ ] draf terhapus setelah
-kirim; [ ] bundle user tanpa `features/admin` (`npm run build` lulus cek bundle).
+**Acceptance:** [x] tidak bisa kirim bila wajib kurang atau 0 foto (bersedia); [x] draf terhapus setelah
+kirim; [x] bundle user tanpa `features/admin` (`npm run build` lulus cek bundle).
 **Verifikasi:** perintah standar FE.
+**Hasil:** `SurveyWizard` lengkap: bagian R3 memuat `PhotoStep` (protokol foto dari `help` R3 di atas
+tombol kamera, maks. 3 foto, foto 1 = utama, kotak + label memakai `PhotoAnnotator`/`PhotoStrip` lama)
+lalu pertanyaan R3; ringkasan menandai bagian kurang (termasuk foto) dan bisa diklik; Kirim →
+`POST /submissions` `{client_request_id, form_version, answers, photos}` (menolak: tombol Kirim langsung di
+bagian A, `photos: []`, jawaban hanya A lewat `cleanAnswers`). `422 INVALID_ANSWER` → pesan server +
+bagian pertanyaannya dibuka. Edit 24 jam memakai wizard yang sama (`PUT` keadaan akhir + `answers`,
+draf per laporan berisi jawaban + foto tersimpan). Beranda `/` = tombol besar "Pendataan baru" + riwayat
+(tanggal pendataan, RT/RW, kode rumah tangga, Bersedia/Menolak, lencana review); `/riwayat` dialihkan ke `/`.
+Halaman pendataan menampilkan jawaban per bagian dengan teks opsi (`components/SurveyAnswers.tsx`, dipakai
+juga admin). Alur foto lama dihapus (`NewSubmissionPage`, `EditSubmission`). Judul "Pendataan Sampah
+KKN"; `limits.maxPhotos` = 3. Test: `SurveyPage.test.tsx`, `SubmissionPage.test.tsx`,
+`HistoryPage.test.tsx`. 360 px dicek di Chrome headless (API palsu): tanpa scroll horizontal di semua langkah.
+**Catatan:** `consent` tidak dibaca dari respons `GET /submissions/{id}` (spec §5.3 hanya menyebut
+`form_version` + `answers`); FE menurunkannya dari `answers.a_consent`. Riwayat tetap lokal per perangkat
+(belum ada endpoint daftar milik user di spec), diisi ringkasan dari `answers` saat kirim/buka.
 
 #### Task 69: E2E browser — S
 **Baca dulu:** `web/e2e/flow.mjs`, `web/README.md` (cara menjalankan dengan `cmd/wanotif-stub`).

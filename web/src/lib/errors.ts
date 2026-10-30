@@ -35,6 +35,8 @@ const MESSAGES: Record<string, string> = {
   INVALID_PASSWORD: "Password minimal 8 karakter (maksimal 72 byte) dan tidak boleh hanya spasi.",
   PASSWORD_REQUIRED: "Masukkan password baru.",
   ACCOUNT_BLOCKED: "Akun Anda diblokir. Hubungi admin.",
+  INVALID_PHOTO_COUNT: "Pendataan yang bersedia butuh 1–3 foto; yang menolak tanpa foto.",
+  UNSUPPORTED_FORM_VERSION: "Formulir pendataan sudah diperbarui. Muat ulang halaman lalu periksa isian Anda.",
   INVALID_LABEL: "Ada label yang sudah tidak tersedia. Pilih ulang label pada kotak yang ditandai.",
   LABEL_ARCHIVED: "Ada label yang sudah diarsipkan admin. Pilih ulang label pada kotak yang ditandai.",
 };

@@ -78,6 +78,9 @@ export interface SubmissionView {
   editable_until: string;
   editable: boolean;
   photos: PhotoView[];
+  /** Pendataan (spec-pendataan §5.3); tidak ada pada laporan lama. */
+  form_version?: number | null;
+  answers?: Answers | null;
   /** Status review admin (spec-labels-admin §5.7); tanpa reviewed_at untuk user. */
   review?: { status: "pending" | "accepted" | "rejected"; reason: string | null };
 }

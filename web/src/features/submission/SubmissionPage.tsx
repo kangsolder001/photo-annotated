@@ -3,20 +3,22 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../api/endpoints";
 import type { SubmissionView } from "../../api/types";
 import { ReviewBadge } from "../../components/ReviewBadge";
+import { SurveyAnswers } from "../../components/SurveyAnswers";
 import { Banner, Spinner } from "../../components/ui";
 import { config } from "../../config";
 import { fromView } from "../../lib/annotation";
 import { drafts } from "../../lib/draft";
 import { errorMessage, isCode } from "../../lib/errors";
-import { history } from "../../lib/history";
+import { history, surveySummary } from "../../lib/history";
 import { optionsFromView } from "../../lib/labels";
 import { formatDateTime, formatRemaining } from "../../lib/time";
 import { PhotoAnnotator } from "../annotate/PhotoAnnotator";
 import { currentOwner } from "../auth/owner";
-import { EditSubmission } from "./EditSubmission";
+import { SurveyWizard } from "../survey/SurveyWizard";
+import { useSurveyForm } from "../survey/useSurveyForm";
 import { usePhotoURLs } from "./usePhotoURLs";
 
-/** Satu laporan: baca, dan edit selama jendela 24 jam (spec §4.4). */
+/** Satu pendataan: baca (jawaban + foto), dan edit lewat wizard yang sama selama 24 jam (spec §4.4). */
 export function SubmissionPage() {
   const { id = "" } = useParams();
   const [params, setParams] = useSearchParams();
@@ -25,8 +27,9 @@ export function SubmissionPage() {
   const [view, setView] = useState<SubmissionView>();
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState(false);
-  const [notice, setNotice] = useState<string | undefined>(params.get("baru") ? "Laporan terkirim. Anda masih bisa mengubahnya selama 24 jam." : undefined);
+  const [notice, setNotice] = useState<string | undefined>(params.get("baru") ? "Pendataan terkirim. Anda masih bisa mengubahnya selama 24 jam." : undefined);
   const [now, setNow] = useState(() => Date.now());
+  const { form, error: formError, reload: reloadForm } = useSurveyForm();
 
   const load = useCallback(async () => {
     setError(undefined);
@@ -36,16 +39,16 @@ export function SubmissionPage() {
     try {
       const v = await api.getSubmission(id, editToken);
       setView(v);
-      if (v.review) history.update(id, { review: v.review });
+      history.update(id, { ...(v.review ? { review: v.review } : {}), ...(v.answers ? { survey: surveySummary(v.answers) } : {}) });
     } catch (e) {
       if (isCode(e, "NOT_FOUND") && known) {
         // tercatat di riwayat perangkat ini tetapi sudah tidak ada: dihapus admin (spec-labels-admin §5.5)
         history.remove(id);
         drafts.clear(id, owner);
-        setError("Laporan ini sudah dihapus. Laporan tersebut juga dihapus dari riwayat di perangkat ini.");
+        setError("Pendataan ini sudah dihapus. Pendataan tersebut juga dihapus dari riwayat di perangkat ini.");
         return;
       }
-      setError(isCode(e, "NOT_FOUND") ? "Laporan tidak ditemukan, atau perangkat/akun ini tidak punya akses ke laporan tersebut." : errorMessage(e));
+      setError(isCode(e, "NOT_FOUND") ? "Pendataan tidak ditemukan, atau akun ini tidak punya akses ke pendataan tersebut." : errorMessage(e));
     }
   }, [id, editToken, owner]);
 
@@ -66,11 +69,15 @@ export function SubmissionPage() {
     return (
       <>
         <Banner kind="error">{error}</Banner>
-        <Link to="/riwayat" className="btn">Kembali ke riwayat</Link>
+        <Link to="/" className="btn">Kembali ke riwayat</Link>
       </>
     );
   }
-  if (!view) return <Spinner label="Memuat laporan" />;
+  if (!view) return <Spinner label="Memuat pendataan" />;
+  if (formError) {
+    return <Banner kind="error">Formulir gagal dimuat: {formError} <button type="button" className="btn btn-small" onClick={() => void reloadForm()}>Coba lagi</button></Banner>;
+  }
+  if (!form) return <Spinner label="Memuat formulir" />;
 
   const remainingMs = new Date(view.editable_until).getTime() - now;
   const editable = view.editable && remainingMs > 0;
@@ -80,9 +87,10 @@ export function SubmissionPage() {
   if (editing && canEdit) {
     return (
       <>
-        <h1>Edit laporan</h1>
+        <h1>Edit pendataan</h1>
         <p className="muted">Sisa waktu edit: {formatRemaining(remainingMs)}.</p>
-        <EditSubmission
+        <SurveyWizard
+          form={form}
           view={view}
           urls={urls}
           refreshUrl={(pid) => void refresh(pid)}
@@ -92,10 +100,7 @@ export function SubmissionPage() {
             setNotice("Perubahan tersimpan.");
             void load();
           }}
-          onCancel={() => {
-            drafts.clear(view.id, owner);
-            setEditing(false);
-          }}
+          onCancel={() => setEditing(false)}
           onReload={() => {
             setEditing(false);
             void load();
@@ -107,7 +112,7 @@ export function SubmissionPage() {
 
   return (
     <>
-      <h1>Laporan</h1>
+      <h1>Pendataan</h1>
       {notice && <Banner kind="ok">{notice}</Banner>}
       <div className="card stack">
         <div className="muted">Dibuat {formatDateTime(view.created_at)}{view.version > 1 && ` · diubah ${formatDateTime(view.updated_at)}`}</div>
@@ -116,7 +121,7 @@ export function SubmissionPage() {
             <div><ReviewBadge status={view.review.status} /></div>
             {view.review.status === "rejected" && view.review.reason && <p className="review-reason">Alasan: {view.review.reason}</p>}
             {view.review.status === "rejected" && canEdit && (
-              <p className="muted">Anda bisa memperbaiki laporan ini selama waktu edit masih ada; setelah disimpan laporan kembali menunggu review.</p>
+              <p className="muted">Anda bisa memperbaiki pendataan ini selama waktu edit masih ada; setelah disimpan pendataan kembali menunggu review.</p>
             )}
           </div>
         )}
@@ -128,9 +133,10 @@ export function SubmissionPage() {
             </button>
           </div>
         ) : (
-          <span className="muted">{editable ? "Laporan ini hanya bisa diedit dari perangkat yang membuatnya." : "Batas waktu edit (24 jam) sudah lewat. Laporan hanya bisa dibaca."}</span>
+          <span className="muted">{editable ? "Pendataan ini hanya bisa diedit dari perangkat yang membuatnya." : "Batas waktu edit (24 jam) sudah lewat. Pendataan hanya bisa dibaca."}</span>
         )}
       </div>
+      {view.answers ? <SurveyAnswers form={form} answers={view.answers} /> : <p className="muted">Laporan lama tanpa jawaban pendataan.</p>}
       {view.photos.map((p, i) => {
         const url = urls[p.photo_id];
         return url ? (

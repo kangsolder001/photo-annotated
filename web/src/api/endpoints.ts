@@ -1,6 +1,7 @@
 // Satu fungsi per endpoint API. Komponen tidak memanggil fetch langsung.
 import { request } from "./client";
 import type {
+  Answers,
   EditResponse,
   GroupRef,
   Label,
@@ -33,13 +34,13 @@ export const api = {
   presign: (p: { content_type: string; size_bytes: number; width: number; height: number }, turnstileToken?: string) =>
     request<PresignResponse>("POST", "/api/v1/uploads/presign", { body: p, headers: turnstileHeader(turnstileToken) }),
 
-  submit: (body: { photos: SubmitPhotoDTO[]; client_request_id: string }, turnstileToken?: string) =>
+  submit: (body: { photos: SubmitPhotoDTO[]; client_request_id: string; form_version: number; answers: Answers }, turnstileToken?: string) =>
     request<SubmitResponse>("POST", "/api/v1/submissions", { body, headers: turnstileHeader(turnstileToken) }),
 
   getSubmission: (id: string, editToken?: string) =>
     request<SubmissionView>("GET", `/api/v1/submissions/${enc(id)}`, { headers: editTokenHeader(editToken) }),
 
-  editSubmission: (id: string, body: { version: number; photos: SubmitPhotoDTO[] }, editToken?: string) =>
+  editSubmission: (id: string, body: { version: number; photos: SubmitPhotoDTO[]; form_version: number; answers: Answers }, editToken?: string) =>
     request<EditResponse>("PUT", `/api/v1/submissions/${enc(id)}`, { body, headers: editTokenHeader(editToken) }),
 
   photoURL: (photoId: string, editToken?: string) =>

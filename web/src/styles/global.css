@@ -163,6 +163,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, .btn:focus-vi
 .ann-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0.35rem 0; }
 
 /* ---- pendataan (wizard) */
+.btn-hero { min-height: 4.5rem; font-size: 1.2rem; margin-bottom: 1.25rem; border-radius: 14px; }
+.btn-hero svg { font-size: 1.5rem; }
+.photo-protocol { margin: 0; padding: 0.6rem 0.75rem; border-radius: 10px; background: var(--warn-soft); color: var(--warn); font-size: 0.92rem; }
+.survey-answers dl { margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.survey-answers dt { color: var(--muted); font-size: 0.9rem; }
+.survey-answers dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; white-space: pre-wrap; }
 .survey-progress { margin: 0 0 0.5rem; font-weight: 600; }
 .question { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 0.4rem; font-weight: 600; }
 .question legend { padding: 0; margin-bottom: 0.4rem; }
@@ -178,8 +184,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, .btn:focus-vi
 .choice:has(input:checked) { background: var(--primary); border-color: var(--primary); color: var(--primary-text); }
 .choice:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
 .identity-card { margin: 0; display: grid; gap: 0.25rem; padding: 0.6rem 0.75rem; border-radius: 10px; background: var(--primary-soft); }
-.identity-card div { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-.identity-card dt { color: var(--muted); min-width: 8.5rem; }
+.identity-card dt { color: var(--muted); font-size: 0.85rem; }
 .identity-card dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
 .consent-text { margin: 0; padding: 0.6rem 0.9rem; border-left: 4px solid var(--primary); background: var(--bg); border-radius: 0 10px 10px 0; }
 .survey-summary { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
