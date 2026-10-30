@@ -14,7 +14,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T61** (M) ⚠️ Submit/edit dengan `answers` (migrasi 0013, 0 / 1–3 foto, seed label) — butuh T60
 - [x] **T62** (S) Baca + admin daftar/detail pendataan — butuh T61
 - [x] **T63** (S) `GET /admin/export.csv` — butuh T61
-- [ ] **T64** (S) `GET /admin/stats/survey` — butuh T61
+- [x] **T64** (S) `GET /admin/stats/survey` — butuh T61
 
 ### Checkpoint A: Backend lengkap
 - [ ] `go vet`, `go build ./cmd/...`, `go test ./... -race` hijau

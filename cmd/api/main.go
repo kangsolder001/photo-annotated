@@ -241,6 +241,7 @@ func run() error {
 	if cfg.Admin.Enabled {
 		statsRepo := postgres.NewStatsRepo(pool)
 		deps.LabelStats = usecase.NewLabelStats(statsRepo)
+		deps.SurveyStats = usecase.NewSurveyStats(postgres.NewSurveyStatsRepo(pool))
 		deps.System = usecase.NewSystemStatus(usecase.SystemDeps{
 			DB: pool, Stats: statsRepo, AdminStats: statsRepo, Storage: store, Uploads: upload, Channel: channel,
 			Cleanup: cleanupStatus, ReadCPUTemp: readCPUTemp, Clock: usecase.SystemClock{},

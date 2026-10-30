@@ -276,6 +276,13 @@ Jawaban kosong / bagian yang tidak berlaku = sel kosong. Awalan `'` juga untuk s
 - Satu query agregat atas `answers` (jsonb), tanpa tabel ringkasan. Cukup untuk ribuan baris.
 - Statistik per label kotak memakai `GET /admin/stats/labels` yang sudah ada.
 
+Rincian (T64): `from`/`to` = tanggal `YYYY-MM-DD` **inklusif** atas `a_date` (`survey_date`), `rw` sama persis;
+`from` > `to` atau format salah → `422 INVALID_QUERY`. Submission yang dihapus tidak dihitung. `by_rw` urut RW;
+`by_student` urut jumlah pendataan menurun (hanya submission ber-pemilik); `by_student[].nim` dan `.group`
+(string nama kelompok) `null` bila kosong. `b` = 30 butir, `c` = 10 butir (urut definisi, label dari
+instrumen); `yes_share` = yes / (yes + no), 3 desimal, 0 bila belum ada jawaban. `r3_sorting` selalu memuat
+keempat opsi.
+
 ## 6. Data Model (migrasi baru)
 
 ```sql

@@ -193,8 +193,9 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		sysChannel = c
 	}
 	var h http.Handler = httpapi.NewRouter(httpapi.Deps{
-		AdminUsers: adminUsers,
-		LabelStats: usecase.NewLabelStats(statsRepo),
+		AdminUsers:  adminUsers,
+		LabelStats:  usecase.NewLabelStats(statsRepo),
+		SurveyStats: usecase.NewSurveyStats(postgres.NewSurveyStatsRepo(pool)),
 		System: usecase.NewSystemStatus(usecase.SystemDeps{
 			DB: pool, Stats: statsRepo, AdminStats: statsRepo, Storage: store, Uploads: upload, Channel: sysChannel,
 			Cleanup: &usecase.CleanupStatus{}, Clock: usecase.SystemClock{},

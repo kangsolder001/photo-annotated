@@ -379,6 +379,14 @@ pertanyaan ikut di respons.
 test; [ ] filter tanggal dan RW.
 **Verifikasi:** perintah standar backend.
 
+**Hasil:** `usecase.SurveyStats` (butir B/C + label diambil dari `survey.V1`; total dijumlahkan dari per RW;
+`yes_share` 3 desimal), `postgres.SurveyStatsRepo` (per RW, per mahasiswa, dan distribusi jawaban lewat
+`jsonb_each_text` hanya untuk pendataan bersedia; filter `survey_date`/`rw`), `handler/survey_stats.go`,
+rute `GET /admin/stats/survey`. Test: `e2e_survey_stats_test.go` (3 pendataan: 2 bersedia, 1 menolak,
+2 RW, + 1 terhapus → angka persis; filter RW, tanggal inklusif, hasil kosong, query salah, 401).
+**Catatan:** tiga query agregat kecil (per RW, per mahasiswa, jawaban), bukan satu; `from`/`to`
+`YYYY-MM-DD` inklusif atas `a_date`; `by_student[].group` = string|null. Rincian di spec §5.8.
+
 ### Checkpoint A: Backend lengkap
 - [ ] Perintah standar backend hijau
 - [ ] Alur `curl` di schema sementara DB test (`?search_path=<schema>`, hapus setelahnya): register NIM →

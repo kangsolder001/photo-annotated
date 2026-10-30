@@ -88,7 +88,9 @@ type Deps struct {
 
 	// Statistik label dan status sistem (spec-labels-admin §5.9–5.10); hanya aktif bila Admin juga diisi.
 	LabelStats handler.LabelStatsService
-	System     handler.SystemReporter
+	// Statistik pendataan (spec-pendataan §5.8); hanya aktif bila Admin juga diisi.
+	SurveyStats handler.SurveyStatsService
+	System      handler.SystemReporter
 
 	// Hapus permanen oleh admin (spec-labels-admin §5.5); hanya aktif bila Admin juga diisi.
 	AdminDelete handler.AdminDeleter
@@ -261,6 +263,9 @@ func NewRouter(d Deps) *gin.Engine {
 			stats := handler.NewAdminStatsHandler(d.LabelStats, d.System)
 			api.GET("/admin/stats/labels", adminOnly, stats.Labels)
 			api.GET("/admin/system", adminOnly, stats.System)
+		}
+		if d.SurveyStats != nil {
+			api.GET("/admin/stats/survey", adminOnly, handler.NewSurveyStatsHandler(d.SurveyStats).Stats)
 		}
 		if d.AdminUsers != nil {
 			users := handler.NewAdminUserHandler(d.AdminUsers, d.Logger)
