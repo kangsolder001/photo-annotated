@@ -12,6 +12,9 @@ dan kode error API tetap bahasa Inggris.
   catat alasannya.
 - Task: [docs/tasks/todo.md](docs/tasks/todo.md) (daftar) dan [docs/tasks/plan.md](docs/tasks/plan.md)
   (detail: Hasil / Keputusan / Temuan / Verification). Catatan T37–T53 ada di `docs/tasks/notes-*.md`.
+- Pendataan baseline (branch `feat/instrumen-baseline-rumah-tangga-cipadung-kulon`, T57+):
+  [docs/spec-pendataan.md](docs/spec-pendataan.md), [todo](docs/tasks/todo-pendataan.md),
+  [plan](docs/tasks/plan-pendataan.md). Task baru di branch ini masuk ke file tersebut.
 
 ## Alur kerja
 
