@@ -22,11 +22,25 @@ type OTPRequestConfig struct {
 	OnQueued func()
 }
 
-// RegisterInput adalah isi POST /auth/register.
+// RegisterInput adalah isi POST /auth/register. GroupID 0 = tidak diisi.
 type RegisterInput struct {
-	Name, Email, Phone, Password string
-	ClientIP                     *netip.Addr
+	Name, Email, Phone, Password, NIM string
+	GroupID                           int
+	ClientIP                          *netip.Addr
 }
+
+// Registration adalah data registrasi yang diterapkan ke pengguna saat OTP diverifikasi.
+type Registration struct {
+	Name, Email, PasswordHash, NIM string
+	GroupID                        *int
+}
+
+var (
+	// ErrNIMTaken: NIM sudah dipakai akun aktif (spec-pendataan §5.4).
+	ErrNIMTaken = domain.Conflict("NIM_TAKEN", "NIM sudah terdaftar. Masuk dengan nomor HP Anda atau hubungi admin.")
+	// ErrInvalidGroup: kelompok tidak ada atau sudah diarsipkan.
+	ErrInvalidGroup = domain.Invalid("INVALID_GROUP", "the group does not exist or is archived")
+)
 
 // OTPTicket adalah respons 202 yang bentuknya sama untuk nomor terdaftar maupun tidak.
 type OTPTicket struct {
@@ -63,14 +77,15 @@ func newOTPCore(otps OTPRepo, codes OTPCodes, channel *Channel, phones *PhoneLim
 type OTPRequest struct {
 	*otpCore
 	users  UserRepo
+	groups GroupRepo
 	hasher PasswordHasher
 }
 
 // maxDecoys membatasi memori untuk challenge palsu (± 100 byte per entri).
 const maxDecoys = 10_000
 
-func NewOTPRequest(users UserRepo, otps OTPRepo, codes OTPCodes, hasher PasswordHasher, channel *Channel, phones *PhoneLimiter, clock Clock, cfg OTPRequestConfig) *OTPRequest {
-	return &OTPRequest{otpCore: newOTPCore(otps, codes, channel, phones, clock, cfg), users: users, hasher: hasher}
+func NewOTPRequest(users UserRepo, groups GroupRepo, otps OTPRepo, codes OTPCodes, hasher PasswordHasher, channel *Channel, phones *PhoneLimiter, clock Clock, cfg OTPRequestConfig) *OTPRequest {
+	return &OTPRequest{otpCore: newOTPCore(otps, codes, channel, phones, clock, cfg), users: users, groups: groups, hasher: hasher}
 }
 
 var (
@@ -98,6 +113,27 @@ func (o *OTPRequest) Register(ctx context.Context, in RegisterInput) (*OTPTicket
 	if err := domain.ValidatePassword(in.Password); err != nil {
 		return nil, err
 	}
+	nim, err := domain.NormalizeNIM(in.NIM)
+	if err != nil {
+		return nil, err
+	}
+	if in.GroupID < 1 {
+		return nil, ErrInvalidGroup
+	}
+	g, err := o.groups.Get(ctx, in.GroupID)
+	if errors.Is(err, domain.ErrNotFound) || (err == nil && g.Archived()) {
+		return nil, ErrInvalidGroup
+	}
+	if err != nil {
+		return nil, err
+	}
+	// Cek awal agar pesannya ramah; keunikan ditegakkan ulang oleh indeks unik saat OTP diverifikasi.
+	// Membuka keberadaan NIM terdaftar (diterima: NIM bukan kredensial, spec-pendataan §5.4).
+	if taken, err := o.users.NIMTaken(ctx, nim); err != nil {
+		return nil, err
+	} else if taken {
+		return nil, ErrNIMTaken
+	}
 	ahead, err := o.admit(ctx, phone)
 	if err != nil {
 		return nil, err
@@ -119,7 +155,7 @@ func (o *OTPRequest) Register(ctx context.Context, in RegisterInput) (*OTPTicket
 	}
 	return o.issue(ctx, &domain.OTPChallenge{
 		UserID: u.ID, Phone: phone, Purpose: domain.OTPPurposeRegister,
-		RegName: name, RegEmail: email, RegPasswordHash: hash,
+		RegName: name, RegEmail: email, RegPasswordHash: hash, RegNIM: nim, RegGroupID: &g.ID,
 	}, in.ClientIP, ahead, now)
 }
 
@@ -186,7 +222,7 @@ func (o *OTPRequest) Resend(ctx context.Context, challengeID uuid.UUID, clientIP
 	}
 	return o.issue(ctx, &domain.OTPChallenge{
 		UserID: c.UserID, Phone: c.Phone, Purpose: c.Purpose,
-		RegName: c.RegName, RegEmail: c.RegEmail, RegPasswordHash: c.RegPasswordHash,
+		RegName: c.RegName, RegEmail: c.RegEmail, RegPasswordHash: c.RegPasswordHash, RegNIM: c.RegNIM, RegGroupID: c.RegGroupID,
 	}, clientIP, ahead, o.clock.Now())
 }
 

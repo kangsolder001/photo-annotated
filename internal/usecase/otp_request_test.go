@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,6 +30,28 @@ type otpReqRig struct {
 	channel *usecase.Channel
 	clock   *fakeClock
 	uc      *usecase.OTPRequest
+	group   int // kelompok aktif untuk registrasi
+}
+
+// seedGroup membuat kelompok aktif dan mengembalikan id-nya.
+func seedGroup(t *testing.T, pool *pgxpool.Pool, name string) int {
+	t.Helper()
+	var id int
+	if err := pool.QueryRow(bg, `INSERT INTO groups (name) VALUES ($1) RETURNING id`, name).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// nimFor: NIM unik per nomor (dipakai test yang mendaftarkan banyak nomor).
+func nimFor(phone string) string {
+	d := strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, phone)
+	return "N" + d[len(d)-10:]
 }
 
 type otpReqOpts struct {
@@ -60,7 +83,8 @@ func newOTPReqRig(t *testing.T, o otpReqOpts) *otpReqRig {
 		clock:   &fakeClock{t: time.Now().UTC().Truncate(time.Microsecond)},
 	}
 	limiter := usecase.NewPhoneLimiterWithClock(o.cooldown, o.perHour, func() time.Time { return r.clock.t })
-	r.uc = usecase.NewOTPRequest(r.users, r.otps, codes, testHasher, r.channel, limiter, r.clock, usecase.OTPRequestConfig{
+	r.group = seedGroup(t, pool, "Kelompok Uji")
+	r.uc = usecase.NewOTPRequest(r.users, postgres.NewGroupRepo(pool), r.otps, codes, testHasher, r.channel, limiter, r.clock, usecase.OTPRequestConfig{
 		ResendCooldown: 60 * time.Second, MaxQueue: o.maxQueue, DailyGlobalCap: o.daily, SendInterval: 1500 * time.Millisecond, CodeTTL: 5 * time.Minute,
 	})
 	return r
@@ -75,7 +99,8 @@ func errCode(err error) string {
 
 func (r *otpReqRig) register(phone string) (*usecase.OTPTicket, error) {
 	ip := netip.MustParseAddr("203.0.113.7")
-	return r.uc.Register(bg, usecase.RegisterInput{Name: " Budi Santoso ", Email: "Budi@Example.com", Phone: phone, Password: "rahasia123", ClientIP: &ip})
+	return r.uc.Register(bg, usecase.RegisterInput{Name: " Budi Santoso ", Email: "Budi@Example.com", Phone: phone, Password: "rahasia123",
+		NIM: nimFor(phone), GroupID: r.group, ClientIP: &ip})
 }
 
 // testHasher: bcrypt dengan cost minimum agar test cepat.
@@ -95,7 +120,7 @@ func (r *otpReqRig) activate(t *testing.T, phone string) *domain.User {
 		t.Fatal(err)
 	}
 	h, _ := testHasher.Hash("rahasia123")
-	if err := r.users.CompleteRegistration(bg, u.ID, u.Name, u.Email, h, r.clock.t); err != nil {
+	if err := r.users.CompleteRegistration(bg, u.ID, usecase.Registration{Name: u.Name, Email: u.Email, PasswordHash: h, NIM: nimFor(phone), GroupID: &r.group}, r.clock.t); err != nil {
 		t.Fatal(err)
 	}
 	return u
@@ -145,7 +170,7 @@ func TestOTPRegisterActiveNumberIsDecoy(t *testing.T) {
 	}
 	owner := r.activate(t, "6281234567890")
 	ip := netip.MustParseAddr("198.51.100.1")
-	tk, err := r.uc.Register(bg, usecase.RegisterInput{Name: "Penyerang", Email: "evil@example.com", Phone: "+62 812 3456 7890", Password: "punyapenyerang", ClientIP: &ip})
+	tk, err := r.uc.Register(bg, usecase.RegisterInput{Name: "Penyerang", Email: "evil@example.com", Phone: "+62 812 3456 7890", Password: "punyapenyerang", NIM: "EVIL00001", GroupID: r.group, ClientIP: &ip})
 	if err != nil || tk.ResendAfter != time.Minute {
 		t.Fatalf("respons harus sama dengan nomor baru: %+v %v", tk, err)
 	}
@@ -170,7 +195,7 @@ func TestOTPRegisterPendingNumberReplacesChallengeOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	attacker, err := r.uc.Register(bg, usecase.RegisterInput{Name: "Penyerang", Email: "evil@example.com", Phone: "081234567890", Password: "punyapenyerang"})
+	attacker, err := r.uc.Register(bg, usecase.RegisterInput{Name: "Penyerang", Email: "evil@example.com", Phone: "081234567890", Password: "punyapenyerang", NIM: "EVIL00001", GroupID: r.group})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,6 +298,9 @@ func TestOTPRequestValidationDoesNotConsumeQuota(t *testing.T) {
 		{usecase.RegisterInput{Name: "A", Email: "a@b.co", Phone: "0212345678", Password: "rahasia123"}, "INVALID_PHONE"},
 		{usecase.RegisterInput{Name: "A", Email: "a@b.co", Phone: "081234567890", Password: "pendek"}, "INVALID_PASSWORD"},
 		{usecase.RegisterInput{Name: "A", Email: "a@b.co", Phone: "081234567890"}, "INVALID_PASSWORD"},
+		{usecase.RegisterInput{Name: "A", Email: "a@b.co", Phone: "081234567890", Password: "rahasia123", GroupID: r.group}, "INVALID_NIM"},
+		{usecase.RegisterInput{Name: "A", Email: "a@b.co", Phone: "081234567890", Password: "rahasia123", NIM: "251FS01017"}, "INVALID_GROUP"},
+		{usecase.RegisterInput{Name: "A", Email: "a@b.co", Phone: "081234567890", Password: "rahasia123", NIM: "251FS01017", GroupID: 999999}, "INVALID_GROUP"},
 	}
 	for _, tc := range cases {
 		if _, err := r.uc.Register(bg, tc.in); errCode(err) != tc.want {
@@ -399,10 +427,10 @@ func TestOTPIssueFailureRefundsQuota(t *testing.T) {
 	r := newOTPReqRig(t, otpReqOpts{})
 	repo := &failingReplace{OTPRepo: r.otps, fail: true}
 	limiter := usecase.NewPhoneLimiterWithClock(time.Minute, 5, func() time.Time { return r.clock.t })
-	uc := usecase.NewOTPRequest(r.users, repo, r.codes, testHasher, r.channel, limiter, r.clock, usecase.OTPRequestConfig{
+	uc := usecase.NewOTPRequest(r.users, postgres.NewGroupRepo(r.pool), repo, r.codes, testHasher, r.channel, limiter, r.clock, usecase.OTPRequestConfig{
 		ResendCooldown: time.Minute, MaxQueue: 10, DailyGlobalCap: 10, SendInterval: time.Second, CodeTTL: 5 * time.Minute,
 	})
-	in := usecase.RegisterInput{Name: "A", Email: "a@b.co", Phone: "081234567890", Password: "rahasia123"}
+	in := usecase.RegisterInput{Name: "A", Email: "a@b.co", Phone: "081234567890", Password: "rahasia123", NIM: "251FS01017", GroupID: r.group}
 	if _, err := uc.Register(bg, in); err == nil {
 		t.Fatal("Replace gagal harus mengembalikan error")
 	}

@@ -15,6 +15,7 @@ import (
 	"photo-annotated/internal/adapter/postgres"
 	"photo-annotated/internal/domain"
 	"photo-annotated/internal/testutil/pgtest"
+	"photo-annotated/internal/usecase"
 )
 
 type authRig struct {
@@ -949,14 +950,14 @@ func TestUserPasswordLifecycle(t *testing.T) {
 	if err := r.users.SetPassword(ctx, u.ID, bcryptLike); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("pengguna pending tidak boleh diberi password lewat reset: %v", err)
 	}
-	if err := r.users.CompleteRegistration(ctx, u.ID, "Nama Baru", "baru@example.com", bcryptLike, now()); err != nil {
+	if err := r.users.CompleteRegistration(ctx, u.ID, usecase.Registration{Name: "Nama Baru", Email: "baru@example.com", PasswordHash: bcryptLike}, now()); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := r.users.Get(ctx, u.ID)
 	if got.Status != domain.UserActive || got.PhoneVerifiedAt == nil || got.Name != "Nama Baru" || got.PasswordHash != bcryptLike {
 		t.Fatalf("registrasi: %+v", got)
 	}
-	if err := r.users.CompleteRegistration(ctx, u.ID, "X", "x@example.com", bcryptLike, now()); err == nil {
+	if err := r.users.CompleteRegistration(ctx, u.ID, usecase.Registration{Name: "X", Email: "x@example.com", PasswordHash: bcryptLike}, now()); err == nil {
 		t.Fatal("registrasi kedua untuk pengguna aktif harus ditolak")
 	}
 	other := bcryptLike[:59] + "9" // hash lain, tetap 60 karakter
@@ -1038,7 +1039,7 @@ func TestOTPAdminLoginSeparateFromUserChallenges(t *testing.T) {
 func TestUserBlockConstraintAndSessionLookup(t *testing.T) {
 	r := newAuthRig(t)
 	u := r.user(t)
-	if err := r.users.CompleteRegistration(ctx, u.ID, "Budi", "budi@example.com", bcryptLike, now()); err != nil {
+	if err := r.users.CompleteRegistration(ctx, u.ID, usecase.Registration{Name: "Budi", Email: "budi@example.com", PasswordHash: bcryptLike}, now()); err != nil {
 		t.Fatal(err)
 	}
 	s := &domain.Session{ID: uuid.New(), UserID: u.ID, TokenHash: hash32(9), CreatedAt: now(), ExpiresAt: now().Add(time.Hour)}

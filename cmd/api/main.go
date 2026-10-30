@@ -334,7 +334,7 @@ func startOTP(ctx context.Context, log *slog.Logger, cfg *config.Config, pool *p
 		}
 		users := postgres.NewUserRepo(pool)
 		sessions := postgres.NewSessionRepo(pool)
-		requester := usecase.NewOTPRequest(users, otps, codes, hasher, channel, phones, usecase.SystemClock{}, requestCfg)
+		requester := usecase.NewOTPRequest(users, postgres.NewGroupRepo(pool), otps, codes, hasher, channel, phones, usecase.SystemClock{}, requestCfg)
 		deps.OTPRequester = requester
 		deps.OTPVerifier = usecase.NewOTPVerify(requester, users, otps, sessions, postgres.NewTxManager(pool), codes, hasher, usecase.SystemClock{},
 			usecase.OTPVerifyConfig{MaxAttempts: o.MaxVerifyAttempts, SessionTTL: cfg.Auth.SessionTTL.Std()})

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"photo-annotated/internal/domain"
@@ -20,18 +21,30 @@ var _ usecase.UserRepo = (*UserRepo)(nil)
 
 func NewUserRepo(pool *pgxpool.Pool) *UserRepo { return &UserRepo{base{pool}} }
 
-const userColumns = `id, name, email, phone, status, phone_verified_at, created_at, last_login_at, password_hash, blocked_at, blocked_reason`
+const userColumns = `id, name, email, phone, status, phone_verified_at, created_at, last_login_at, password_hash, blocked_at, blocked_reason,
+	nim, group_id`
+
+// userSelect membaca pengguna (alias u) beserta nama kelompoknya; disambung dengan WHERE.
+var userSelect = `SELECT ` + prefixed("u", userColumns) + `, g.name FROM users u LEFT JOIN groups g ON g.id = u.group_id`
 
 func scanUser(row pgx.Row) (*domain.User, error) {
 	var (
-		u      domain.User
-		status string
-		hash   *string
-		reason *string
+		u         domain.User
+		status    string
+		hash      *string
+		reason    *string
+		nim       *string
+		groupName *string
 	)
 	if err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &status, &u.PhoneVerifiedAt, &u.CreatedAt, &u.LastLoginAt, &hash,
-		&u.BlockedAt, &reason); err != nil {
+		&u.BlockedAt, &reason, &nim, &u.GroupID, &groupName); err != nil {
 		return nil, err
+	}
+	if nim != nil {
+		u.NIM = *nim
+	}
+	if groupName != nil {
+		u.GroupName = *groupName
 	}
 	if reason != nil {
 		u.BlockedReason = *reason
@@ -64,12 +77,12 @@ func (r *UserRepo) FindOrCreatePending(ctx context.Context, u *domain.User) (*do
 }
 
 func (r *UserRepo) Get(ctx context.Context, id uuid.UUID) (*domain.User, error) {
-	u, err := scanUser(r.db(ctx).QueryRow(ctx, `SELECT `+userColumns+` FROM users WHERE id = $1`, id))
+	u, err := scanUser(r.db(ctx).QueryRow(ctx, userSelect+` WHERE u.id = $1`, id))
 	return wrapUser(u, err, id.String())
 }
 
 func (r *UserRepo) GetByPhone(ctx context.Context, phone string) (*domain.User, error) {
-	u, err := scanUser(r.db(ctx).QueryRow(ctx, `SELECT `+userColumns+` FROM users WHERE phone = $1`, phone))
+	u, err := scanUser(r.db(ctx).QueryRow(ctx, userSelect+` WHERE u.phone = $1`, phone))
 	return wrapUser(u, err, "phone")
 }
 
@@ -83,12 +96,19 @@ func wrapUser(u *domain.User, err error, what string) (*domain.User, error) {
 	return u, nil
 }
 
-func (r *UserRepo) CompleteRegistration(ctx context.Context, id uuid.UUID, name, email, passwordHash string, now time.Time) error {
+func (r *UserRepo) CompleteRegistration(ctx context.Context, id uuid.UUID, reg usecase.Registration, now time.Time) error {
 	tag, err := r.db(ctx).Exec(ctx, `
 		UPDATE users
-		   SET name = $2, email = $3, password_hash = $4,
+		   SET name = $2, email = $3, password_hash = $4, nim = $6, group_id = $7,
 		       status = 'active', phone_verified_at = $5, last_login_at = $5
-		 WHERE id = $1 AND status = 'pending'`, id, name, email, passwordHash, now)
+		 WHERE id = $1 AND status = 'pending'`, id, reg.Name, reg.Email, reg.PasswordHash, now, nullable(reg.NIM), reg.GroupID)
+	if isUniqueViolation(err, "users_nim") {
+		return usecase.ErrNIMTaken
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23503" { // kelompok dihapus sebelum OTP diverifikasi
+		return usecase.ErrInvalidGroup
+	}
 	if err != nil {
 		return fmt.Errorf("postgres: complete registration: %w", err)
 	}
@@ -96,6 +116,14 @@ func (r *UserRepo) CompleteRegistration(ctx context.Context, id uuid.UUID, name,
 		return domain.Conflict("ALREADY_REGISTERED", "this number is already registered; sign in or reset the password")
 	}
 	return nil
+}
+
+func (r *UserRepo) NIMTaken(ctx context.Context, nim string) (bool, error) {
+	var taken bool
+	if err := r.db(ctx).QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE nim = $1 AND status = 'active')`, nim).Scan(&taken); err != nil {
+		return false, fmt.Errorf("postgres: nim taken: %w", err)
+	}
+	return taken, nil
 }
 
 func (r *UserRepo) SetPassword(ctx context.Context, id uuid.UUID, passwordHash string) error {

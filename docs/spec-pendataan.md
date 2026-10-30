@@ -190,7 +190,12 @@ NIM unik:
   memverifikasi belakangan → `409 NIM_TAKEN`, challenge-nya ditutup).
 - NIM dan `group_id` disimpan di challenge sampai OTP diverifikasi, sama seperti nama/email.
 
-`GET /auth/me` dan `user` di respons login memuat `nim` dan `group` (`{id, name}`).
+`GET /auth/me` dan `user` di respons login memuat `nim` dan `group` (`{id, name}`); keduanya `null` untuk
+akun lama tanpa NIM/kelompok.
+
+Urutan validasi register: nama, email, nomor, password, `nim` (`INVALID_NIM`), `group_id` (`INVALID_GROUP`),
+lalu NIM terpakai (`NIM_TAKEN`), baru batas kanal/antrean/per nomor. Kelompok yang dihapus admin di antara
+register dan verifikasi → verifikasi `422 INVALID_GROUP` dan challenge ditutup (sama seperti `NIM_TAKEN`).
 
 ### 5.5 Kelompok (admin)
 Pola sama dengan label, tanpa warna dan urutan manual:
@@ -199,7 +204,10 @@ Pola sama dengan label, tanpa warna dan urutan manual:
   (`409 GROUP_NAME_TAKEN`).
 - `PUT /admin/groups/{id}` `{ "name": "…", "archived": false }`.
 - `DELETE /admin/groups/{id}` — hanya bila belum dipakai akun mana pun (`409 GROUP_IN_USE`; arsipkan saja).
-- Admin bisa memindahkan mahasiswa ke kelompok lain: `PUT /admin/users/{id}/group` `{ "group_id": 4 }`.
+- Admin bisa memindahkan mahasiswa ke kelompok lain: `PUT /admin/users/{id}/group` `{ "group_id": 4 }` →
+  `200` + objek annotator (sama dengan `GET /admin/users/{id}`); kelompok tidak ada/arsip → `422
+  INVALID_GROUP`; pengguna tidak ada → `404`. Objek annotator di `GET /admin/users[/{id}]` ditambah `nim`
+  dan `group` (`{id, name}` atau `null`).
 
 Aksi dicatat `logAdminAction` (`group.create`, `group.update`, `group.delete`, `user.set_group`).
 

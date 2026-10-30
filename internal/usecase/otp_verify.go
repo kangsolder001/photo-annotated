@@ -151,7 +151,8 @@ func (v *OTPVerify) login(ctx context.Context, c *domain.OTPChallenge, newPasswo
 				return err
 			}
 		default:
-			if err := v.users.CompleteRegistration(ctx, c.UserID, c.RegName, c.RegEmail, c.RegPasswordHash, now); err != nil {
+			reg := Registration{Name: c.RegName, Email: c.RegEmail, PasswordHash: c.RegPasswordHash, NIM: c.RegNIM, GroupID: c.RegGroupID}
+			if err := v.users.CompleteRegistration(ctx, c.UserID, reg, now); err != nil {
 				return err
 			}
 		}
@@ -161,6 +162,14 @@ func (v *OTPVerify) login(ctx context.Context, c *domain.OTPChallenge, newPasswo
 		user, err = v.users.Get(ctx, c.UserID)
 		return err
 	})
+	if errors.Is(err, ErrNIMTaken) || errors.Is(err, ErrInvalidGroup) {
+		// Transaksi batal (termasuk Consume): challenge ditutup agar tidak bisa dipakai ulang; pendaftar
+		// harus mendaftar ulang dengan data lain (spec-pendataan §5.4).
+		if xerr := v.otps.Expire(ctx, c.ID); xerr != nil {
+			return nil, xerr
+		}
+		return nil, err
+	}
 	if err != nil {
 		return nil, err
 	}

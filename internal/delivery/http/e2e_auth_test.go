@@ -62,7 +62,7 @@ func newAuthStack(t *testing.T, cfURL string, otpPerMin int, extra ...func(*stac
 			CodeTTL: 5 * time.Minute, MessageTemplate: "*{code}* kode Anda", AdminMessageTemplate: testAdminTemplate,
 			RetryDelays: []time.Duration{3 * time.Second}, StuckAfter: time.Minute,
 		})
-		req := usecase.NewOTPRequest(users, otps, codes, testBcrypt, as.channel, phones, usecase.SystemClock{},
+		req := usecase.NewOTPRequest(users, postgres.NewGroupRepo(pool), otps, codes, testBcrypt, as.channel, phones, usecase.SystemClock{},
 			usecase.OTPRequestConfig{ResendCooldown: time.Minute, MaxQueue: 200, DailyGlobalCap: 500, SendInterval: 1500 * time.Millisecond, CodeTTL: 5 * time.Minute})
 		sessions := postgres.NewSessionRepo(pool)
 		return otpParts{
@@ -91,6 +91,10 @@ func newAuthStack(t *testing.T, cfURL string, otpPerMin int, extra ...func(*stac
 		as.cooldown = opts.otpCooldown
 	}
 	as.stack = newStack(t, opts)
+	// kelompok aktif id 1 untuk registrasi (spec-pendataan §5.4)
+	if _, err := as.pool.Exec(context.Background(), `INSERT INTO groups (name) VALUES ('Kelompok Uji')`); err != nil {
+		t.Fatal(err)
+	}
 	return as
 }
 
@@ -115,7 +119,7 @@ func errField(m map[string]any) string {
 	return ""
 }
 
-const regBody = `{"name":"Budi","email":"budi@example.com","phone":"0812-3456-7890","password":"rahasia123","turnstile_token":"human"}`
+const regBody = `{"name":"Budi","email":"budi@example.com","phone":"0812-3456-7890","password":"rahasia123","nim":"251FS01017","group_id":1,"turnstile_token":"human"}`
 
 func TestE2EAuthRoutesAbsentInModeNone(t *testing.T) {
 	s := newStack(t, stackOpts{})

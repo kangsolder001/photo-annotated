@@ -31,3 +31,30 @@ func TestNormalizeGroupName(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeNIM(t *testing.T) {
+	tests := []struct {
+		in, want string
+		ok       bool
+	}{
+		{"251FS01017", "251FS01017", true},
+		{" 251fs01017 ", "251FS01017", true},
+		{"12345", "12345", true},
+		{strings.Repeat("A", 20), strings.Repeat("A", 20), true},
+		{"1234", "", false},
+		{strings.Repeat("A", 21), "", false},
+		{"", "", false},
+		{"251-FS-010", "", false},
+		{"251 FS 010", "", false},
+		{"ÄBCDE1", "", false},
+	}
+	for _, tc := range tests {
+		got, err := domain.NormalizeNIM(tc.in)
+		if (err == nil) != tc.ok || got != tc.want {
+			t.Errorf("%q: got %q err=%v", tc.in, got, err)
+		}
+		if err != nil && errCode(err) != "INVALID_NIM" {
+			t.Errorf("%q: kode %v", tc.in, err)
+		}
+	}
+}

@@ -139,8 +139,11 @@ type UserRepo interface {
 	// Activate menandai nomor terverifikasi dan mencatat login (idempoten untuk pengguna aktif).
 	Activate(ctx context.Context, id uuid.UUID, now time.Time) error
 	// CompleteRegistration menerapkan data registrasi dari challenge yang terverifikasi (nama, email,
-	// hash password) dan mengaktifkan pengguna. Hanya untuk pengguna pending; selain itu Conflict.
-	CompleteRegistration(ctx context.Context, id uuid.UUID, name, email, passwordHash string, now time.Time) error
+	// hash password, NIM, kelompok) dan mengaktifkan pengguna. Hanya untuk pengguna pending; selain itu
+	// Conflict. NIM sudah dipakai akun lain → ErrNIMTaken; kelompok sudah tidak ada → ErrInvalidGroup.
+	CompleteRegistration(ctx context.Context, id uuid.UUID, reg Registration, now time.Time) error
+	// NIMTaken: NIM sudah dipakai akun aktif.
+	NIMTaken(ctx context.Context, nim string) (bool, error)
 	// SetPassword mengganti hash password pengguna aktif (reset password).
 	SetPassword(ctx context.Context, id uuid.UUID, passwordHash string) error
 	// TouchLogin mencatat waktu login terakhir.
@@ -371,6 +374,8 @@ type GroupUsage struct {
 type GroupRepo interface {
 	// ListActive: kelompok aktif urut nama.
 	ListActive(ctx context.Context) ([]domain.Group, error)
+	// Get: satu kelompok (termasuk arsip); tidak ada → domain.ErrNotFound.
+	Get(ctx context.Context, id int) (*domain.Group, error)
 	// ListAll: semua kelompok (aktif dulu, lalu arsip; masing-masing urut nama) dengan jumlah mahasiswa.
 	ListAll(ctx context.Context) ([]GroupUsage, error)
 	// Create mengisi ID. Nama kembar (tanpa beda huruf besar-kecil) → domain.Conflict GROUP_NAME_TAKEN.
@@ -532,6 +537,9 @@ type AdminUserRepo interface {
 	GetUser(ctx context.Context, id uuid.UUID) (*AdminUserRow, error)
 	// Block mengisi blocked_at/alasan bila belum diblokir (changed=false bila sudah). Pengguna aktif saja.
 	Block(ctx context.Context, id uuid.UUID, reason string, now time.Time) (changed bool, err error)
+	// SetGroup memindahkan pengguna aktif ke kelompok aktif. Pengguna tidak ada → domain.ErrNotFound;
+	// kelompok tidak ada/arsip → ErrInvalidGroup.
+	SetGroup(ctx context.Context, id uuid.UUID, groupID int) error
 	// Unblock mengosongkan blokir (changed=false bila memang tidak diblokir).
 	Unblock(ctx context.Context, id uuid.UUID) (changed bool, err error)
 	// LockForDelete mengunci baris pengguna aktif (FOR UPDATE) agar submit yang berbarengan menunggu;

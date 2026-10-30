@@ -38,6 +38,10 @@ type User struct {
 	// BlockedAt diisi admin saat memblokir annotator (spec-labels-admin §5.8); nil = tidak diblokir.
 	BlockedAt     *time.Time
 	BlockedReason string
+	// NIM (huruf besar) dan kelompok mahasiswa (spec-pendataan §5.4); kosong/nil untuk akun lama.
+	NIM       string
+	GroupID   *int
+	GroupName string // nama kelompok terkini (join), kosong bila GroupID nil
 }
 
 // Blocked: akun diblokir admin. Sesi ditolak dan login dengan password benar → ACCOUNT_BLOCKED.
@@ -72,6 +76,20 @@ func ValidatePassword(p string) error {
 		}
 	}
 	return nil
+}
+
+// NormalizeNIM: trim, huruf besar, 5–20 huruf/angka ASCII (contoh 251FS01017). Salah → INVALID_NIM.
+func NormalizeNIM(raw string) (string, error) {
+	s := strings.ToUpper(strings.TrimSpace(raw))
+	if n := len(s); n < 5 || n > 20 {
+		return "", Invalid("INVALID_NIM", "NIM must be 5-20 letters or digits")
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; !(c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
+			return "", Invalid("INVALID_NIM", "NIM must be 5-20 letters or digits")
+		}
+	}
+	return s, nil
 }
 
 // NormalizeName memangkas dan memvalidasi nama: 1–100 karakter, UTF-8 valid, tanpa karakter

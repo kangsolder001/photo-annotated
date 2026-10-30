@@ -50,17 +50,20 @@ type OTPChallenge struct {
 	// diterapkan saat kode challenge INI diverifikasi: pendaftaran ulang nomor yang sama oleh orang
 	// lain tidak bisa menyisipkan password ke akun pemilik nomor.
 	RegName, RegEmail, RegPasswordHash string
-	CodeHash                           []byte
-	Status                             OTPStatus
-	FailureReason                      string
-	VerifyAttempts                     int
-	SendAttempts                       int
-	NextAttemptAt                      time.Time
-	WAMessageID                        string
-	ClientIP                           *netip.Addr
-	CreatedAt                          time.Time
-	SentAt                             *time.Time
-	ExpiresAt                          *time.Time // sent_at + TTL; nil selama belum terkirim
+	// NIM + kelompok registrasi (spec-pendataan §5.4), diterapkan bersama data registrasi lain.
+	RegNIM         string
+	RegGroupID     *int
+	CodeHash       []byte
+	Status         OTPStatus
+	FailureReason  string
+	VerifyAttempts int
+	SendAttempts   int
+	NextAttemptAt  time.Time
+	WAMessageID    string
+	ClientIP       *netip.Addr
+	CreatedAt      time.Time
+	SentAt         *time.Time
+	ExpiresAt      *time.Time // sent_at + TTL; nil selama belum terkirim
 }
 
 // Session adalah sesi login (token bearer). Token asli hanya dikirim sekali ke klien; di sini

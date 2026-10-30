@@ -171,6 +171,19 @@ hash disimpan di challenge), `e2e_auth_test.go`.
 **Test baru:** kasus di `e2e_auth_test.go` (atau `e2e_nim_test.go`), test domain NIM.
 **Verifikasi:** perintah standar backend.
 
+**Hasil:** migrasi `0012_user_nim.sql` (`users.nim`/`group_id` + `users_nim_idx`; `otp_challenges.reg_nim`/
+`reg_group_id`, tanpa FK; Down menolak bila ada NIM). `domain.NormalizeNIM`; `Register` memvalidasi NIM +
+kelompok aktif dan menolak NIM akun aktif (`409 NIM_TAKEN`) sebelum memakan kuota; NIM + kelompok ikut
+`Resend`. Verifikasi menerapkan NIM lewat `CompleteRegistration(…, Registration, …)`; unique violation →
+`NIM_TAKEN`, FK kelompok terhapus → `INVALID_GROUP`, dan challenge di-expire di luar transaksi. `user`
+(login/verify/me) memuat `nim` + `group`; admin users memuat `nim` + `group`; `PUT /admin/users/{id}/group`
+(`user.set_group`); `student_count` = akun aktif per kelompok; hapus terpakai → `409 GROUP_IN_USE`. Test:
+`e2e_nim_test.go` (validasi, huruf besar, NIM_TAKEN, balapan dua pendaftar, arsip, pindah kelompok), domain
+NIM, log hygiene (NIM, `group.create`, `user.set_group`); test auth lama diperbarui untuk mengirim NIM +
+kelompok (kelompok uji id 1 di `newAuthStack`).
+**Catatan:** bentuk respons `PUT /admin/users/{id}/group`, `null` untuk akun lama, urutan validasi, dan
+`INVALID_GROUP` saat verifikasi ditetapkan di spec §5.4/§5.5.
+
 #### Task 60: Definisi instrumen + `GET /survey/form` — M
 **Spec:** §4 (seluruhnya), §5.1. Teks pertanyaan B/C **persis** tabel di bawah ini (dari Google Form).
 **Langkah:**

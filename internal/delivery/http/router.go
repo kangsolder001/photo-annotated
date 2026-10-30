@@ -262,6 +262,7 @@ func NewRouter(d Deps) *gin.Engine {
 			api.GET("/admin/users/:id", adminOnly, users.Get)
 			api.POST("/admin/users/:id/block", adminOnly, users.Block)
 			api.POST("/admin/users/:id/unblock", adminOnly, users.Unblock)
+			api.PUT("/admin/users/:id/group", adminOnly, users.SetGroup)
 			api.POST("/admin/users/:id/delete-data", adminOnly, users.DeleteData)
 			api.DELETE("/admin/users/:id", adminOnly, users.DeleteAccount)
 		}

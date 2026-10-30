@@ -22,6 +22,7 @@ type AdminUserService interface {
 	Get(ctx context.Context, id uuid.UUID) (*usecase.AdminUserRow, error)
 	Block(ctx context.Context, id uuid.UUID, reason string) (*usecase.BlockResult, error)
 	Unblock(ctx context.Context, id uuid.UUID) (*usecase.BlockResult, error)
+	SetGroup(ctx context.Context, id uuid.UUID, groupID int) (*usecase.AdminUserRow, error)
 	DeleteData(ctx context.Context, id uuid.UUID, includeAccepted bool) (*usecase.UserDataMark, error)
 	DeleteAccount(ctx context.Context, id uuid.UUID) (*usecase.UserDataMark, error)
 }
@@ -56,6 +57,8 @@ type adminUserDTO struct {
 	Blocked       bool         `json:"blocked"`
 	BlockedAt     *time.Time   `json:"blocked_at"`
 	BlockedReason *string      `json:"blocked_reason"`
+	NIM           *string      `json:"nim"`
+	Group         *groupDTO    `json:"group"`
 	Stats         userStatsDTO `json:"stats"`
 }
 
@@ -64,6 +67,7 @@ func toAdminUser(r *usecase.AdminUserRow) adminUserDTO {
 	return adminUserDTO{
 		ID: u.ID, Name: u.Name, Email: u.Email, Phone: u.Phone, CreatedAt: u.CreatedAt.UTC(), LastLoginAt: utcPtr(u.LastLoginAt),
 		Blocked: u.Blocked(), BlockedAt: utcPtr(u.BlockedAt), BlockedReason: optString(u.BlockedReason),
+		NIM: optString(u.NIM), Group: userGroup(&u),
 		Stats: userStatsDTO{Submissions: r.Stats.Submissions, Annotations: r.Stats.Annotations, Accepted: r.Stats.Accepted,
 			Rejected: r.Stats.Rejected, Pending: r.Stats.Pending, LastSubmissionAt: utcPtr(r.Stats.LastSubmissionAt)},
 	}
@@ -175,6 +179,27 @@ func (h *AdminUserHandler) Block(c *gin.Context) {
 	}
 	logAdminAction(h.log, c, "user.block", "user_id", id, "changed", r.Changed)
 	writeUser(c, r.User)
+}
+
+// SetGroup menangani PUT /api/v1/admin/users/{id}/group: pindah kelompok (spec-pendataan §5.5).
+func (h *AdminUserHandler) SetGroup(c *gin.Context) {
+	id, ok := userID(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		GroupID int `json:"group_id"`
+	}
+	if !httpx.DecodeJSON(c, &req) {
+		return
+	}
+	r, err := h.users.SetGroup(c.Request.Context(), id, req.GroupID)
+	if err != nil {
+		httpx.WriteError(c, err)
+		return
+	}
+	logAdminAction(h.log, c, "user.set_group", "user_id", id, "group_id", req.GroupID)
+	writeUser(c, r)
 }
 
 // Unblock menangani POST /api/v1/admin/users/{id}/unblock.

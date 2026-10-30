@@ -22,8 +22,8 @@ func NewGroupRepo(pool *pgxpool.Pool) *GroupRepo { return &GroupRepo{base{pool}}
 
 const groupColumns = `g.id, g.name, g.archived_at, g.created_at, g.updated_at`
 
-// groupStudents menghitung akun yang memakai kelompok g.
-const groupStudents = `0`
+// groupStudents menghitung akun aktif yang memakai kelompok g.
+const groupStudents = `(SELECT count(*) FROM users u WHERE u.group_id = g.id AND u.status = 'active')`
 
 func scanGroup(row pgx.Row, extra ...any) (*domain.Group, error) {
 	var g domain.Group
@@ -48,6 +48,17 @@ func (r *GroupRepo) ListActive(ctx context.Context) ([]domain.Group, error) {
 		out = append(out, *g)
 	}
 	return out, rows.Err()
+}
+
+func (r *GroupRepo) Get(ctx context.Context, id int) (*domain.Group, error) {
+	g, err := scanGroup(r.db(ctx).QueryRow(ctx, `SELECT `+groupColumns+` FROM groups g WHERE g.id = $1`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("group %d: %w", id, domain.ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("postgres: get group: %w", err)
+	}
+	return g, nil
 }
 
 func (r *GroupRepo) ListAll(ctx context.Context) ([]usecase.GroupUsage, error) {

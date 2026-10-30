@@ -39,7 +39,7 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 	cf := fakeSiteverify(t)
 	s := newAuthStack(t, cf.URL, 0, func(o *stackOpts) { o.logOut = logs })
 
-	resp, reg := s.postJSON(t, "/api/v1/auth/register", `{"name":"Rahasia Namanya","email":"surel.rahasia@example.com","phone":"0812-7777-1234","password":"PASSWORD-RAHASIA-1","turnstile_token":"human"}`)
+	resp, reg := s.postJSON(t, "/api/v1/auth/register", `{"name":"Rahasia Namanya","email":"surel.rahasia@example.com","phone":"0812-7777-1234","password":"PASSWORD-RAHASIA-1","nim":"nimrahasia77","group_id":1,"turnstile_token":"human"}`)
 	if resp.StatusCode != 202 {
 		t.Fatalf("register: %d", resp.StatusCode)
 	}
@@ -90,6 +90,10 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 	uid := users["items"].([]any)[0].(map[string]any)["id"].(string)
 	admin.send(t, "POST", "/api/v1/admin/users/"+uid+"/block", `{"reason":"ALASAN-BLOKIR-RAHASIA"}`)
 	admin.send(t, "POST", "/api/v1/admin/users/"+uid+"/unblock", "")
+	_, grp := admin.send(t, "POST", "/api/v1/admin/groups", `{"name":"Kelompok Pindahan"}`)
+	if resp, m := admin.send(t, "PUT", "/api/v1/admin/users/"+uid+"/group", `{"group_id":`+idOf(grp)+`}`); resp.StatusCode != 200 || m["nim"] != "NIMRAHASIA77" {
+		t.Fatalf("pindah kelompok: %d %v", resp.StatusCode, m)
+	}
 	admin.send(t, "POST", "/api/v1/admin/users/"+uid+"/delete-data", `{"include_accepted":true}`)
 	s.postJSON(t, "/api/v1/auth/login", `{"phone":"0812-7777-1234","password":"PASSWORD-RAHASIA-1"}`)
 	_, fake := s.postJSON(t, "/api/v1/admin/otp/request", `{"phone":"0813-5555-6666","turnstile_token":"human"}`)
@@ -108,7 +112,8 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 		!strings.Contains(out, `"action":"label.reorder"`) || !strings.Contains(out, `"action":"label.delete"`) ||
 		!strings.Contains(out, `"action":"submission.delete"`) || !strings.Contains(out, `"action":"submission.review"`) ||
 		!strings.Contains(out, `"action":"user.block"`) || !strings.Contains(out, `"action":"user.unblock"`) ||
-		!strings.Contains(out, `"action":"user.delete_data"`) {
+		!strings.Contains(out, `"action":"user.delete_data"`) || !strings.Contains(out, `"action":"group.create"`) ||
+		!strings.Contains(out, `"action":"user.set_group"`) {
 		t.Fatalf("log kurang lengkap (user_id/code):\n%s", out)
 	}
 	secrets := map[string]string{
@@ -119,6 +124,7 @@ func TestE2ELogsContainNoSecrets(t *testing.T) {
 		"nomor lain di login admin": "6281355556666", "kode admin salah": "424242",
 		"password daftar": "PASSWORD-RAHASIA-1", "token palsu": "token-palsu-rahasia", "tanda tangan URL": "sig=",
 		"header Authorization": "Bearer", "turnstile": `"human"`,
+		"NIM": "NIMRAHASIA77", "NIM input": "nimrahasia77",
 	}
 	for what, v := range secrets {
 		if v != "" && strings.Contains(out, v) {

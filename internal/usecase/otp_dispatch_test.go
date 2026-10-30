@@ -34,6 +34,7 @@ type dispatchRig struct {
 	clock   *fakeClock
 	req     *usecase.OTPRequest
 	disp    *usecase.OTPDispatcher
+	group   int
 }
 
 // hookSender menjalankan before sesaat sebelum pengiriman sungguhan (untuk menyisipkan balapan).
@@ -68,7 +69,8 @@ func newDispatchRig(t *testing.T, token string) (*dispatchRig, *hookSender) {
 		CodeTTL: 5 * time.Minute, MessageTemplate: "*{code}* kode Anda, berlaku {ttl_minutes} menit.",
 		RetryDelays: []time.Duration{3 * time.Second, 10 * time.Second}, StuckAfter: 30 * time.Second,
 	})
-	r.req = usecase.NewOTPRequest(r.users, r.otps, codes, testHasher, r.channel, phones, r.clock, usecase.OTPRequestConfig{
+	r.group = seedGroup(t, pool, "Kelompok Uji")
+	r.req = usecase.NewOTPRequest(r.users, postgres.NewGroupRepo(pool), r.otps, codes, testHasher, r.channel, phones, r.clock, usecase.OTPRequestConfig{
 		ResendCooldown: time.Minute, MaxQueue: 200, DailyGlobalCap: 500, SendInterval: 1500 * time.Millisecond,
 		CodeTTL: 5 * time.Minute, OnQueued: r.disp.Wake,
 	})
@@ -81,7 +83,7 @@ func newDispatchRig(t *testing.T, token string) (*dispatchRig, *hookSender) {
 
 func (r *dispatchRig) register(t *testing.T, phone string) uuid.UUID {
 	t.Helper()
-	tk, err := r.req.Register(bg, usecase.RegisterInput{Name: "Budi", Email: "b@example.com", Phone: phone, Password: "rahasia123"})
+	tk, err := r.req.Register(bg, usecase.RegisterInput{Name: "Budi", Email: "b@example.com", Phone: phone, Password: "rahasia123", NIM: nimFor(phone), GroupID: r.group})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +203,7 @@ func TestDispatchDisconnectedMarksChannelUnavailable(t *testing.T) {
 			t.Fatalf("kegagalan ke-3 harus menutup kanal: %+v", res)
 		}
 	}
-	if _, err := r.req.Register(bg, usecase.RegisterInput{Name: "A", Email: "a@b.co", Phone: "081200000004", Password: "rahasia123"}); errCode(err) != "OTP_UNAVAILABLE" {
+	if _, err := r.req.Register(bg, usecase.RegisterInput{Name: "A", Email: "a@b.co", Phone: "081200000004", Password: "rahasia123", NIM: "251FS01017", GroupID: r.group}); errCode(err) != "OTP_UNAVAILABLE" {
 		t.Fatalf("err = %v", err)
 	}
 	r.stub.SetDisconnected(false)

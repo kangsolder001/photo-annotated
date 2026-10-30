@@ -45,7 +45,7 @@ func (r *AdminUserRepo) ListUsers(ctx context.Context, q usecase.AdminUserQuery)
 	if q.After != nil {
 		where = append(where, `(u.created_at, u.id) < (`+a.add(q.After.CreatedAt)+`, `+a.add(q.After.ID)+`::uuid)`)
 	}
-	rows, err := r.db(ctx).Query(ctx, `SELECT `+prefixed("u", userColumns)+` FROM users u
+	rows, err := r.db(ctx).Query(ctx, userSelect+`
 		 WHERE `+strings.Join(where, " AND ")+`
 		 ORDER BY u.created_at DESC, u.id DESC LIMIT `+a.add(q.Limit), a.args...)
 	if err != nil {
@@ -115,7 +115,7 @@ func (r *AdminUserRepo) fillStats(ctx context.Context, rows []usecase.AdminUserR
 }
 
 func (r *AdminUserRepo) GetUser(ctx context.Context, id uuid.UUID) (*usecase.AdminUserRow, error) {
-	u, err := scanUser(r.db(ctx).QueryRow(ctx, `SELECT `+userColumns+` FROM users WHERE id = $1 AND status = 'active'`, id))
+	u, err := scanUser(r.db(ctx).QueryRow(ctx, userSelect+` WHERE u.id = $1 AND u.status = 'active'`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("user %s: %w", id, domain.ErrNotFound)
 	}
@@ -174,6 +174,22 @@ func (r *AdminUserRepo) DeleteUser(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("user %s: %w", id, domain.ErrNotFound)
 	}
 	return nil
+}
+
+func (r *AdminUserRepo) SetGroup(ctx context.Context, id uuid.UUID, groupID int) error {
+	tag, err := r.db(ctx).Exec(ctx, `UPDATE users SET group_id = $2
+		WHERE id = $1 AND status = 'active'
+		  AND EXISTS (SELECT 1 FROM groups WHERE id = $2 AND archived_at IS NULL)`, id, groupID)
+	if err != nil {
+		return fmt.Errorf("postgres: set user group: %w", err)
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	if err := r.activeExists(ctx, id); err != nil {
+		return err
+	}
+	return usecase.ErrInvalidGroup
 }
 
 func (r *AdminUserRepo) Unblock(ctx context.Context, id uuid.UUID) (bool, error) {

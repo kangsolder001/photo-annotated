@@ -70,6 +70,8 @@ type registerRequest struct {
 	Email          string `json:"email"`
 	Phone          string `json:"phone"`
 	Password       string `json:"password"`
+	NIM            string `json:"nim"`
+	GroupID        int    `json:"group_id"`
 	TurnstileToken string `json:"turnstile_token"`
 }
 
@@ -134,7 +136,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 	t, err := h.otp.Register(c.Request.Context(), usecase.RegisterInput{
-		Name: req.Name, Email: req.Email, Phone: req.Phone, Password: req.Password, ClientIP: clientAddr(c),
+		Name: req.Name, Email: req.Email, Phone: req.Phone, Password: req.Password, NIM: req.NIM, GroupID: req.GroupID,
+		ClientIP: clientAddr(c),
 	})
 	writeTicket(c, t, err)
 }
@@ -227,10 +230,21 @@ type userDTO struct {
 	Email string    `json:"email"`
 	Phone string    `json:"phone"` // disamarkan
 	Role  string    `json:"role"`
+	NIM   *string   `json:"nim"`   // null untuk akun lama
+	Group *groupDTO `json:"group"` // null bila belum punya kelompok
+}
+
+// userGroup: kelompok pengguna sebagai {id, name}, atau nil.
+func userGroup(u *domain.User) *groupDTO {
+	if u.GroupID == nil {
+		return nil
+	}
+	return &groupDTO{ID: *u.GroupID, Name: u.GroupName}
 }
 
 func toUserDTO(u *domain.User) userDTO {
-	return userDTO{ID: u.ID, Name: u.Name, Email: u.Email, Phone: domain.MaskPhone(u.Phone), Role: "user"}
+	return userDTO{ID: u.ID, Name: u.Name, Email: u.Email, Phone: domain.MaskPhone(u.Phone), Role: "user",
+		NIM: optString(u.NIM), Group: userGroup(u)}
 }
 
 type loginResponse struct {

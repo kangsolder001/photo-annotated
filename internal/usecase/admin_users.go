@@ -91,6 +91,17 @@ func (u *AdminUsers) Block(ctx context.Context, id uuid.UUID, reason string) (*B
 	return &BlockResult{User: row, Changed: changed}, nil
 }
 
+// SetGroup memindahkan annotator ke kelompok aktif lain (spec-pendataan §5.5).
+func (u *AdminUsers) SetGroup(ctx context.Context, id uuid.UUID, groupID int) (*AdminUserRow, error) {
+	if groupID < 1 {
+		return nil, ErrInvalidGroup
+	}
+	if err := u.repo.SetGroup(ctx, id, groupID); err != nil {
+		return nil, err
+	}
+	return u.repo.GetUser(ctx, id)
+}
+
 // Unblock membuka blokir; user login lagi dengan password lamanya (sesi lama tetap dicabut).
 func (u *AdminUsers) Unblock(ctx context.Context, id uuid.UUID) (*BlockResult, error) {
 	changed, err := u.repo.Unblock(ctx, id)

@@ -76,7 +76,7 @@ func TestE2EAdminUsersBlockAndDeleteData(t *testing.T) {
 	before := len(s.wa.Messages())
 	for _, p := range []struct{ path, body string }{
 		{"/api/v1/auth/password/forgot", `{"phone":"081200000001","turnstile_token":"human"}`},
-		{"/api/v1/auth/register", `{"name":"A","email":"a@example.com","phone":"081200000001","password":"rahasia123","turnstile_token":"human"}`},
+		{"/api/v1/auth/register", `{"name":"A","email":"a@example.com","phone":"081200000001","password":"rahasia123","nim":"BARU00001","group_id":1,"turnstile_token":"human"}`},
 	} {
 		if resp, m := s.postJSON(t, p.path, p.body); resp.StatusCode != 202 {
 			t.Fatalf("%s: %d %v", p.path, resp.StatusCode, m)
