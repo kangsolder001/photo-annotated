@@ -86,6 +86,13 @@ generik dari respons itu. Setiap definisi punya `version` (mulai `1`); jawaban d
 | `choice` | id opsi | harus salah satu opsi |
 | `multi` | array id opsi (unik) | ≥ 1 bila wajib; opsi `other` wajib disertai teks 1–100 karakter |
 
+Jawaban kosong (tidak ada, `null`, `""` setelah trim, `[]`) dianggap tidak diisi dan tidak disimpan. `int`
+harus angka JSON (bukan string). Teks opsi `other` pada `multi` dikirim sebagai **kunci jawaban terpisah**
+`<id>_other` (mis. `"r3_container_types_other": "Galon"`), satu baris 1–100 karakter: wajib bila opsi
+`other` dipilih, ditolak bila opsi itu tidak dipilih. Teks disimpan setelah di-trim; `textarea` menormalkan
+`\r\n` menjadi `\n` dan tab menjadi spasi. Zona tanggal = UTC+7 tetap (WIB). Pesan `INVALID_ANSWER` memakai
+error pertama: id tak dikenal lebih dulu (urut abjad), lalu urut definisi.
+
 ### 4.2 Daftar pertanyaan (versi 1)
 `*` = wajib (bila bagiannya berlaku, lihat §4.3).
 
@@ -154,6 +161,9 @@ Publik. Mengembalikan definisi instrumen (§4) berikut teks bantuan. Di-cache FE
   { "id": "A", "title": "A. Identitas Pendataan", "help": "…", "questions": [
     { "id": "a_rw", "label": "RW", "type": "text", "required": true, "max": 10 } ] } ] }
 ```
+`help`, `min`, `max`, `options` tidak dikirim bila kosong; opsi `{ "id", "label", "other": true }` (`other`
+tidak dikirim bila false). Bagian berurutan `A`, `B1`…`B5`, `C`, `R2`, `R3`. `Cache-Control: public,
+max-age=300`.
 
 ### 5.2 `GET /groups`
 Publik (dipakai form registrasi). `200 { "groups": [ { "id": 3, "name": "Kelompok 4 – CL-05" } ] }`,
@@ -211,7 +221,7 @@ Pola sama dengan label, tanpa warna dan urutan manual:
 
 Aksi dicatat `logAdminAction` (`group.create`, `group.update`, `group.delete`, `user.set_group`).
 
-Bentuk respons (ditetapkan saat implementasi T58): item admin `{ "id", "name", "archived", "student_count",
+Bentuk respons (ditetapkan saat implementasi T58): item admin `{ "id", "name", "archived", "user_count",
 "created_at", "updated_at" }`; `GET /admin/groups` → `{ "groups": [ … ] }` (aktif dulu, lalu arsip; urut
 nama); `POST` → `201` + item; `PUT` → `200` + item; `DELETE` → `204`. Nama tidak valid → `422
 INVALID_GROUP_NAME`; id tidak ada/bukan angka → `404 NOT_FOUND`.

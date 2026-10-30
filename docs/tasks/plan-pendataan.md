@@ -138,10 +138,11 @@ retensi mati, `RetentionDeletesAt`, status sistem.
 
 **Hasil:** migrasi `0011_groups.sql`, `domain.Group` + `NormalizeGroupName`, `usecase.Groups` + port
 `GroupRepo`, `postgres.GroupRepo`, `handler/groups.go`; `GET /groups` publik (tanpa auth, `no-store`), CRUD
-`/admin/groups` dengan `logAdminAction` `group.create|update|delete`. `student_count` masih 0 (diisi T59);
+`/admin/groups` dengan `logAdminAction` `group.create|update|delete`. `user_count` masih 0 (diisi T59);
 hapus kelompok terpakai ditangkap dari FK (`23503` → `409 GROUP_IN_USE`). Test: `e2e_groups_test.go`, domain.
-**Catatan:** spec tidak menyebut bentuk item admin dan kode error nama; ditetapkan `student_count` dan
+**Catatan:** spec tidak menyebut bentuk item admin dan kode error nama; ditetapkan `user_count` dan
 `422 INVALID_GROUP_NAME` (spec §5.5 diperbarui).
+Nama field diganti `student_count` → `user_count` di commit T60 agar sama dengan asumsi FE (T70).
 
 #### Task 59: Registrasi dengan NIM + kelompok — M ⚠️
 **Spec:** §5.4, §6 (kolom `users`). **Baca dulu:** `otp_request.go` (`Register`), `otp_verify.go`,
@@ -177,7 +178,7 @@ kelompok aktif dan menolak NIM akun aktif (`409 NIM_TAKEN`) sebelum memakan kuot
 `Resend`. Verifikasi menerapkan NIM lewat `CompleteRegistration(…, Registration, …)`; unique violation →
 `NIM_TAKEN`, FK kelompok terhapus → `INVALID_GROUP`, dan challenge di-expire di luar transaksi. `user`
 (login/verify/me) memuat `nim` + `group`; admin users memuat `nim` + `group`; `PUT /admin/users/{id}/group`
-(`user.set_group`); `student_count` = akun aktif per kelompok; hapus terpakai → `409 GROUP_IN_USE`. Test:
+(`user.set_group`); `user_count` = akun aktif per kelompok; hapus terpakai → `409 GROUP_IN_USE`. Test:
 `e2e_nim_test.go` (validasi, huruf besar, NIM_TAKEN, balapan dua pendaftar, arsip, pindah kelompok), domain
 NIM, log hygiene (NIM, `group.create`, `user.set_group`); test auth lama diperbarui untuk mengirim NIM +
 kelompok (kelompok uji id 1 di `newAuthStack`).
@@ -282,6 +283,16 @@ kelompok (kelompok uji id 1 di `newAuthStack`).
   - `r3_location` "Lokasi wadah": "Dalam rumah/dapur", "Teras/depan rumah", "Lainnya"
   - `r3_lighting` "Pencahayaan saat foto": "Terang (siang/luar ruangan)", "Redup/dalam ruangan", "Pakai
     flash"
+
+**Hasil:** paket `internal/domain/survey`: `form.go` (tipe, `ByVersion`, `OtherKey`), `v1.go` (definisi
+versi 1, teks persis lampiran), `validate.go` (`Validate` + `Normalize` yang mengembalikan jawaban
+ternormalisasi untuk disimpan, `Consented`, `Today` WIB). `GET /survey/form` publik (`handler/survey.go`,
+`Cache-Control: public, max-age=300`). Test tabel validasi + definisi (`survey_test.go`), e2e
+`e2e_survey_form_test.go`.
+**Catatan:** spec §4.1/§5.1 dilengkapi (selaras dengan asumsi FE T66): teks opsi `other` di kunci
+`<id>_other`; jawaban kosong = tidak ada/`null`/`""`/`[]`; `int` wajib angka JSON; field kosong di form tidak
+dikirim; error pertama = id tak dikenal (abjad) lalu urut definisi. Zona waktu WIB memakai zona tetap UTC+7
+(tanpa tzdata). Field kelompok admin `student_count` diganti `user_count` (asumsi FE T70).
 
 #### Task 61: Submit/edit dengan `answers` — M ⚠️
 **Spec:** §5.3, §6 (`0013_survey.sql`). **Baca dulu:** `submit.go`, `edit.go`, `submission_repo.go`,

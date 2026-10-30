@@ -367,7 +367,7 @@ type LabelUsage struct {
 // GroupUsage adalah kelompok beserta jumlah mahasiswa (akun) yang memakainya.
 type GroupUsage struct {
 	domain.Group
-	StudentCount int
+	UserCount int
 }
 
 // GroupRepo menyimpan kelompok mahasiswa (spec-pendataan §5.5, §6).

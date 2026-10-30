@@ -35,7 +35,7 @@ func TestE2EGroupsAdminCRUD(t *testing.T) {
 	admin := st.adminLogin(t)
 
 	resp, k4 := admin.send(t, "POST", "/api/v1/admin/groups", `{"name":"  Kelompok 4 – CL-05 "}`)
-	if resp.StatusCode != 201 || k4["name"] != "Kelompok 4 – CL-05" || k4["archived"] != false || k4["student_count"] != 0.0 ||
+	if resp.StatusCode != 201 || k4["name"] != "Kelompok 4 – CL-05" || k4["archived"] != false || k4["user_count"] != 0.0 ||
 		k4["created_at"] == nil || k4["updated_at"] == nil {
 		t.Fatalf("create: %d %v", resp.StatusCode, k4)
 	}

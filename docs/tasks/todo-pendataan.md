@@ -10,7 +10,7 @@ Legenda: `[x]` selesai · `[ ]` belum · 🔒 butuh input/keputusan Anda · ⚠�
 - [x] **T57** (S) Retensi bisa dimatikan: `retention.days = 0`
 - [x] **T58** (M) Tabel `groups`, `GET /groups`, CRUD `/admin/groups`
 - [x] **T59** (M) ⚠️ Registrasi dengan NIM (unik) + kelompok; `/auth/me`; pindah kelompok oleh admin — butuh T58
-- [ ] **T60** (M) `internal/domain/survey` (definisi v1 + validasi) + `GET /survey/form`
+- [x] **T60** (M) `internal/domain/survey` (definisi v1 + validasi) + `GET /survey/form`
 - [ ] **T61** (M) ⚠️ Submit/edit dengan `answers` (migrasi 0013, 0 / 1–3 foto, seed label) — butuh T60
 - [ ] **T62** (S) Baca + admin daftar/detail pendataan — butuh T61
 - [ ] **T63** (S) `GET /admin/export.csv` — butuh T61

@@ -73,7 +73,7 @@ func TestE2ERegisterWithNIMAndGroup(t *testing.T) {
 		t.Fatalf("nim terpakai: %d %v", resp.StatusCode, m)
 	}
 
-	// kelompok arsip → 422; kelompok terpakai tidak bisa dihapus; student_count terisi
+	// kelompok arsip → 422; kelompok terpakai tidak bisa dihapus; user_count terisi
 	admin := s.adminLogin(t)
 	_, arch := admin.send(t, "POST", "/api/v1/admin/groups", `{"name":"Kelompok Arsip"}`)
 	admin.send(t, "PUT", "/api/v1/admin/groups/"+idOf(arch), `{"name":"Kelompok Arsip","archived":true}`)
@@ -84,8 +84,8 @@ func TestE2ERegisterWithNIMAndGroup(t *testing.T) {
 		t.Fatalf("hapus kelompok terpakai: %d %v", resp.StatusCode, m)
 	}
 	_, gs := admin.getJSON(t, "/api/v1/admin/groups")
-	if l := groupList(t, gs); l[0]["name"] != "Kelompok Uji" || l[0]["student_count"] != 1.0 {
-		t.Fatalf("student_count: %v", l)
+	if l := groupList(t, gs); l[0]["name"] != "Kelompok Uji" || l[0]["user_count"] != 1.0 {
+		t.Fatalf("user_count: %v", l)
 	}
 
 	// admin: daftar/detail memuat nim + group; pindah kelompok

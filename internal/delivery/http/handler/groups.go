@@ -53,20 +53,20 @@ func (h *GroupHandler) Active(c *gin.Context) {
 }
 
 type adminGroupDTO struct {
-	ID           int       `json:"id"`
-	Name         string    `json:"name"`
-	Archived     bool      `json:"archived"`
-	StudentCount int       `json:"student_count"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID        int       `json:"id"`
+	Name      string    `json:"name"`
+	Archived  bool      `json:"archived"`
+	UserCount int       `json:"user_count"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func toAdminGroup(g usecase.GroupUsage) adminGroupDTO {
-	return adminGroupDTO{ID: g.ID, Name: g.Name, Archived: g.Archived(), StudentCount: g.StudentCount,
+	return adminGroupDTO{ID: g.ID, Name: g.Name, Archived: g.Archived(), UserCount: g.UserCount,
 		CreatedAt: g.CreatedAt.UTC(), UpdatedAt: g.UpdatedAt.UTC()}
 }
 
-// AdminList menangani GET /api/v1/admin/groups: semua kelompok termasuk arsip, dengan student_count.
+// AdminList menangani GET /api/v1/admin/groups: semua kelompok termasuk arsip, dengan user_count.
 func (h *GroupHandler) AdminList(c *gin.Context) {
 	gs, err := h.groups.All(c.Request.Context())
 	if err != nil {

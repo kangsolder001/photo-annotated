@@ -75,7 +75,7 @@ func (r *GroupRepo) ListAll(ctx context.Context) ([]usecase.GroupUsage, error) {
 		if err != nil {
 			return nil, fmt.Errorf("postgres: scan group: %w", err)
 		}
-		out = append(out, usecase.GroupUsage{Group: *g, StudentCount: n})
+		out = append(out, usecase.GroupUsage{Group: *g, UserCount: n})
 	}
 	return out, rows.Err()
 }
@@ -112,7 +112,7 @@ func (r *GroupRepo) Update(ctx context.Context, id int, name string, archived bo
 	if err != nil {
 		return nil, fmt.Errorf("postgres: update group: %w", err)
 	}
-	return &usecase.GroupUsage{Group: *g, StudentCount: n}, nil
+	return &usecase.GroupUsage{Group: *g, UserCount: n}, nil
 }
 
 func (r *GroupRepo) Delete(ctx context.Context, id int) (*domain.Group, error) {

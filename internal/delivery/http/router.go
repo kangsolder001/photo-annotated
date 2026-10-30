@@ -184,6 +184,9 @@ func NewRouter(d Deps) *gin.Engine {
 		api.GET("/labels", chain(read, []gin.HandlerFunc{labels.Active})...)
 	}
 
+	// definisi instrumen pendataan (publik, data statis)
+	api.GET("/survey/form", handler.SurveyForm)
+
 	var groups *handler.GroupHandler
 	if d.Groups != nil {
 		groups = handler.NewGroupHandler(d.Groups, d.Logger)
